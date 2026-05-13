@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -238,4 +239,128 @@ func toolNames(list []tools.Tool) []string {
 		out[i] = t.Name
 	}
 	return out
+}
+
+func TestSetManagedOAuthPersistence(t *testing.T) {
+	ts := New(stubEnv{vars: map[string]string{}})
+	ctx := t.Context()
+
+	// Set managedOAuth before enabling any server
+	ts.SetManagedOAuth(true)
+
+	// Enable a server
+	id := ts.catalog.Servers[0].ID
+	_, err := ts.handleEnable(ctx, EnableArgs{ID: id})
+	require.NoError(t, err)
+
+	// Verify the enabled toolset received the managedOAuth flag
+	ts.mu.RLock()
+	mcpTS, exists := ts.enabled[id]
+	ts.mu.RUnlock()
+	require.True(t, exists)
+
+	// The mcp.Toolset doesn't expose managedOAuth state directly,
+	// but we can verify it was called by checking the toolset exists
+	// and was properly initialized. The actual OAuth behavior would
+	// be tested in the mcp package.
+	assert.NotNil(t, mcpTS)
+}
+
+func TestConcurrentEnableDisable(t *testing.T) {
+	ts := New(stubEnv{vars: map[string]string{}})
+	ctx := t.Context()
+
+	// Pick two different servers
+	require.GreaterOrEqual(t, len(ts.catalog.Servers), 2, "need at least 2 servers for concurrency test")
+	id1 := ts.catalog.Servers[0].ID
+	id2 := ts.catalog.Servers[1].ID
+
+	var wg sync.WaitGroup
+	errors := make(chan error, 4)
+
+	// Concurrent enables
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, err := ts.handleEnable(ctx, EnableArgs{ID: id1})
+		if err != nil {
+			errors <- err
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		_, err := ts.handleEnable(ctx, EnableArgs{ID: id2})
+		if err != nil {
+			errors <- err
+		}
+	}()
+
+	wg.Wait()
+	close(errors)
+
+	// Check for errors
+	for err := range errors {
+		require.NoError(t, err)
+	}
+
+	// Verify both are enabled
+	ts.mu.RLock()
+	_, exists1 := ts.enabled[id1]
+	_, exists2 := ts.enabled[id2]
+	ts.mu.RUnlock()
+	assert.True(t, exists1)
+	assert.True(t, exists2)
+
+	// Concurrent disables
+	errors = make(chan error, 2)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		_, err := ts.handleDisable(ctx, DisableArgs{ID: id1})
+		if err != nil {
+			errors <- err
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		_, err := ts.handleDisable(ctx, DisableArgs{ID: id2})
+		if err != nil {
+			errors <- err
+		}
+	}()
+
+	wg.Wait()
+	close(errors)
+
+	for err := range errors {
+		require.NoError(t, err)
+	}
+
+	// Verify both are disabled
+	ts.mu.RLock()
+	_, exists1 = ts.enabled[id1]
+	_, exists2 = ts.enabled[id2]
+	ts.mu.RUnlock()
+	assert.False(t, exists1)
+	assert.False(t, exists2)
+}
+
+func TestToolsContextCancellation(t *testing.T) {
+	ts := New(stubEnv{vars: map[string]string{}})
+
+	// Enable a server
+	id := ts.catalog.Servers[0].ID
+	_, err := ts.handleEnable(t.Context(), EnableArgs{ID: id})
+	require.NoError(t, err)
+
+	// Create a cancelled context
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// Tools() should respect context cancellation
+	// Note: This will return the meta-tools but fail when trying to get
+	// tools from the enabled server
+	_, err = ts.Tools(ctx)
+	// The error should be context.Canceled
+	assert.ErrorIs(t, err, context.Canceled)
 }

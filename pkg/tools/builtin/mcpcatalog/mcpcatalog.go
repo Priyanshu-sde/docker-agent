@@ -2,7 +2,7 @@
 // streamable-http servers as a single agent-side toolset that supports
 // on-demand activation.
 //
-// The toolset surfaces three meta-tools to the model:
+// The toolset surfaces four meta-tools to the model:
 //
 //   - search_remote_mcp_servers — case-insensitive fuzzy search over the
 //     curated catalog (id / title / description / category / tags).
@@ -10,6 +10,7 @@
 //     (defers the actual TCP connect / OAuth handshake until the model
 //     calls one of the server's tools).
 //   - disable_remote_mcp_server — stop the toolset and remove its tools.
+//   - list_remote_mcp_servers   — show currently enabled servers and their state.
 //
 // Activated servers' tools are merged into Tools(); tool list changes are
 // reported via a tools.ChangeNotifier handler so the runtime refreshes
@@ -63,6 +64,7 @@ type Toolset struct {
 	elicitationHandler  tools.ElicitationHandler
 	oauthSuccessHandler func()
 	toolsChangedHandler func()
+	managedOAuth        bool
 }
 
 var (
@@ -172,6 +174,7 @@ func (t *Toolset) SetOAuthSuccessHandler(handler func()) {
 // toolset; new toolsets pick it up at enable time.
 func (t *Toolset) SetManagedOAuth(managed bool) {
 	t.mu.Lock()
+	t.managedOAuth = managed
 	enabled := t.snapshotEnabled()
 	t.mu.Unlock()
 	for _, ts := range enabled {
@@ -268,6 +271,11 @@ func (t *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 	t.mu.RUnlock()
 
 	for _, ts := range enabled {
+		// Check for context cancellation before calling each toolset
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+
 		serverTools, err := ts.Tools(ctx)
 		if err != nil {
 			slog.WarnContext(ctx, "Failed to list tools for enabled remote MCP server",
@@ -389,6 +397,9 @@ func (t *Toolset) handleEnable(ctx context.Context, args EnableArgs) (*tools.Too
 	}
 	if t.toolsChangedHandler != nil {
 		mcpToolset.SetToolsChangedHandler(t.toolsChangedHandler)
+	}
+	if t.managedOAuth {
+		mcpToolset.SetManagedOAuth(t.managedOAuth)
 	}
 
 	t.enabled[id] = mcpToolset
