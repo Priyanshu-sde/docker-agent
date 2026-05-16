@@ -16,10 +16,10 @@ const ToolNameUserPrompt = "user_prompt"
 
 // CreateToolSet is used by the tools registry.
 func CreateToolSet(context.Context, latest.Toolset, string, *config.RuntimeConfig, string) (tools.ToolSet, error) {
-	return new(), nil
+	return newTool(), nil
 }
 
-func new() *tool {
+func newTool() *tool {
 	return &tool{}
 }
 

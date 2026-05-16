@@ -27,7 +27,7 @@ func CreateToolSet(_ context.Context, toolset latest.Toolset, _ string, _ *confi
 		return newSharedTodoTool(), nil
 	}
 
-	return new(), nil
+	return newTool(), nil
 }
 
 type tool struct {
@@ -154,9 +154,9 @@ type todoHandler struct {
 	nextID  atomic.Int64
 }
 
-var newSharedTodoTool = sync.OnceValue(func() *tool { return new() })
+var newSharedTodoTool = sync.OnceValue(func() *tool { return newTool() })
 
-func new(opts ...Option) *tool {
+func newTool(opts ...Option) *tool {
 	t := &tool{
 		handler: &todoHandler{
 			storage: NewMemoryTodoStorage(),

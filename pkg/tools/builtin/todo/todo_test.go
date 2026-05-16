@@ -11,7 +11,7 @@ import (
 )
 
 func TestTodoTool_DisplayNames(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	all, err := tool.Tools(t.Context())
 	require.NoError(t, err)
@@ -24,7 +24,7 @@ func TestTodoTool_DisplayNames(t *testing.T) {
 
 func TestTodoTool_CreateTodo(t *testing.T) {
 	storage := NewMemoryTodoStorage()
-	tool := new(WithStorage(storage))
+	tool := newTool(WithStorage(storage))
 
 	result, err := tool.handler.createTodo(t.Context(), CreateTodoArgs{
 		Description: "Test todo item",
@@ -48,7 +48,7 @@ func TestTodoTool_CreateTodo(t *testing.T) {
 
 func TestTodoTool_CreateTodos(t *testing.T) {
 	storage := NewMemoryTodoStorage()
-	tool := new(WithStorage(storage))
+	tool := newTool(WithStorage(storage))
 
 	result, err := tool.handler.createTodos(t.Context(), CreateTodosArgs{
 		Descriptions: []string{"First", "Second", "Third"},
@@ -88,7 +88,7 @@ func TestTodoTool_CreateTodos(t *testing.T) {
 }
 
 func TestTodoTool_ListTodos(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	descs := []string{"First", "Second", "Third"}
 	for _, d := range descs {
@@ -116,7 +116,7 @@ func TestTodoTool_ListTodos(t *testing.T) {
 }
 
 func TestTodoTool_ListTodos_Empty(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	result, err := tool.handler.listTodos(t.Context(), tools.ToolCall{})
 	require.NoError(t, err)
@@ -131,7 +131,7 @@ func TestTodoTool_ListTodos_Empty(t *testing.T) {
 
 func TestTodoTool_UpdateTodos(t *testing.T) {
 	storage := NewMemoryTodoStorage()
-	tool := new(WithStorage(storage))
+	tool := newTool(WithStorage(storage))
 
 	_, err := tool.handler.createTodos(t.Context(), CreateTodosArgs{
 		Descriptions: []string{"First", "Second", "Third"},
@@ -178,7 +178,7 @@ func TestTodoTool_UpdateTodos(t *testing.T) {
 
 func TestTodoTool_UpdateTodos_PartialFailure(t *testing.T) {
 	storage := NewMemoryTodoStorage()
-	tool := new(WithStorage(storage))
+	tool := newTool(WithStorage(storage))
 
 	_, err := tool.handler.createTodos(t.Context(), CreateTodosArgs{
 		Descriptions: []string{"First", "Second"},
@@ -211,7 +211,7 @@ func TestTodoTool_UpdateTodos_PartialFailure(t *testing.T) {
 }
 
 func TestTodoTool_UpdateTodos_AllNotFound(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	result, err := tool.handler.updateTodos(t.Context(), UpdateTodosArgs{
 		Updates: []Update{
@@ -232,7 +232,7 @@ func TestTodoTool_UpdateTodos_AllNotFound(t *testing.T) {
 
 func TestTodoTool_UpdateTodos_AllCompleted_NoAutoRemoval(t *testing.T) {
 	storage := NewMemoryTodoStorage()
-	tool := new(WithStorage(storage))
+	tool := newTool(WithStorage(storage))
 
 	_, err := tool.handler.createTodos(t.Context(), CreateTodosArgs{
 		Descriptions: []string{"First", "Second"},
@@ -264,7 +264,7 @@ func TestTodoTool_UpdateTodos_AllCompleted_NoAutoRemoval(t *testing.T) {
 
 func TestTodoTool_WithStorage(t *testing.T) {
 	storage := NewMemoryTodoStorage()
-	tool := new(WithStorage(storage))
+	tool := newTool(WithStorage(storage))
 
 	_, err := tool.handler.createTodo(t.Context(), CreateTodoArgs{Description: "Test item"})
 	require.NoError(t, err)
@@ -280,7 +280,7 @@ func TestTodoTool_WithStorage_NilPanics(t *testing.T) {
 }
 
 func TestTodoTool_OutputSchema(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	allTools, err := tool.Tools(t.Context())
 	require.NoError(t, err)
@@ -292,7 +292,7 @@ func TestTodoTool_OutputSchema(t *testing.T) {
 }
 
 func TestTodoTool_ParametersAreObjects(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	allTools, err := tool.Tools(t.Context())
 	require.NoError(t, err)
@@ -307,7 +307,7 @@ func TestTodoTool_ParametersAreObjects(t *testing.T) {
 }
 
 func TestTodoTool_CreateTodo_FullStateOutput(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	// Create first todo
 	result1, err := tool.handler.createTodo(t.Context(), CreateTodoArgs{Description: "First"})
@@ -328,7 +328,7 @@ func TestTodoTool_CreateTodo_FullStateOutput(t *testing.T) {
 }
 
 func TestTodoTool_UpdateTodos_FullStateOutput(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	_, err := tool.handler.createTodos(t.Context(), CreateTodosArgs{
 		Descriptions: []string{"A", "B", "C"},

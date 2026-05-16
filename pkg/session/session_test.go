@@ -10,9 +10,18 @@ import (
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
+	"github.com/docker/docker-agent/pkg/config"
+	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/tools"
 	"github.com/docker/docker-agent/pkg/tools/builtin/todo"
 )
+
+func todoToolSet(t *testing.T) tools.ToolSet {
+	t.Helper()
+	toolSet, err := todo.CreateToolSet(t.Context(), latest.Toolset{}, "", &config.RuntimeConfig{}, "")
+	require.NoError(t, err)
+	return toolSet
+}
 
 func TestTrimMessagesWithToolCalls(t *testing.T) {
 	messages := []chat.Message{
@@ -173,7 +182,7 @@ func TestGetMessages_Instructions(t *testing.T) {
 }
 
 func TestGetMessages_CacheControl(t *testing.T) {
-	testAgent := agent.New("root", "instructions", agent.WithToolSets(&todo.Tool{}))
+	testAgent := agent.New("root", "instructions", agent.WithToolSets(todoToolSet(t)))
 
 	s := New()
 	messages := s.GetMessages(testAgent)
@@ -197,7 +206,7 @@ func TestGetMessages_CacheControlWithSummary(t *testing.T) {
 	//     buildContextSpecificSystemMessages caching behavior.
 	//   - Summary and conversation messages are not cache-controlled.
 	testAgent := agent.New("root", "instructions",
-		agent.WithToolSets(&todo.Tool{}),
+		agent.WithToolSets(todoToolSet(t)),
 	)
 
 	s := New()

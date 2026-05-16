@@ -13,7 +13,7 @@ import (
 )
 
 func TestUserPromptTool_AcceptResponse(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	tool.SetElicitationHandler(func(_ context.Context, req *mcp.ElicitParams) (tools.ElicitationResult, error) {
 		assert.Equal(t, "What is your name?", req.Message)
@@ -35,7 +35,7 @@ func TestUserPromptTool_AcceptResponse(t *testing.T) {
 }
 
 func TestUserPromptTool_DeclineResponse(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	tool.SetElicitationHandler(func(context.Context, *mcp.ElicitParams) (tools.ElicitationResult, error) {
 		return tools.ElicitationResult{
@@ -55,7 +55,7 @@ func TestUserPromptTool_DeclineResponse(t *testing.T) {
 }
 
 func TestUserPromptTool_CancelResponse(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	tool.SetElicitationHandler(func(context.Context, *mcp.ElicitParams) (tools.ElicitationResult, error) {
 		return tools.ElicitationResult{
@@ -74,7 +74,7 @@ func TestUserPromptTool_CancelResponse(t *testing.T) {
 }
 
 func TestUserPromptTool_WithSchema(t *testing.T) {
-	tool := new()
+	tool := newTool()
 
 	var receivedSchema any
 	tool.SetElicitationHandler(func(_ context.Context, req *mcp.ElicitParams) (tools.ElicitationResult, error) {
