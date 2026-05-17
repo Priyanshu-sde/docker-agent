@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"text/template"
 
+	"github.com/docker/docker-agent/pkg/concurrent"
 	"github.com/docker/docker-agent/pkg/config/latest"
 )
 
@@ -48,13 +48,9 @@ type ResponseShape func(raw string, in *Input) (*Output, error)
 // (or any other registry sharing the same package state) sees it. The
 // process-wide default is harmless because shapes are pure functions
 // of (raw, input).
-var modelRegistry = struct {
-	mu      sync.RWMutex
-	shapes  map[string]ResponseShape
-	schemas map[string]*latest.StructuredOutput
-}{
-	shapes:  map[string]ResponseShape{},
-	schemas: map[string]*latest.StructuredOutput{},
+var modelRegistry struct {
+	shapes  concurrent.Map[string, ResponseShape]
+	schemas concurrent.Map[string, *latest.StructuredOutput]
 }
 
 // RegisterResponseShape registers a [ResponseShape] under name. The
@@ -68,9 +64,7 @@ func RegisterResponseShape(name string, shape ResponseShape) error {
 	if shape == nil {
 		return errors.New("response shape must not be nil")
 	}
-	modelRegistry.mu.Lock()
-	defer modelRegistry.mu.Unlock()
-	modelRegistry.shapes[name] = shape
+	modelRegistry.shapes.Store(name, shape)
 	return nil
 }
 
@@ -81,9 +75,7 @@ func RegisterResponseSchema(name string, schema *latest.StructuredOutput) error 
 	if name == "" {
 		return errors.New("response schema name must not be empty")
 	}
-	modelRegistry.mu.Lock()
-	defer modelRegistry.mu.Unlock()
-	modelRegistry.schemas[name] = schema
+	modelRegistry.schemas.Store(name, schema)
 	return nil
 }
 
@@ -93,10 +85,7 @@ func lookupShape(name string) (ResponseShape, bool) {
 	if name == "" {
 		return defaultShape, true
 	}
-	modelRegistry.mu.RLock()
-	defer modelRegistry.mu.RUnlock()
-	s, ok := modelRegistry.shapes[name]
-	return s, ok
+	return modelRegistry.shapes.Load(name)
 }
 
 // lookupSchema returns the structured-output schema for name, or nil
@@ -105,9 +94,8 @@ func lookupSchema(name string) *latest.StructuredOutput {
 	if name == "" {
 		return nil
 	}
-	modelRegistry.mu.RLock()
-	defer modelRegistry.mu.RUnlock()
-	return modelRegistry.schemas[name]
+	s, _ := modelRegistry.schemas.Load(name)
+	return s
 }
 
 // defaultShape passes the model's reply through as additional_context.
