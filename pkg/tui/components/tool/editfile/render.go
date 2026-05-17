@@ -14,6 +14,7 @@ import (
 	"github.com/aymanbagabas/go-udiff"
 	"github.com/mattn/go-runewidth"
 
+	"github.com/docker/docker-agent/pkg/concurrent"
 	"github.com/docker/docker-agent/pkg/tools"
 	"github.com/docker/docker-agent/pkg/tools/builtin/filesystem"
 	"github.com/docker/docker-agent/pkg/tui/styles"
@@ -44,8 +45,7 @@ var (
 	cache   = make(map[string]*toolRenderCache) // keyed by toolCallID
 	cacheMu sync.RWMutex
 
-	lexerCache   = make(map[string]chroma.Lexer)
-	lexerCacheMu sync.RWMutex
+	lexerCache concurrent.Map[string, chroma.Lexer]
 )
 
 // InvalidateCaches clears all render caches.
@@ -257,22 +257,14 @@ func normalizeDiff(diff []*udiff.Hunk) []*udiff.Hunk {
 func syntaxHighlight(code, filePath string) []chromaToken {
 	ext := filepath.Ext(filePath)
 
-	// Try to get lexer from cache
-	lexerCacheMu.RLock()
-	lexer, ok := lexerCache[ext]
-	lexerCacheMu.RUnlock()
-
+	lexer, ok := lexerCache.Load(ext)
 	if !ok {
-		// Cache miss - compute and store
 		lexer = lexers.Match(filePath)
 		if lexer == nil {
 			lexer = lexers.Fallback
 		}
 		lexer = chroma.Coalesce(lexer)
-
-		lexerCacheMu.Lock()
-		lexerCache[ext] = lexer
-		lexerCacheMu.Unlock()
+		lexerCache.Store(ext, lexer)
 	}
 
 	style := styles.ChromaStyle()
