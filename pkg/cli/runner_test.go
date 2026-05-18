@@ -285,6 +285,8 @@ func TestPrepareUserMessage_AgentSwitching(t *testing.T) {
 		expectedContent   string
 		expectedAttach    string
 		expectAgentSwitch bool
+		expectNilMessage  bool
+		expectError       bool
 	}{
 		{
 			name:              "agent switch succeeds with trailing args",
@@ -303,15 +305,17 @@ func TestPrepareUserMessage_AgentSwitching(t *testing.T) {
 			expectedContent:   "",
 			expectedAttach:    "",
 			expectAgentSwitch: true,
+			expectNilMessage:  true,
 		},
 		{
-			name:              "agent switch fails - returns empty message",
+			name:              "agent switch fails - returns error",
 			userInput:         "/plan design a login flow",
 			commandAgent:      "planner",
 			setAgentErr:       errors.New("agent not found"),
 			expectedContent:   "",
 			expectedAttach:    "",
 			expectAgentSwitch: true,
+			expectError:       true,
 		},
 		{
 			name:              "non-agent command - no switch",
@@ -361,7 +365,13 @@ func TestPrepareUserMessage_AgentSwitching(t *testing.T) {
 				}
 			}
 
-			msg, attachPath := PrepareUserMessage(t.Context(), rt, tt.userInput, "")
+			msg, attachPath, err := PrepareUserMessage(t.Context(), rt, tt.userInput, "")
+			
+			if tt.expectError {
+				assert.Assert(t, err != nil, "Expected error but got nil")
+				return
+			}
+			assert.NilError(t, err)
 
 			// Verify agent switch was called (or not)
 			assert.Equal(t, tt.expectAgentSwitch, setAgentCalled, "SetCurrentAgent call mismatch")
@@ -370,7 +380,11 @@ func TestPrepareUserMessage_AgentSwitching(t *testing.T) {
 			}
 
 			// Verify message content
-			assert.Equal(t, tt.expectedContent, msg.Message.Content, "Message content mismatch")
+			if tt.expectNilMessage {
+				assert.Assert(t, msg == nil, "Expected nil message")
+			} else {
+				assert.Equal(t, tt.expectedContent, msg.Message.Content, "Message content mismatch")
+			}
 			assert.Equal(t, tt.expectedAttach, attachPath, "Attachment path mismatch")
 		})
 	}
@@ -391,10 +405,11 @@ func TestPrepareUserMessage_EmptyMessageForAgentOnlyCommand(t *testing.T) {
 		}
 	}
 
-	msg, attachPath := PrepareUserMessage(t.Context(), rt, "/plan", "")
+	msg, attachPath, err := PrepareUserMessage(t.Context(), rt, "/plan", "")
+	assert.NilError(t, err)
 
-	// Agent-only command with no args should produce empty message
-	assert.Equal(t, "", msg.Message.Content, "Expected empty message for agent-only command with no args")
+	// Agent-only command with no args should produce nil message
+	assert.Assert(t, msg == nil, "Expected nil message for agent-only command with no args")
 	assert.Equal(t, "", attachPath, "Expected no attachment")
 }
 
@@ -417,7 +432,8 @@ func TestPrepareUserMessage_CommandResolution(t *testing.T) {
 		}
 	}
 
-	msg, _ := PrepareUserMessage(t.Context(), rt, "/fix main.go", "")
+	msg, _, err := PrepareUserMessage(t.Context(), rt, "/fix main.go", "")
+	assert.NilError(t, err)
 
 	assert.Equal(t, "Fix the file main.go", msg.Message.Content, "Command should be resolved with args")
 }

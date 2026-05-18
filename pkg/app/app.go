@@ -156,7 +156,15 @@ func (a *App) SendFirstMessage() tea.Cmd {
 	cmds := []tea.Cmd{
 		func() tea.Msg {
 			// Use the shared PrepareUserMessage function for consistent attachment handling
-			userMsg, attachedPath := cli.PrepareUserMessage(context.Background(), a.runtime, *a.firstMessage, a.firstMessageAttach)
+			userMsg, attachedPath, err := cli.PrepareUserMessage(context.Background(), a.runtime, *a.firstMessage, a.firstMessageAttach)
+			if err != nil {
+				slog.Error("Failed to prepare first message", "error", err)
+				return nil
+			}
+			if userMsg == nil {
+				// Agent-only command with no content - agent switched but no message to send
+				return nil
+			}
 			// Inherit the attachment in any sub-session created by this turn.
 			a.session.AddAttachedFile(attachedPath)
 
