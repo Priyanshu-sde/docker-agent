@@ -52,6 +52,9 @@ All endpoints are under the `/api` prefix.
 | `POST`   | `/api/sessions/:id/elicitation`     | Respond to an MCP tool elicitation request              |
 | `POST`   | `/api/sessions/:id/steer`           | Inject messages into a running turn (pre-empts current) |
 | `POST`   | `/api/sessions/:id/followup`        | Enqueue messages to run after the current turn finishes |
+| `GET`    | `/api/sessions/:id/models`          | List available models for the session's current agent   |
+| `PATCH`  | `/api/sessions/:id/model`           | Set or clear the agent's model override                 |
+| `POST`   | `/api/sessions/:id/model`           | Set or clear the agent's model override (backward compat with RemoteRuntime) |
 
 ### Agent Execution
 
