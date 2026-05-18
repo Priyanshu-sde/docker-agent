@@ -366,7 +366,6 @@ func TestPrepareUserMessage_AgentSwitching(t *testing.T) {
 			}
 
 			msg, attachPath, err := PrepareUserMessage(t.Context(), rt, tt.userInput, "")
-			
 			if tt.expectError {
 				assert.Assert(t, err != nil, "Expected error but got nil")
 				return
