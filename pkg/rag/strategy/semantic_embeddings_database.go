@@ -207,7 +207,7 @@ func (d *semanticVectorDB) GetFileMetadata(ctx context.Context, sourcePath strin
 		 GROUP BY f.source_path, f.file_hash, f.indexed_at`, d.filesTable, d.chunksTable),
 		sourcePath).Scan(&metadata.SourcePath, &metadata.FileHash, &metadata.LastIndexed, &metadata.ChunkCount)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {

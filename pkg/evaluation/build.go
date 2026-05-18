@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -91,7 +92,7 @@ func (r *Runner) buildEvalImage(ctx context.Context, evals *session.EvalCriteria
 		data.CopyWorkingDir = false
 	} else {
 		buildContext = filepath.Join(r.EvalsDir, "working_dirs", evals.WorkingDir)
-		if _, err := os.Stat(buildContext); os.IsNotExist(err) {
+		if _, err := os.Stat(buildContext); errors.Is(err, fs.ErrNotExist) {
 			return "", fmt.Errorf("working directory not found: %s", buildContext)
 		}
 		data.CopyWorkingDir = true

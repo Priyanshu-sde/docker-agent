@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -159,7 +160,7 @@ func (d *bm25DB) GetFileMetadata(ctx context.Context, sourcePath string) (*datab
 		fmt.Sprintf("SELECT source_path, file_hash, last_indexed, chunk_count FROM %s WHERE source_path = ?", d.metadataTable),
 		sourcePath).Scan(&metadata.SourcePath, &metadata.FileHash, &metadata.LastIndexed, &metadata.ChunkCount)
 
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	if err != nil {
@@ -220,7 +221,7 @@ func ensureDir(filePath string) error {
 		return nil
 	}
 
-	if _, err := os.Stat(dir); os.IsNotExist(err) {
+	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 		return os.MkdirAll(dir, 0o700)
 	}
 

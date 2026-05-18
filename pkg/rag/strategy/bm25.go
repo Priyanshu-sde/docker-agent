@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"math"
 	"os"
@@ -642,7 +643,7 @@ func (s *BM25Strategy) addPathToWatcher(ctx context.Context, path string) error 
 
 	stat, err := os.Stat(absPath)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return fmt.Errorf("failed to stat path: %w", err)
