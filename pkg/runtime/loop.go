@@ -362,14 +362,20 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 		if err != nil {
 			slog.DebugContext(ctx, "Failed to get model definition", "error", err)
 		}
-		// We can only compact if we know the limit.
+		// We can only compact if we know the limit. Prefer the
+		// models.dev catalogue; fall back to the user-supplied
+		// provider_opts.context_size so local models that aren't
+		// catalogued (e.g. DMR with HuggingFace GGUFs) still benefit
+		// from automatic compaction.
 		var contextLimit int64
 		if m != nil {
 			contextLimit = int64(m.Limit.Context)
-
-			if r.sessionCompaction && compaction.ShouldCompact(sess.InputTokens, sess.OutputTokens, 0, contextLimit) {
-				r.compactWithReason(ctx, sess, "", compactionReasonThreshold, sink)
-			}
+		}
+		if contextLimit <= 0 {
+			contextLimit = providerContextLimit(model)
+		}
+		if contextLimit > 0 && r.sessionCompaction && compaction.ShouldCompact(sess.InputTokens, sess.OutputTokens, 0, contextLimit) {
+			r.compactWithReason(ctx, sess, "", compactionReasonThreshold, sink)
 		}
 
 		// Drain steer messages queued while idle or before the first model call
@@ -779,7 +785,8 @@ func (r *LocalRuntime) compactIfNeeded(
 	messageCountBefore int,
 	events EventSink,
 ) {
-	if m == nil || !r.sessionCompaction || contextLimit <= 0 {
+	_ = m // models.dev definition isn't required: contextLimit may have been derived from provider_opts.context_size when the model is missing from the catalogue.
+	if !r.sessionCompaction || contextLimit <= 0 {
 		return
 	}
 

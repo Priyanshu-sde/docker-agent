@@ -3,6 +3,8 @@ package runtime
 import (
 	"context"
 	"log/slog"
+	"strconv"
+	"strings"
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
@@ -162,6 +164,13 @@ func summaryFromHook(sess *session.Session, a *agent.Agent, pre *hooks.Result) *
 // when it can't be resolved. Failure is non-fatal: a before_compaction
 // hook may supply its own summary and never need the model definition.
 // The LLM strategy itself enforces ContextLimit > 0.
+//
+// When the modelsdev definition is unavailable (e.g. a Docker Model
+// Runner model that isn't catalogued, like a HuggingFace GGUF), the
+// limit falls back to the user-supplied [provider_opts.context_size].
+// This mirrors what DMR itself uses to size the inference context, so
+// compaction triggers (proactive 90% threshold and post-overflow
+// recovery) work for local models without a models.dev entry.
 func (r *LocalRuntime) compactionContextLimit(ctx context.Context, a *agent.Agent) int64 {
 	if a == nil || a.Model(ctx) == nil {
 		return 0
@@ -171,10 +180,56 @@ func (r *LocalRuntime) compactionContextLimit(ctx context.Context, a *agent.Agen
 		options.WithMaxTokens(compactor.MaxSummaryTokens),
 	)
 	m, err := r.modelsStore.GetModel(ctx, summaryModel.ID())
-	if err != nil || m == nil {
+	if err == nil && m != nil && m.Limit.Context > 0 {
+		return int64(m.Limit.Context)
+	}
+	return providerContextLimit(summaryModel)
+}
+
+// providerContextLimit reads [provider_opts.context_size] from a
+// provider's resolved [latest.ModelConfig], returning 0 when unset or
+// not parseable as an integer. This is the fallback used when the
+// models.dev catalogue does not have an entry for the configured
+// model (typically Docker Model Runner with a HuggingFace GGUF model).
+//
+// Accepted shapes mirror what YAML/JSON decoders may produce: int,
+// int64, float64, and decimal strings. Negative or zero values are
+// treated as "unset" so callers don't accidentally trigger
+// compaction with a degenerate limit.
+func providerContextLimit(p provider.Provider) int64 {
+	if p == nil {
 		return 0
 	}
-	return int64(m.Limit.Context)
+	opts := p.BaseConfig().ModelConfig.ProviderOpts
+	v, ok := opts["context_size"]
+	if !ok {
+		return 0
+	}
+	var n int64
+	switch t := v.(type) {
+	case int64:
+		n = t
+	case int:
+		n = int64(t)
+	case int32:
+		n = int64(t)
+	case float64:
+		n = int64(t)
+	case float32:
+		n = int64(t)
+	case string:
+		parsed, err := strconv.ParseInt(strings.TrimSpace(t), 10, 64)
+		if err != nil {
+			return 0
+		}
+		n = parsed
+	default:
+		return 0
+	}
+	if n <= 0 {
+		return 0
+	}
+	return n
 }
 
 // runCompactionAgent runs an agent against a sub-session for compaction.
