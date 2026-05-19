@@ -330,6 +330,10 @@ func (m *model) handleMouseClick(msg tea.MouseClickMsg) (layout.Model, tea.Cmd) 
 		}
 	}
 
+	if url := m.urlAt(line, col); url != "" {
+		return m, core.CmdHandler(messages.OpenURLMsg{URL: url})
+	}
+
 	clickCount := m.selection.detectClickType(line, col)
 
 	switch clickCount {

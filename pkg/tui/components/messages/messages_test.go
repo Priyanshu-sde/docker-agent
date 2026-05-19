@@ -39,6 +39,22 @@ func TestViewDoesNotWrapWideLines(t *testing.T) {
 	}
 }
 
+func TestMouseClickOnURLOpensURL(t *testing.T) {
+	t.Parallel()
+
+	m := NewScrollableView(80, 24, &service.SessionState{}).(*model)
+	m.renderedLines = []string{"visit https://example.com for more"}
+	m.totalHeight = len(m.renderedLines)
+	m.renderDirty = false
+
+	_, cmd := m.handleMouseClick(tea.MouseClickMsg{X: 10, Y: 0, Button: tea.MouseLeft})
+	require.NotNil(t, cmd)
+
+	msg, ok := cmd().(tuimessages.OpenURLMsg)
+	require.True(t, ok)
+	assert.Equal(t, "https://example.com", msg.URL)
+}
+
 func TestLoadFromSessionIncludesReasoningContent(t *testing.T) {
 	t.Parallel()
 
