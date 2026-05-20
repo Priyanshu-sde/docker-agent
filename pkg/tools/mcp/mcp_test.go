@@ -97,6 +97,168 @@ func (m *reconnectableMockClient) Close(context.Context) error {
 	return nil
 }
 
+func TestToolsAndCallToolRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	// Round-trip test: whatever name Tools() exposes, callTool() must
+	// forward to the underlying server with the original (unprefixed)
+	// name. This guards both flows (catalog-activated toolsets that
+	// always have a name, and YAML-declared command/remote toolsets
+	// that may or may not have one).
+	tests := []struct {
+		name           string
+		toolsetName    string
+		serverToolName string
+		wantExposed    string
+	}{
+		{
+			name:           "named toolset (e.g. mcp catalog server) prefixes and strips",
+			toolsetName:    "github-official",
+			serverToolName: "get_issue",
+			wantExposed:    "github-official_get_issue",
+		},
+		{
+			name:           "named non-catalog mcp server (YAML name set) prefixes and strips",
+			toolsetName:    "my-mcp",
+			serverToolName: "do_thing",
+			wantExposed:    "my-mcp_do_thing",
+		},
+		{
+			name:           "unnamed mcp toolset (no YAML name) does not prefix or strip",
+			toolsetName:    "",
+			serverToolName: "do_thing",
+			wantExposed:    "do_thing",
+		},
+		{
+			name:           "server tool name that already contains the toolset name as a substring",
+			toolsetName:    "github",
+			serverToolName: "github_status",
+			wantExposed:    "github_github_status",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var capturedName string
+			mock := &mockMCPClient{
+				callToolFn: func(_ context.Context, request *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+					capturedName = request.Name
+					return &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+					}, nil
+				},
+			}
+			// ListTools returns one tool with the server-side name.
+			mock2 := &listToolsMock{mockMCPClient: *mock, toolName: tt.serverToolName}
+
+			ts := newTestToolset(tt.toolsetName, "test", mock2)
+			ts.markStartedForTesting()
+
+			exposed, err := ts.Tools(t.Context())
+			require.NoError(t, err)
+			require.Len(t, exposed, 1)
+			assert.Equal(t, tt.wantExposed, exposed[0].Name,
+				"Tools() must expose the prefixed name to the model")
+
+			// The model calls back using the exposed name.
+			_, err = ts.callTool(t.Context(), tools.ToolCall{
+				Function: tools.FunctionCall{
+					Name:      exposed[0].Name,
+					Arguments: `{}`,
+				},
+			})
+			require.NoError(t, err)
+			assert.Equal(t, tt.serverToolName, capturedName,
+				"callTool() must forward the original (unprefixed) tool name to the server")
+		})
+	}
+}
+
+// listToolsMock extends mockMCPClient with a single tool returned by ListTools.
+type listToolsMock struct {
+	mockMCPClient
+
+	toolName string
+}
+
+func (m *listToolsMock) ListTools(context.Context, *mcp.ListToolsParams) iter.Seq2[*mcp.Tool, error] {
+	return func(yield func(*mcp.Tool, error) bool) {
+		yield(&mcp.Tool{Name: m.toolName}, nil)
+	}
+}
+
+func TestCallToolStripsToolsetNamePrefix(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		toolsetName     string
+		calledToolName  string
+		wantForwardName string
+	}{
+		{
+			name:            "prefix is stripped when toolset has a name",
+			toolsetName:     "github",
+			calledToolName:  "github_get_issue",
+			wantForwardName: "get_issue",
+		},
+		{
+			name:            "name with hyphens (mcp catalog id) is stripped",
+			toolsetName:     "github-official",
+			calledToolName:  "github-official_get_issue",
+			wantForwardName: "get_issue",
+		},
+		{
+			name:            "only the leading toolset prefix is stripped",
+			toolsetName:     "github",
+			calledToolName:  "github_github_get_issue",
+			wantForwardName: "github_get_issue",
+		},
+		{
+			name:            "unprefixed call is forwarded unchanged",
+			toolsetName:     "github",
+			calledToolName:  "get_issue",
+			wantForwardName: "get_issue",
+		},
+		{
+			name:            "unnamed toolset forwards as-is",
+			toolsetName:     "",
+			calledToolName:  "get_issue",
+			wantForwardName: "get_issue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var capturedName string
+
+			ts := newTestToolset(tt.toolsetName, "test", &mockMCPClient{
+				callToolFn: func(_ context.Context, request *mcp.CallToolParams) (*mcp.CallToolResult, error) {
+					capturedName = request.Name
+					return &mcp.CallToolResult{
+						Content: []mcp.Content{&mcp.TextContent{Text: "ok"}},
+					}, nil
+				},
+			})
+			ts.markStartedForTesting()
+
+			_, err := ts.callTool(t.Context(), tools.ToolCall{
+				Function: tools.FunctionCall{
+					Name:      tt.calledToolName,
+					Arguments: `{}`,
+				},
+			})
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.wantForwardName, capturedName)
+		})
+	}
+}
+
 func TestCallToolStripsNullArguments(t *testing.T) {
 	t.Parallel()
 

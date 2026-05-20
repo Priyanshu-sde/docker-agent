@@ -609,8 +609,18 @@ func (ts *Toolset) callTool(ctx context.Context, toolCall tools.ToolCall) (*tool
 		}
 	}
 
+	// Tools() prefixes every exposed tool with `<ts.name>_` when the toolset
+	// has a YAML name (or the catalog id, for mcpcatalog-activated servers).
+	// The remote MCP server doesn't know about that prefix, so we have to
+	// strip it before forwarding the call — otherwise every tool call comes
+	// back as "tool not found".
+	serverToolName := toolCall.Function.Name
+	if ts.name != "" {
+		serverToolName = strings.TrimPrefix(serverToolName, ts.name+"_")
+	}
+
 	request := &mcp.CallToolParams{}
-	request.Name = toolCall.Function.Name
+	request.Name = serverToolName
 	request.Arguments = args
 
 	resp, err := ts.mcpClient.CallTool(ctx, request)
