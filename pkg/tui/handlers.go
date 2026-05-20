@@ -314,6 +314,10 @@ func copyToClipboard(text, successMsg string) tea.Cmd {
 // --- Agent management ---
 
 func (m *appModel) handleSwitchAgent(agentName string) (tea.Model, tea.Cmd) {
+	if agentName == m.sessionState.CurrentAgentName() {
+		return m, nil
+	}
+
 	if err := m.application.SwitchAgent(agentName); err != nil {
 		return m, notification.ErrorCmd(fmt.Sprintf("Failed to switch to agent '%s': %v", agentName, err))
 	}
