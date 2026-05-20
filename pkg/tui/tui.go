@@ -2380,11 +2380,14 @@ func (m *appModel) cleanupAll() {
 	// is wedged — the final flush re-acquires the mutex that the still
 	// blocked previous flush is holding. Race Wait() against a deadline
 	// and force-exit if shutdown stalls. Snapshot the package globals so
-	// they can't race with t.Cleanup.
+	// they can't race with t.Cleanup. Clear m.program so subsequent calls
+	// to cleanupAll (e.g. ExitSessionMsg followed by ExitConfirmedMsg) are
+	// no-ops and don't spawn parallel safety nets that would each call exit.
 	program := m.program
 	if program == nil {
 		return
 	}
+	m.program = nil
 	timeout := shutdownTimeout
 	exit := exitFunc
 	go func() {

@@ -412,8 +412,9 @@ func TestCleanupAll_NilProgramIsSafe(t *testing.T) {
 }
 
 // TestCleanupAll_WedgedStdoutFiresExit: the realistic case. The renderer is
-// stuck on a wedged stdout write, so Wait() never returns AND ReleaseTerminal
-// would itself deadlock on the same mutex. exitFunc must still fire.
+// stuck on a wedged stdout write, and once tea.Quit fires the final flush
+// would itself re-acquire the same mutex — a hard deadlock. Wait() never
+// returns and ReleaseTerminal would block too; exitFunc must still fire.
 func TestCleanupAll_WedgedStdoutFiresExit(t *testing.T) {
 	origTimeout := shutdownTimeout
 	origExitFunc := exitFunc
@@ -433,11 +434,46 @@ func TestCleanupAll_WedgedStdoutFiresExit(t *testing.T) {
 	m.program = p
 	m.cleanupAll()
 
+	// Drive the program into the deadlock path: tea.Quit triggers the final
+	// render flush against the wedged writer, which is the actual upstream
+	// bug the safety net guards against.
+	p.Send(triggerQuitMsg{})
+
 	select {
 	case <-exitDone:
 	case <-time.After(shutdownTimeout + 2*time.Second):
 		t.Fatal("exitFunc was not called — safety net is blocked by ReleaseTerminal")
 	}
+}
+
+// TestCleanupAll_MultipleCallsFireExitOnce: cleanupAll is invoked from
+// several message handlers (ExitSessionMsg, ExitConfirmedMsg, …) and may
+// run more than once on the same model. Each safety-net goroutine snapshots
+// exitFunc, so without a guard each one would call exit(0) on timeout —
+// fine in production where exit is os.Exit, fatal in tests where it's a
+// channel close.
+func TestCleanupAll_MultipleCallsFireExitOnce(t *testing.T) {
+	origTimeout := shutdownTimeout
+	origExitFunc := exitFunc
+	t.Cleanup(func() {
+		shutdownTimeout = origTimeout
+		exitFunc = origExitFunc
+	})
+	shutdownTimeout = 100 * time.Millisecond
+
+	var exitCount atomic.Int32
+	exitFunc = func(int) { exitCount.Add(1) }
+
+	m, _ := newTestModel()
+	m.program = tea.NewProgram(&quitModel{})
+
+	m.cleanupAll()
+	m.cleanupAll()
+	m.cleanupAll()
+
+	time.Sleep(shutdownTimeout + 200*time.Millisecond)
+	assert.Equal(t, int32(1), exitCount.Load(),
+		"only the first cleanupAll should arm a safety net")
 }
 
 // TestExitDeadlock_BlockedStdout proves the underlying bubbletea bug: Run()
