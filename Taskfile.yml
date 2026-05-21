@@ -33,6 +33,11 @@ tasks:
     cmds:
       - ./scripts/build.sh
 
+  clean:
+    desc: Remove the generated binary
+    cmds:
+      - rm -rf ./bin
+
   deploy-local:
     desc: Deploy the cli-plugin
     aliases: [install]
