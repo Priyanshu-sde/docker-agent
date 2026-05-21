@@ -215,3 +215,133 @@ func TestSSRFDialControl_IPv6ZoneID(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not a valid IP")
 }
+
+// TestProxyHostPorts pins the parsing rules for HTTP_PROXY-style values.
+// We support full URLs and bare host[:port] (matching net/http's
+// ProxyFromEnvironment), and we always emit a port — dial addresses
+// have one and we compare against them verbatim.
+func TestProxyHostPorts(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		spec string
+		want []string
+	}{
+		{"empty", "", nil},
+		{"http URL with port", "http://172.17.0.0:3128", []string{"172.17.0.0:3128"}},
+		{"http URL without port", "http://10.0.0.1", []string{"10.0.0.1:80"}},
+		{"https URL without port", "https://10.0.0.1", []string{"10.0.0.1:443"}},
+		{"socks5 URL without port", "socks5://10.0.0.1", []string{"10.0.0.1:1080"}},
+		{"bare host:port", "172.17.0.0:3128", []string{"172.17.0.0:3128"}},
+		{"bare host", "172.17.0.0", []string{"172.17.0.0:80"}},
+		{"IPv6 with port", "http://[::1]:3128", []string{"[::1]:3128"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := proxyHostPorts(tt.spec)
+			if tt.want == nil {
+				assert.Empty(t, got)
+				return
+			}
+			for _, w := range tt.want {
+				assert.Contains(t, got, w)
+			}
+		})
+	}
+}
+
+// TestNewSSRFSafeTransport_AllowsConfiguredProxy is the regression test
+// for the docker-agent sandbox bug: HTTP_PROXY=http://172.17.0.0:3128
+// must not be rejected by SSRFDialControl, because that's the only way
+// outbound traffic can reach the public internet from inside the
+// sandbox. We verify the dial is *attempted* (i.e. SSRF check passes)
+// by using a port we know is closed, then asserting the resulting
+// error is a connection error, not an SSRF rejection.
+func TestNewSSRFSafeTransport_AllowsConfiguredProxy(t *testing.T) {
+	// Bind a socket and immediately close it, then reuse the freed port:
+	// connections to it will fail with ECONNREFUSED, proving the dial
+	// passed the SSRF gate. We use 127.0.0.1 as a stand-in for any
+	// private-IP proxy — same code path.
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	addr := ln.Addr().String()
+	require.NoError(t, ln.Close())
+
+	t.Setenv("HTTP_PROXY", "http://"+addr)
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("https_proxy", "")
+
+	// Override the transport's Proxy directly so the test does not
+	// depend on http.ProxyFromEnvironment's sync.Once-cached env
+	// snapshot, which can be frozen by an earlier test in the same
+	// process before we get a chance to set HTTP_PROXY.
+	proxyURL, err := url.Parse("http://" + addr)
+	require.NoError(t, err)
+	transport := NewSSRFSafeTransport()
+	transport.Proxy = http.ProxyURL(proxyURL)
+
+	client := &http.Client{Transport: transport}
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://example.com/", http.NoBody)
+	require.NoError(t, err)
+	resp, reqErr := client.Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.Error(t, reqErr)
+	assert.NotContains(t, reqErr.Error(), "non-public address",
+		"explicitly-configured proxy must bypass SSRF dial-control")
+	assert.NotContains(t, reqErr.Error(), "not a valid IP")
+}
+
+// TestCanonicalHostPort verifies that IPv4-mapped IPv6 dial addresses
+// (e.g. "[::ffff:10.0.0.1]:3128", which dual-stack Linux dialers may
+// emit even for IPv4-literal proxy URLs) collapse to the same key as
+// the dotted-quad form, so the allowlist match doesn't miss.
+func TestCanonicalHostPort(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in, want string
+	}{
+		{"10.0.0.1:3128", "10.0.0.1:3128"},
+		{"[::ffff:10.0.0.1]:3128", "10.0.0.1:3128"},
+		{"[::ffff:0a00:0001]:3128", "10.0.0.1:3128"},
+		{"[2001:db8::1]:3128", "[2001:db8::1]:3128"},
+		{"example.com:3128", "example.com:3128"},
+		{"not a valid address", "not a valid address"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, canonicalHostPort(tt.in))
+		})
+	}
+}
+
+// TestNewSSRFSafeTransport_AllowlistFrozenAtConstruction documents that
+// the allowlist is captured when the transport is built, not on every
+// dial. Changing the env after construction has no effect — acceptable
+// because proxy env vars are set at process start.
+func TestNewSSRFSafeTransport_AllowlistFrozenAtConstruction(t *testing.T) {
+	t.Setenv("HTTP_PROXY", "")
+	t.Setenv("HTTPS_PROXY", "")
+	t.Setenv("http_proxy", "")
+	t.Setenv("https_proxy", "")
+
+	client := &http.Client{Transport: NewSSRFSafeTransport()}
+
+	t.Setenv("HTTP_PROXY", "http://10.0.0.1:3128")
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://10.0.0.1:3128/", http.NoBody)
+	require.NoError(t, err)
+	resp, reqErr := client.Do(req)
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
+	require.Error(t, reqErr)
+	assert.Contains(t, reqErr.Error(), "non-public address")
+}
