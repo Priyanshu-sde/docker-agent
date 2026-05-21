@@ -110,9 +110,12 @@ func NewStreamAdapter(iter func(func(*genai.GenerateContentResponse, error) bool
 
 				// Check for function calls
 				hasFuncs := len(resp.FunctionCalls()) > 0
+				// Gemini 3 can emit usage metadata on chunks without text/tool
+				// calls. Forward such chunks so downstream can capture token usage.
+				hasUsage := resp.UsageMetadata != nil
 
-				// Send response if it has content or function calls
-				if hasText || hasFuncs {
+				// Send response if it has content, function calls, or usage metadata
+				if hasText || hasFuncs || hasUsage {
 					hasContent = hasContent || hasText
 					hasToolCalls = hasToolCalls || hasFuncs
 					lastResponse = resp // Store for final message
@@ -152,6 +155,22 @@ func (g *StreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 		Choices: []chat.MessageStreamChoice{{}},
 	}
 
+	// Extract usage metadata before branching on done state so that the final
+	// "done" event also surfaces usage if the last upstream chunk carried it
+	// (Gemini 3 emits usage on chunks without text/tool calls).
+	if res.resp != nil {
+		resp.ID = res.resp.ResponseID
+
+		if res.resp.UsageMetadata != nil && g.trackUsage {
+			resp.Usage = &chat.Usage{
+				InputTokens:       int64(res.resp.UsageMetadata.PromptTokenCount - res.resp.UsageMetadata.CachedContentTokenCount),
+				OutputTokens:      int64(res.resp.UsageMetadata.CandidatesTokenCount + res.resp.UsageMetadata.ThoughtsTokenCount),
+				CachedInputTokens: int64(res.resp.UsageMetadata.CachedContentTokenCount),
+				ReasoningTokens:   int64(res.resp.UsageMetadata.ThoughtsTokenCount),
+			}
+		}
+	}
+
 	if res.done {
 		// Set finish reason and role
 		resp.Choices[0].Delta.Role = string(chat.MessageRoleAssistant)
@@ -165,18 +184,6 @@ func (g *StreamAdapter) Recv() (chat.MessageStreamResponse, error) {
 			resp.Choices[0].FinishReason = chat.FinishReasonStop
 		}
 	} else if res.resp != nil {
-		resp.ID = res.resp.ResponseID
-
-		// Handle token usage if present
-		if res.resp.UsageMetadata != nil && g.trackUsage {
-			resp.Usage = &chat.Usage{
-				InputTokens:       int64(res.resp.UsageMetadata.PromptTokenCount - res.resp.UsageMetadata.CachedContentTokenCount),
-				OutputTokens:      int64(res.resp.UsageMetadata.CandidatesTokenCount + res.resp.UsageMetadata.ThoughtsTokenCount),
-				CachedInputTokens: int64(res.resp.UsageMetadata.CachedContentTokenCount),
-				ReasoningTokens:   int64(res.resp.UsageMetadata.ThoughtsTokenCount),
-			}
-		}
-
 		// Handle text and thoughts separately so TUI can render them distinctly
 		var reasoningTextSb strings.Builder
 		var textContentSb strings.Builder
