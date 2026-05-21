@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/docker/cli/cli"
 	"github.com/spf13/cobra"
@@ -104,26 +105,31 @@ func runInSandbox(ctx context.Context, cmd *cobra.Command, args []string, runCon
 	// any additional vars (e.g. MCP tool secrets).
 	envFlags, envVars := sandbox.EnvForAgent(ctx, agentRef, envProvider)
 
-	// Forward the gateway as an env var so docker sandbox exec sets it
-	// directly inside the sandbox.
+	// Forward the gateway via the docker-agent process env (not as an
+	// inline `-e KEY=VALUE` argument) so a gateway URL that happens to
+	// carry credentials never leaks into the slog'd `docker sandbox
+	// exec` argv.
 	if gateway := runConfig.ModelsGateway; gateway != "" {
-		envFlags = append(envFlags, "-e", envModelsGateway+"="+gateway)
+		envFlags = append(envFlags, "-e", envModelsGateway)
+		envVars = append(envVars, envModelsGateway+"="+gateway)
 
-		// Forward a *fresh* Docker Desktop token directly as
-		// -e DOCKER_TOKEN=<value>. We deliberately bypass envProvider
-		// here: that chain consults the OS environment first, where any
-		// pre-existing DOCKER_TOKEN value is by definition stale (the
-		// gateway issues short-lived JWTs that expire roughly hourly).
-		// Going straight to the Docker Desktop backend gives us the
-		// same fresh token that [sandbox.StartTokenWriterIfNeeded]
+		// Forward a *fresh* Docker Desktop token. We deliberately bypass
+		// envProvider here: that chain consults the OS environment first,
+		// where any pre-existing DOCKER_TOKEN value is by definition stale
+		// (the gateway issues short-lived JWTs that expire roughly
+		// hourly). Going straight to the Docker Desktop backend gives us
+		// the same fresh token that [sandbox.StartTokenWriterIfNeeded]
 		// will keep refreshing in the background; seeding it as an env
 		// var lets the inner agent's startup check
-		// ([config.CheckRequiredEnvVars]) succeed even on existing
-		// sandbox images that read sandbox-tokens.json from the wrong
-		// path because of the persistent-pre-run bug fixed in
-		// pkg/cli/flags.go.
+		// ([config.CheckRequiredEnvVars]) succeed even on existing sandbox
+		// images that read sandbox-tokens.json from the wrong path because
+		// of the persistent-pre-run bug fixed in pkg/cli/flags.go.
+		//
+		// Like the gateway above, the token is forwarded by name only —
+		// it would otherwise show up in the slog'd argv as plaintext.
 		if token := desktop.GetToken(ctx); token != "" {
-			envFlags = append(envFlags, "-e", environment.DockerDesktopTokenEnv+"="+token)
+			envFlags = append(envFlags, "-e", environment.DockerDesktopTokenEnv)
+			envVars = append(envVars, environment.DockerDesktopTokenEnv+"="+token)
 		}
 	}
 
@@ -211,45 +217,159 @@ func allowGatewayHost(ctx context.Context, backend *sandbox.Backend, name, gatew
 }
 
 // gatewayHostPort returns the "host" or "host:port" portion of a
-// gateway URL, or "" if rawURL is malformed. We accept both fully
-// formed URLs (https://example.com:443/proxy) and bare authorities
+// gateway URL, or "" if rawURL doesn't carry a usable authority.
+//
+// We accept both fully formed URLs (https://example.com:443/proxy),
+// scheme-relative authorities (//example.com), and bare authorities
 // (example.com:443) so users can configure the gateway either way.
+// IPv6 brackets, ports, paths, queries and fragments are stripped
+// from the returned value; malformed inputs (no host, scheme without
+// host, opaque non-HTTP schemes, etc.) return "".
 func gatewayHostPort(rawURL string) string {
 	if rawURL == "" {
 		return ""
 	}
-	u, err := url.Parse(rawURL)
-	if err == nil && u.Host != "" {
-		return u.Host
-	}
-	// Bare authority: take everything up to the first "/" or "?".
-	for i, r := range rawURL {
-		if r == '/' || r == '?' {
-			return rawURL[:i]
+
+	candidate := rawURL
+	switch {
+	case strings.HasPrefix(rawURL, "//"):
+		// Protocol-relative authority — attach a fake scheme so url.Parse
+		// recognises the host.
+		candidate = "http:" + rawURL
+	case hasURLScheme(rawURL):
+		// Fully formed URL.
+	case strings.Contains(rawURL, "://"):
+		// Looks like a URL but the scheme part is bogus — reject.
+		return ""
+	case looksOpaque(rawURL):
+		// e.g. "mailto:foo@example.com" — not a network endpoint.
+		return ""
+	default:
+		// Bare authority. Strip trailing path / query / fragment up
+		// front so url.Parse doesn't mistake "example.com:443/proxy"
+		// for an opaque scheme.
+		if i := strings.IndexAny(rawURL, "/?#"); i >= 0 {
+			candidate = "http://" + rawURL[:i]
+		} else {
+			candidate = "http://" + rawURL
 		}
 	}
-	return rawURL
+
+	u, err := url.Parse(candidate)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Host
+}
+
+// hasURLScheme reports whether s looks like "scheme://..." with a
+// non-empty scheme. We deliberately don't accept "scheme:opaque"
+// (no //) because the gateway URL is always an HTTP(S) endpoint.
+func hasURLScheme(s string) bool {
+	i := strings.Index(s, "://")
+	if i <= 0 {
+		return false
+	}
+	return isSchemeChars(s[:i])
+}
+
+// looksOpaque reports whether s looks like an opaque-form URI
+// ("scheme:rest", no //) such as "mailto:foo" or "data:...". These
+// don't carry a network authority and must not be re-parsed as bare
+// host strings.
+func looksOpaque(s string) bool {
+	i := strings.Index(s, ":")
+	if i <= 0 {
+		return false
+	}
+	// Reject anything with a port-looking right side, so values like
+	// "example.com:443" are treated as bare authorities, not opaque.
+	rhs := s[i+1:]
+	if rhs != "" && rhs[0] >= '0' && rhs[0] <= '9' {
+		return false
+	}
+	return isSchemeChars(s[:i])
+}
+
+// isSchemeChars reports whether s is a syntactically valid URL scheme
+// (RFC 3986: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ), starting with ALPHA).
+func isSchemeChars(s string) bool {
+	if s == "" {
+		return false
+	}
+	first := s[0]
+	if (first < 'a' || first > 'z') && (first < 'A' || first > 'Z') {
+		return false
+	}
+	for _, r := range s[1:] {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '+' || r == '-' || r == '.':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// displayGatewayURL returns a credential-safe rendering of a gateway
+// URL: any user/password embedded in the authority is replaced with
+// "***" so it never lands in stdout, slog output, or screenshots.
+// Inputs that don't parse cleanly (or carry no userinfo) are returned
+// unchanged.
+//
+// We rebuild the string by hand instead of calling u.String() because
+// url.User on the latter URL-escapes the masking characters into
+// %2A%2A%2A, which is technically correct but uglier than "***" in a
+// human-facing line.
+func displayGatewayURL(rawURL string) string {
+	if rawURL == "" {
+		return rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil || u.User == nil {
+		return rawURL
+	}
+
+	var b strings.Builder
+	if u.Scheme != "" {
+		b.WriteString(u.Scheme)
+		b.WriteString("://")
+	}
+	b.WriteString("***@")
+	b.WriteString(u.Host)
+	b.WriteString(u.RequestURI())
+	if u.Fragment != "" {
+		b.WriteByte('#')
+		b.WriteString(u.Fragment)
+	}
+	return b.String()
 }
 
 // printModelsGateway prints which AI gateway (if any) the inner agent
 // will route model requests through. Surfacing this between the kit
 // summary and the sandbox-create line makes it obvious — at a glance
-// — whether a "HTTP 403" the user might see later originated from
+// — whether an "HTTP 403" the user might see later originated from
 // the proxy's network policy (gateway host not yet allow-listed) or
 // from the gateway server itself.
 //
-// Empty gateway means the inner talks to the providers directly using
-// the keys the docker-agent process can resolve from its own
-// environment (DOCKER_TOKEN bypass, OS env vars, ...).
+// An unset gateway means we did not configure routing through one;
+// the inner agent will fall back to whatever the docker-agent process
+// resolves from its own environment (DOCKER_TOKEN, OS env vars,
+// Docker Model Runner, etc.).
 func printModelsGateway(w io.Writer, gateway string) {
 	if gateway == "" {
-		fmt.Fprintln(w, "Models gateway: none (talking to providers directly)")
+		fmt.Fprintln(w, "Models gateway: none configured")
 		return
 	}
+	display := displayGatewayURL(gateway)
 	host := gatewayHostPort(gateway)
 	if host == "" || host == gateway {
-		fmt.Fprintf(w, "Models gateway: %s\n", gateway)
+		fmt.Fprintf(w, "Models gateway: %s\n", display)
 		return
 	}
-	fmt.Fprintf(w, "Models gateway: %s (allowlisting %s in the sandbox proxy)\n", gateway, host)
+	fmt.Fprintf(w, "Models gateway: %s (allowlisting %s in the sandbox proxy)\n", display, host)
 }

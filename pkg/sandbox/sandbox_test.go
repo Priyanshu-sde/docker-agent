@@ -86,13 +86,14 @@ func TestForWorkspace(t *testing.T) {
 			wantName: "b",
 		},
 		{
-			name: "legacy vms key is no longer recognised",
-			// The docker backend used to return {"vms":[...]}; both
-			// backends now return "sandboxes". A response under the
-			// old key is treated as empty rather than silently used,
-			// to avoid masking a future drift.
-			json: `{"vms":[{"name":"my-sandbox","workspaces":["/my/project"]}]}`,
-			wd:   "/my/project",
+			name: "legacy vms key still resolves a match",
+			// Older docker sandbox versions wrap the list under "vms".
+			// The lookup falls back to that key (with a warning logged
+			// at runtime) so users on outdated CLIs keep getting
+			// sandbox reuse instead of accumulating duplicates.
+			json:     `{"vms":[{"name":"my-sandbox","workspaces":["/my/project"]}]}`,
+			wd:       "/my/project",
+			wantName: "my-sandbox",
 		},
 	}
 
@@ -231,4 +232,42 @@ func writeAlias(t *testing.T, name, path string) {
 
 	content := "aliases:\n  " + name + ":\n    path: " + path + "\n"
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(content), 0o600))
+}
+
+func TestAllowHosts_RejectsCommaOrWhitespaceEntries(t *testing.T) {
+	t.Parallel()
+
+	// Smuggling additional rules through a single argument by
+	// embedding a comma (or whitespace) in a hostname must fail
+	// loudly: the sbx backend joins the list with commas before
+	// forwarding it to the policy engine, and the inner CLI
+	// otherwise has no way to distinguish a typo from an attack.
+	backend := sandbox.NewBackend(false) // docker backend; sbx behaves the same
+	cases := []string{
+		"good.example.com,evil.example.com",
+		"good.example.com evil.example.com",
+		"good.example.com\tother",
+	}
+	for _, host := range cases {
+		t.Run(host, func(t *testing.T) {
+			err := backend.AllowHosts(t.Context(), "sandbox-x", []string{host})
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "comma or whitespace")
+		})
+	}
+}
+
+func TestAllowHosts_SkipsEmptyEntries(t *testing.T) {
+	// Empty / whitespace-only entries are silently dropped; if every
+	// requested host is empty we must end up calling no command at
+	// all — turn that into an observable check by pointing PATH at
+	// a fake "docker" that fails loudly when invoked.
+	fakeDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(fakeDir, "docker"),
+		[]byte("#!/bin/sh\necho 'AllowHosts must not call docker for empty inputs' >&2\nexit 99\n"),
+		0o755))
+	t.Setenv("PATH", fakeDir)
+
+	backend := sandbox.NewBackend(false)
+	require.NoError(t, backend.AllowHosts(t.Context(), "sandbox-x", []string{"", "   ", "\t"}))
 }

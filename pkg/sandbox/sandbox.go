@@ -61,17 +61,26 @@ func (b *Backend) ForWorkspace(ctx context.Context, wd string) *Existing {
 		return nil
 	}
 
-	// The JSON key holding the list of sandboxes is "sandboxes" for
-	// both backends. We keep the lookup keyed on b.vmListKey for
-	// forward-compatibility.
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil
 	}
 
+	// Both supported backends now return {"sandboxes": [...]}. Older
+	// docker sandbox versions wrapped the list under "vms" instead;
+	// fall back to that and warn so a user on an outdated CLI still
+	// gets sandbox reuse instead of accumulating duplicates while
+	// silently being told to upgrade.
 	listJSON, ok := raw[b.vmListKey]
 	if !ok {
-		return nil
+		if legacy, hasLegacy := raw["vms"]; hasLegacy && b.vmListKey != "vms" {
+			slog.WarnContext(ctx,
+				`sandbox ls --json returned the legacy "vms" key; please upgrade Docker Desktop / sbx for full feature support`,
+				"backend", b.program)
+			listJSON = legacy
+		} else {
+			return nil
+		}
 	}
 
 	var entries []Existing
@@ -104,26 +113,10 @@ func (b *Backend) Ensure(ctx context.Context, wd string, extras []string, templa
 	}
 	configDir = absConfigDir
 
-	// Filter extras: drop empties, normalise (Abs+Clean), dedupe, and
-	// remove anything that resolves to wd — wd is already mounted
-	// read-write so a duplicate :ro mount would shadow it.
-	dedup := map[string]bool{wd: true}
-	cleaned := make([]string, 0, len(extras))
-	for _, e := range extras {
-		if e == "" {
-			continue
-		}
-		abs, err := absClean(e)
-		if err != nil {
-			return "", fmt.Errorf("resolving extra workspace %q: %w", e, err)
-		}
-		if dedup[abs] {
-			continue
-		}
-		dedup[abs] = true
-		cleaned = append(cleaned, abs)
+	extras, err = cleanExtras(extras, wd)
+	if err != nil {
+		return "", err
 	}
-	extras = cleaned
 
 	existing := b.ForWorkspace(ctx, wd)
 
@@ -193,6 +186,33 @@ func absClean(p string) (string, error) {
 		return "", err
 	}
 	return filepath.Clean(abs), nil
+}
+
+// cleanExtras drops empty entries, normalises every other entry with
+// [absClean], removes duplicates, and filters out anything that
+// resolves to wd — wd is already mounted read-write, so a second
+// mount of the same path would shadow it.
+//
+// wd is expected to already be canonical (caller passes Ensure's
+// resolved wd).
+func cleanExtras(extras []string, wd string) ([]string, error) {
+	dedup := map[string]bool{wd: true}
+	cleaned := make([]string, 0, len(extras))
+	for _, e := range extras {
+		if e == "" {
+			continue
+		}
+		abs, err := absClean(e)
+		if err != nil {
+			return nil, fmt.Errorf("resolving extra workspace %q: %w", e, err)
+		}
+		if dedup[abs] {
+			continue
+		}
+		dedup[abs] = true
+		cleaned = append(cleaned, abs)
+	}
+	return cleaned, nil
 }
 
 // hasAllWorkspaces reports whether every entry of extras is mounted

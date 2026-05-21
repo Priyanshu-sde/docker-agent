@@ -98,11 +98,52 @@ func TestGatewayHostPort(t *testing.T) {
 		{"staging gateway with path", "https://ai-backend-service-stage.docker.com/proxy", "ai-backend-service-stage.docker.com"},
 		{"bare authority with path", "example.com:443/proxy", "example.com:443"},
 		{"bare authority with query", "example.com:443?foo=bar", "example.com:443"},
+		{"protocol-relative authority", "//example.com/proxy", "example.com"},
+		{"https URL with userinfo", "https://user:pw@example.com/proxy", "example.com"},
+		{"https URL with fragment", "https://example.com/proxy#frag", "example.com"},
+		{"IPv6 host", "https://[::1]:8443/proxy", "[::1]:8443"},
+		{"scheme without host", "https:///proxy", ""},
+		{"only fragment", "#fragment", ""},
+		{"only path", "/path", ""},
+		{"opaque scheme", "mailto:foo@example.com", ""},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.want, gatewayHostPort(tt.raw))
+		})
+	}
+}
+
+func TestDisplayGatewayURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{"empty", "", ""},
+		{"no userinfo", "https://example.com/proxy", "https://example.com/proxy"},
+		{"bare authority unchanged", "example.com:443", "example.com:443"},
+		{
+			name: "username only is masked",
+			raw:  "https://user@example.com/proxy",
+			want: "https://***@example.com/proxy",
+		},
+		{
+			name: "username and password are masked",
+			raw:  "https://user:supersecret@example.com:443/proxy?token=abc",
+			want: "https://***@example.com:443/proxy?token=abc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := displayGatewayURL(tt.raw)
+			assert.Equal(t, tt.want, got)
+			assert.NotContains(t, got, "supersecret",
+				"displayGatewayURL must not preserve a password")
 		})
 	}
 }
@@ -118,7 +159,7 @@ func TestPrintModelsGateway(t *testing.T) {
 		{
 			name:    "no gateway",
 			gateway: "",
-			want:    "Models gateway: none (talking to providers directly)\n",
+			want:    "Models gateway: none configured\n",
 		},
 		{
 			name:    "URL gateway shows allow-listed host",
@@ -130,6 +171,11 @@ func TestPrintModelsGateway(t *testing.T) {
 			gateway: "ai-backend-service.docker.com:443",
 			want:    "Models gateway: ai-backend-service.docker.com:443\n",
 		},
+		{
+			name:    "URL with credentials is rendered without them",
+			gateway: "https://user:supersecret@gw.example.com/proxy",
+			want:    "Models gateway: https://***@gw.example.com/proxy (allowlisting gw.example.com in the sandbox proxy)\n",
+		},
 	}
 
 	for _, tt := range tests {
@@ -137,6 +183,8 @@ func TestPrintModelsGateway(t *testing.T) {
 			var buf strings.Builder
 			printModelsGateway(&buf, tt.gateway)
 			assert.Equal(t, tt.want, buf.String())
+			assert.NotContains(t, buf.String(), "supersecret",
+				"printed gateway must never include credentials")
 		})
 	}
 }

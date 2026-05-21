@@ -80,15 +80,38 @@ func sbxBackend() *Backend {
 // log and continue, since a partial failure (e.g. a host already
 // allowed by an earlier rule) shouldn't keep the sandbox from
 // running.
+//
+// Empty entries are silently skipped. Entries that contain a comma
+// are rejected because the sbx backend joins the list with commas
+// when forwarding the rule to the policy engine; allowing them
+// through unescaped would let a single value smuggle several
+// distinct rules into the engine. Entries that contain a literal
+// space are rejected for the same defence-in-depth reason — callers
+// should pass already-split hostnames.
 func (b *Backend) AllowHosts(ctx context.Context, name string, hosts []string) error {
-	if name == "" || len(hosts) == 0 {
+	if name == "" {
 		return nil
 	}
 	if b.allowHostsArgs == nil {
 		return fmt.Errorf("backend %q does not support per-sandbox network allowlists", b.program)
 	}
 
-	args := b.allowHostsArgs(name, hosts)
+	cleaned := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		h = strings.TrimSpace(h)
+		if h == "" {
+			continue
+		}
+		if strings.ContainsAny(h, ", \t") {
+			return fmt.Errorf("refusing to allowlist host %q: contains comma or whitespace", h)
+		}
+		cleaned = append(cleaned, h)
+	}
+	if len(cleaned) == 0 {
+		return nil
+	}
+
+	args := b.allowHostsArgs(name, cleaned)
 	cmd := exec.CommandContext(ctx, b.program, args...)
 	b.applyEnv(cmd)
 
@@ -97,7 +120,7 @@ func (b *Backend) AllowHosts(ctx context.Context, name string, hosts []string) e
 		return fmt.Errorf("%s %s: %w (output: %s)", b.program, strings.Join(args, " "), err, strings.TrimSpace(string(out)))
 	}
 	slog.DebugContext(ctx, "Allowed sandbox network access",
-		"sandbox", name, "hosts", hosts, "output", strings.TrimSpace(string(out)))
+		"sandbox", name, "hosts", cleaned, "output", strings.TrimSpace(string(out)))
 	return nil
 }
 
