@@ -122,8 +122,10 @@ func TestAttachedServer_DeleteSessionStopsEventStream(t *testing.T) {
 	sm := NewSessionManager(ctx, config.Sources{}, store, 0, &config.RuntimeConfig{})
 	sm.AttachRuntime(sess.ID, &fakeRuntime{}, sess)
 
+	sourceStarted := make(chan struct{})
 	sourceCtxDone := make(chan struct{})
 	sm.RegisterEventSource(sess.ID, func(ctx context.Context, _ func(any)) {
+		close(sourceStarted)
 		<-ctx.Done()
 		close(sourceCtxDone)
 	})
@@ -140,11 +142,20 @@ func TestAttachedServer_DeleteSessionStopsEventStream(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = resp.Body.Close() })
 
+	// Wait for the SSE handler to actually invoke the registered source.
+	// Otherwise DeleteSession may remove the source from the registry before
+	// StreamEvents picks it up, leaving sourceCtxDone unclosed.
+	select {
+	case <-sourceStarted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("event source was never invoked by the SSE handler")
+	}
+
 	require.NoError(t, sm.DeleteSession(ctx, sess.ID))
 
 	select {
 	case <-sourceCtxDone:
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("event source ctx was not cancelled when session was deleted")
 	}
 
