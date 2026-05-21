@@ -1475,7 +1475,7 @@ func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.T
 		if m.messages[i].Type == types.MessageTypeAssistantReasoningBlock {
 			if block, ok := m.views[i].(*reasoningblock.Model); ok {
 				if block.HasToolCall(msg.ToolCallID) {
-					cmd := block.UpdateToolResult(msg.ToolCallID, msg.Response, status, msg.Result)
+					cmd := block.UpdateToolResult(msg.ToolCallID, msg.Response, status, msg.Result.WithoutPayload())
 					m.invalidateItem(i)
 					return cmd
 				}
@@ -1489,7 +1489,7 @@ func (m *model) AddToolResult(msg *runtime.ToolCallResponseEvent, status types.T
 		if toolMessage.Type == types.MessageTypeToolCall && toolMessage.ToolCall.ID == msg.ToolCallID {
 			toolMessage.Content = strings.ReplaceAll(msg.Response, "\t", "    ")
 			toolMessage.ToolStatus = status
-			toolMessage.ToolResult = msg.Result
+			toolMessage.ToolResult = msg.Result.WithoutPayload()
 			m.invalidateItem(i)
 
 			view := m.createToolCallView(toolMessage)

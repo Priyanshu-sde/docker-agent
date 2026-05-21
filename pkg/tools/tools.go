@@ -102,6 +102,16 @@ type ToolCallResult struct {
 	StructuredContent any `json:"structuredContent,omitempty"`
 }
 
+func (r *ToolCallResult) WithoutPayload() *ToolCallResult {
+	if r == nil {
+		return nil
+	}
+	return &ToolCallResult{
+		IsError: r.IsError,
+		Meta:    r.Meta,
+	}
+}
+
 func ResultError(output string) *ToolCallResult {
 	return &ToolCallResult{
 		Output:  output,

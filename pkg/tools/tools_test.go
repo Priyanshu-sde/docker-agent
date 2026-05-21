@@ -78,3 +78,24 @@ func TestNewHandler_InvalidArguments(t *testing.T) {
 	})
 	require.Error(t, err)
 }
+
+func TestToolCallResultWithoutPayload(t *testing.T) {
+	result := &ToolCallResult{
+		Output:            "large output",
+		IsError:           true,
+		Meta:              "metadata",
+		Images:            []MediaContent{{Data: "image", MimeType: "image/png"}},
+		Audios:            []MediaContent{{Data: "audio", MimeType: "audio/wav"}},
+		StructuredContent: map[string]any{"key": "value"},
+	}
+
+	slim := result.WithoutPayload()
+
+	require.NotNil(t, slim)
+	assert.Empty(t, slim.Output)
+	assert.True(t, slim.IsError)
+	assert.Equal(t, "metadata", slim.Meta)
+	assert.Nil(t, slim.Images)
+	assert.Nil(t, slim.Audios)
+	assert.Nil(t, slim.StructuredContent)
+}
