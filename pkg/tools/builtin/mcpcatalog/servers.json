@@ -3,7 +3,7 @@
   "source_url": "https://desktop.docker.com/mcp/catalog/v3/catalog.json",
   "schema_version": 3,
   "filter": "type=remote AND remote.transport_type=streamable-http",
-  "count": 45,
+  "count": 44,
   "servers": [
     {
       "id": "apify",
@@ -326,33 +326,6 @@
       "headers": {},
       "auth": {
         "type": "none"
-      }
-    },
-    {
-      "id": "grafbase",
-      "title": "Grafbase",
-      "description": "Build and deploy high-performance GraphQL APIs with federation, edge computing, and enterprise-grade governance.",
-      "url": "https://api.grafbase.com/mcp",
-      "transport": "streamable-http",
-      "category": "devops",
-      "tags": [
-        "devops",
-        "graphql",
-        "database",
-        "remote"
-      ],
-      "icon": "https://www.google.com/s2/favicons?domain=grafbase.com&sz=64",
-      "readme": "http://desktop.docker.com/mcp/catalog/v3/readme/grafbase.md",
-      "headers": {},
-      "auth": {
-        "type": "oauth",
-        "providers": [
-          {
-            "provider": "grafbase",
-            "env": "GRAFBASE_PERSONAL_ACCESS_TOKEN",
-            "secret": "grafbase.personal_access_token"
-          }
-        ]
       }
     },
     {
