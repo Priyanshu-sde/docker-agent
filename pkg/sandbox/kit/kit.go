@@ -242,7 +242,7 @@ func Build(ctx context.Context, opts Options) (*Result, error) {
 		cfg = &latestcfg.Config{}
 	}
 
-	skillsEntries, redactions, err := stageSkills(stagingDir)
+	skillsEntries, redactions, err := stageSkills(stagingDir, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -371,12 +371,24 @@ func loadConfig(ctx context.Context, opts Options) (*latestcfg.Config, error) {
 	return config.Load(ctx, source)
 }
 
-// stageSkills copies every local skill discovered on the host into
+// stageSkills copies every local skill the agent config enables into
 // <kit>/skills/<skill-name>/, redacting text files in place.
-func stageSkills(kitDir string) ([]Entry, []Redaction, error) {
+//
+// Only skills the agent will actually load are staged: if no agent in
+// cfg enables local skills the kit ships nothing, and if every agent
+// that enables local skills also restricts them via an `include`
+// filter, only the union of those filters is staged. An agent that
+// enables local skills without a filter is the wide case — every local
+// skill is staged.
+func stageSkills(kitDir string, cfg *latestcfg.Config) ([]Entry, []Redaction, error) {
 	target := filepath.Join(kitDir, skills.KitSkillsSubdir)
 	if err := os.MkdirAll(target, 0o750); err != nil {
 		return nil, nil, fmt.Errorf("creating kit skills dir: %w", err)
+	}
+
+	include, ok := localSkillFilter(cfg)
+	if !ok {
+		return nil, nil, nil
 	}
 
 	var (
@@ -385,6 +397,9 @@ func stageSkills(kitDir string) ([]Entry, []Redaction, error) {
 	)
 	for _, skill := range skills.Load([]string{"local"}) {
 		if skill.BaseDir == "" {
+			continue
+		}
+		if include != nil && !include[skill.Name] {
 			continue
 		}
 		dst := filepath.Join(target, sanitise(skill.Name))
@@ -399,6 +414,41 @@ func stageSkills(kitDir string) ([]Entry, []Redaction, error) {
 		redactions = append(redactions, reds...)
 	}
 	return entries, redactions, nil
+}
+
+// localSkillFilter inspects every agent in cfg and reports the local
+// skill subset the kit should stage.
+//
+// Returns:
+//   - (nil, false) when no agent enables local skills — the kit ships
+//     nothing.
+//   - (nil, true)  when at least one agent enables local skills without
+//     an `include` filter — every local skill is staged.
+//   - (set, true)  when every agent that enables local skills also
+//     restricts them — only skills whose name is in the union of
+//     `include` lists are staged.
+func localSkillFilter(cfg *latestcfg.Config) (map[string]bool, bool) {
+	if cfg == nil {
+		return nil, false
+	}
+	include := make(map[string]bool)
+	anyLocal := false
+	for _, agent := range cfg.Agents {
+		if !agent.Skills.HasLocal() {
+			continue
+		}
+		anyLocal = true
+		if len(agent.Skills.Include) == 0 {
+			return nil, true
+		}
+		for _, name := range agent.Skills.Include {
+			include[name] = true
+		}
+	}
+	if !anyLocal {
+		return nil, false
+	}
+	return include, true
 }
 
 // stagePromptFiles walks every agent in cfg, records every

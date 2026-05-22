@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"testing"
@@ -485,7 +486,7 @@ func TestBuild_ConcurrentRunsForSameAgentAreSafe(t *testing.T) {
 
 	cacheDir := t.TempDir()
 	optsTemplate := Options{
-		AgentRef: "shared-ref",
+		AgentRef: "default", // builtin enables skills, so the kit stages them
 		HostHome: hostHome,
 		HostCwd:  t.TempDir(),
 		CacheDir: cacheDir,
@@ -574,6 +575,7 @@ agents:
     model: openai/gpt-5
     description: tester
     instruction: hello
+    skills: true
     add_prompt_files: ["AGENTS.md"]
 models:
   openai/gpt-5:
@@ -691,6 +693,195 @@ func TestPrintSummary_NilReceiver(t *testing.T) {
 	var buf strings.Builder
 	assert.NotPanics(t, func() { res.PrintSummary(&buf) })
 	assert.Empty(t, buf.String())
+}
+
+// stageSkillsTestSetup creates two local skills ("alpha" and "beta")
+// under hostHome and returns the agent YAML path the test will load.
+// The agent's `skills:` value is configurable so each scenario can
+// exercise a different filter.
+func stageSkillsTestSetup(t *testing.T, skillsYAML string) (hostHome, workspace, yamlPath string) {
+	t.Helper()
+	isolateEnv(t)
+	hostHome = t.TempDir()
+	workspace = t.TempDir()
+
+	for _, name := range []string{"alpha", "beta"} {
+		dir := filepath.Join(hostHome, ".agents", "skills", name)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"),
+			[]byte("---\nname: "+name+"\ndescription: "+name+"\n---\n"), 0o644))
+	}
+
+	agentYAML := []byte(`agents:
+  root:
+    model: openai/gpt-5
+    description: tester
+    instruction: hello
+    skills: ` + skillsYAML + `
+models:
+  openai/gpt-5:
+    provider: openai
+    model: gpt-5
+`)
+	yamlPath = filepath.Join(workspace, "agent.yaml")
+	require.NoError(t, os.WriteFile(yamlPath, agentYAML, 0o600))
+
+	t.Setenv("HOME", hostHome)
+	t.Chdir(workspace)
+	return hostHome, workspace, yamlPath
+}
+
+func stagedSkillNames(res *Result) []string {
+	names := make([]string, 0, len(res.Manifest.Skills))
+	for _, e := range res.Manifest.Skills {
+		names = append(names, filepath.Base(e.Target))
+	}
+	sort.Strings(names)
+	return names
+}
+
+func TestBuild_SkillsDisabledShipsNothing(t *testing.T) {
+	hostHome, workspace, yamlPath := stageSkillsTestSetup(t, "false")
+
+	res, err := Build(t.Context(), Options{
+		AgentRef:  yamlPath,
+		HostHome:  hostHome,
+		HostCwd:   workspace,
+		Workspace: workspace,
+		CacheDir:  t.TempDir(),
+	})
+	require.NoError(t, err)
+	assert.Empty(t, res.Manifest.Skills,
+		"agent with skills: false must not stage any local skill into the kit")
+}
+
+func TestBuild_SkillsTrueShipsAll(t *testing.T) {
+	hostHome, workspace, yamlPath := stageSkillsTestSetup(t, "true")
+
+	res, err := Build(t.Context(), Options{
+		AgentRef:  yamlPath,
+		HostHome:  hostHome,
+		HostCwd:   workspace,
+		Workspace: workspace,
+		CacheDir:  t.TempDir(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha", "beta"}, stagedSkillNames(res))
+}
+
+func TestBuild_SkillsIncludeFilters(t *testing.T) {
+	hostHome, workspace, yamlPath := stageSkillsTestSetup(t, `["alpha"]`)
+
+	res, err := Build(t.Context(), Options{
+		AgentRef:  yamlPath,
+		HostHome:  hostHome,
+		HostCwd:   workspace,
+		Workspace: workspace,
+		CacheDir:  t.TempDir(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha"}, stagedSkillNames(res),
+		"only the named skill must be staged when skills is filtered")
+}
+
+func TestBuild_SkillsIncludeUnionAcrossAgents(t *testing.T) {
+	isolateEnv(t)
+	hostHome := t.TempDir()
+	workspace := t.TempDir()
+
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		dir := filepath.Join(hostHome, ".agents", "skills", name)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"),
+			[]byte("---\nname: "+name+"\ndescription: x\n---\n"), 0o644))
+	}
+
+	// Two agents with disjoint filters and a third that disables
+	// skills entirely. The kit must stage the union of the first two
+	// (alpha + beta) and ignore the third.
+	agentYAML := []byte(`agents:
+  one:
+    model: openai/gpt-5
+    description: one
+    instruction: hi
+    skills: ["alpha"]
+  two:
+    model: openai/gpt-5
+    description: two
+    instruction: hi
+    skills: ["beta"]
+  three:
+    model: openai/gpt-5
+    description: three
+    instruction: hi
+    skills: false
+models:
+  openai/gpt-5:
+    provider: openai
+    model: gpt-5
+`)
+	yamlPath := filepath.Join(workspace, "agent.yaml")
+	require.NoError(t, os.WriteFile(yamlPath, agentYAML, 0o600))
+
+	t.Setenv("HOME", hostHome)
+	t.Chdir(workspace)
+
+	res, err := Build(t.Context(), Options{
+		AgentRef:  yamlPath,
+		HostHome:  hostHome,
+		HostCwd:   workspace,
+		Workspace: workspace,
+		CacheDir:  t.TempDir(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha", "beta"}, stagedSkillNames(res))
+}
+
+func TestBuild_SkillsUnfilteredAgentWidens(t *testing.T) {
+	isolateEnv(t)
+	hostHome := t.TempDir()
+	workspace := t.TempDir()
+
+	for _, name := range []string{"alpha", "beta"} {
+		dir := filepath.Join(hostHome, ".agents", "skills", name)
+		require.NoError(t, os.MkdirAll(dir, 0o755))
+		require.NoError(t, os.WriteFile(filepath.Join(dir, "SKILL.md"),
+			[]byte("---\nname: "+name+"\ndescription: x\n---\n"), 0o644))
+	}
+
+	// One agent restricts skills to "alpha"; another has no filter.
+	// The unfiltered agent widens the kit to every local skill.
+	agentYAML := []byte(`agents:
+  one:
+    model: openai/gpt-5
+    description: one
+    instruction: hi
+    skills: ["alpha"]
+  two:
+    model: openai/gpt-5
+    description: two
+    instruction: hi
+    skills: true
+models:
+  openai/gpt-5:
+    provider: openai
+    model: gpt-5
+`)
+	yamlPath := filepath.Join(workspace, "agent.yaml")
+	require.NoError(t, os.WriteFile(yamlPath, agentYAML, 0o600))
+
+	t.Setenv("HOME", hostHome)
+	t.Chdir(workspace)
+
+	res, err := Build(t.Context(), Options{
+		AgentRef:  yamlPath,
+		HostHome:  hostHome,
+		HostCwd:   workspace,
+		Workspace: workspace,
+		CacheDir:  t.TempDir(),
+	})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha", "beta"}, stagedSkillNames(res))
 }
 
 func TestNeedsAutoInstall(t *testing.T) {
