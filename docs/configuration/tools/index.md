@@ -48,7 +48,7 @@ toolsets:
 
 ## MCP Tools
 
-Extend agents with external tools via the [Model Context Protocol](https://modelcontextprotocol.io/).
+Extend agents with external tools via the [Model Context Protocol](https://modelcontextprotocol.io/). For a standalone overview of the `mcp` toolset see the [MCP tool page]({{ '/tools/mcp/' | relative_url }}).
 
 <div class="callout callout-tip" markdown="1">
 <div class="callout-title">Reusable MCP definitions

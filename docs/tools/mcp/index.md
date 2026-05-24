@@ -1,0 +1,272 @@
+---
+title: "MCP Tool"
+description: "Extend agents with external tools via the Model Context Protocol."
+permalink: /tools/mcp/
+---
+
+# MCP Tool
+
+_Extend agents with external tools via the Model Context Protocol (MCP)._
+
+## Overview
+
+The `mcp` toolset connects your agent to any MCP server — a process or remote service that exposes tools, resources, and prompts over the [Model Context Protocol](https://modelcontextprotocol.io/). Three flavours are supported:
+
+| Flavour | Transport | Best for |
+| --- | --- | --- |
+| **Docker MCP** | Container via the [MCP Gateway](https://github.com/docker/mcp-gateway) | Curated, sandboxed servers from the [Docker MCP Catalog](https://hub.docker.com/u/mcp) |
+| **Local stdio** | Subprocess over stdin/stdout | Custom or community MCP servers run from a binary or `npx`/`pip` package |
+| **Remote** | SSE or Streamable HTTP | Cloud services with hosted MCP endpoints (Linear, GitHub, Vercel, …) |
+
+<div class="callout callout-info" markdown="1">
+<div class="callout-title">What is MCP?
+</div>
+  <p>The <a href="https://modelcontextprotocol.io/">Model Context Protocol</a> is an open standard for connecting AI tools. Docker Agent can both <em>use</em> MCP servers (this page) and <em>expose</em> agents as MCP servers — see <a href="{{ '/features/mcp-mode/' | relative_url }}">MCP Mode</a>.</p>
+</div>
+
+## Docker MCP (Recommended)
+
+Run MCP servers as secure Docker containers via the MCP Gateway. The `ref: docker:<name>` syntax pulls a curated definition from the Docker MCP Catalog:
+
+```yaml
+toolsets:
+  - type: mcp
+    ref: docker:duckduckgo        # web search
+  - type: mcp
+    ref: docker:github-official   # GitHub integration
+    tools: ["list_issues", "create_issue"]
+```
+
+Browse available servers at the [Docker MCP Catalog](https://hub.docker.com/u/mcp).
+
+| Property      | Type   | Description                                                      |
+| ------------- | ------ | ---------------------------------------------------------------- |
+| `ref`         | string | Docker MCP reference (`docker:name`) or a name from the [reusable `mcps:`]({{ '/configuration/overview/#reusable-mcp-servers-mcps' | relative_url }}) block. |
+| `tools`       | array  | Optional whitelist — only expose these tools to the model.       |
+| `instruction` | string | Custom instructions injected into the agent's context.           |
+| `config`      | any    | MCP server-specific configuration passed during initialization.  |
+| `working_dir` | string | Working directory for the MCP gateway subprocess. Only applies when the catalog entry runs as a local process (not remote). Relative paths are resolved against the agent's working directory. Supports `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
+
+## Local MCP (stdio)
+
+Run MCP servers as local processes communicating over stdin/stdout:
+
+```yaml
+toolsets:
+  - type: mcp
+    command: python
+    args: ["-m", "mcp_server"]
+    tools: ["search", "fetch"]
+    env:
+      API_KEY: value
+```
+
+| Property      | Type   | Description |
+| ------------- | ------ | ----------- |
+| `command`     | string | Command to execute the MCP server. |
+| `args`        | array  | Command arguments. |
+| `tools`       | array  | Optional whitelist — only expose these tools. |
+| `env`         | object | Environment variables (key-value pairs). |
+| `working_dir` | string | Working directory for the MCP server process. Relative paths are resolved against the agent's working directory. Defaults to the agent's working directory when omitted. Supports `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
+| `instruction` | string | Custom instructions injected into the agent's context. |
+| `version`     | string | Package reference for [auto-installing]({{ '/configuration/tools/#auto-installing-tools' | relative_url }}) the command binary. |
+
+<div class="callout callout-tip" markdown="1">
+<div class="callout-title">Auto-installation
+</div>
+  <p>If the <code>command</code> is not in your <code>PATH</code>, docker-agent looks it up in the <a href="https://github.com/aquaproj/aqua-registry">aqua registry</a> and installs it for you. Use <code>version: "false"</code> to opt out, or set <code>DOCKER_AGENT_AUTO_INSTALL=false</code> globally. See <a href="{{ '/configuration/tools/#auto-installing-tools' | relative_url }}">Auto-Installing Tools</a>.</p>
+</div>
+
+## Remote MCP (SSE / Streamable HTTP)
+
+Connect to MCP servers over the network. OAuth flows (including [Dynamic Client Registration](https://datatracker.ietf.org/doc/html/rfc7591)) are handled automatically — docker-agent opens your browser when authentication is required and caches tokens for subsequent sessions.
+
+```yaml
+toolsets:
+  - type: mcp
+    remote:
+      url: "https://mcp.linear.app/sse"
+      transport_type: "sse"               # or "streamable"
+      headers:
+        Authorization: "Bearer ${LINEAR_TOKEN}"
+    # Optional: allow OAuth helper requests to reach private/internal IPs.
+    allow_private_ips: false
+    tools: ["search_issues", "create_issue"]
+```
+
+| Property                | Type    | Description |
+| ----------------------- | ------- | ----------- |
+| `remote.url`            | string  | Base URL of the MCP server. |
+| `remote.transport_type` | string  | `sse` or `streamable`. |
+| `remote.headers`        | object  | HTTP headers (typically for static auth tokens). |
+| `remote.oauth`          | object  | Explicit OAuth client credentials for servers that don't support DCR. See [Remote MCP Servers]({{ '/features/remote-mcp/' | relative_url }}#oauth-for-servers-without-dynamic-client-registration). |
+| `allow_private_ips`     | boolean | Permit remote MCP OAuth helper requests to dial non-public IP addresses. Use only for trusted internal servers. |
+
+For a curated list of public remote MCP endpoints (Linear, GitHub, Vercel, Notion, …) and full OAuth configuration details, see [Remote MCP Servers]({{ '/features/remote-mcp/' | relative_url }}).
+
+## Reusable Definitions (`mcps:`)
+
+Repeated MCP server configurations can be hoisted into the top-level `mcps:` section and referenced by name with `{type: mcp, ref: <name>}`:
+
+```yaml
+mcps:
+  github:
+    remote:
+      url: https://api.githubcopilot.com/mcp
+      transport_type: sse
+  playwright:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-playwright"]
+
+agents:
+  root:
+    model: openai/gpt-5-mini
+    toolsets:
+      - type: mcp
+        ref: github
+      - type: mcp
+        ref: playwright
+```
+
+See [Reusable MCP Servers]({{ '/configuration/overview/#reusable-mcp-servers-mcps' | relative_url }}) for the full reference.
+
+## Common Options
+
+These properties apply to every MCP toolset regardless of flavour:
+
+### Tool filtering
+
+```yaml
+toolsets:
+  - type: mcp
+    ref: docker:github-official
+    tools: ["list_issues", "create_issue", "get_pull_request"]
+```
+
+Whitelisting tools improves model accuracy — fewer choices means less confusion.
+
+### Deferred loading
+
+Skip the toolset's startup cost until its tools are actually called:
+
+```yaml
+toolsets:
+  - type: mcp
+    ref: docker:github-official
+    defer: true
+  # Or defer specific tools within a toolset:
+  - type: mcp
+    ref: docker:slack
+    defer: ["list_channels", "search_messages"]
+```
+
+### Custom instructions
+
+```yaml
+toolsets:
+  - type: mcp
+    ref: docker:github-official
+    instruction: |
+      Use these tools to manage GitHub issues.
+      Always check for existing issues before creating new ones.
+      Label new issues with 'triage' by default.
+```
+
+### TOON-encoded outputs
+
+Re-encode verbose JSON outputs as the compact [TOON](https://github.com/alpkeskin/gotoon) format to save context budget. Typically yields 30–60% smaller payloads on list/search tools:
+
+```yaml
+toolsets:
+  - type: mcp
+    ref: docker:github-official
+    toon: ".*"            # toonify every tool from this server
+  - type: mcp
+    command: my-server
+    toon: "list_.*,get_.*" # only toonify list_/get_ tools
+```
+
+### Per-toolset model routing
+
+Process tool results from this toolset with a different (typically cheaper / faster) model. The override is one-shot — subsequent turns return to the agent's primary model:
+
+```yaml
+toolsets:
+  - type: mcp
+    ref: docker:github-official
+    model: openai/gpt-4o-mini
+```
+
+See [Per-Toolset Model Routing]({{ '/configuration/tools/#per-toolset-model-routing' | relative_url }}).
+
+### Lifecycle (auto-restart, profiles)
+
+Local stdio and remote MCP servers are supervised: crashed servers reconnect automatically with exponential backoff. Tune the policy with the `lifecycle` block:
+
+```yaml
+toolsets:
+  - type: mcp
+    ref: docker:duckduckgo
+    lifecycle:
+      profile: resilient   # default; auto-restart with backoff
+  - type: mcp
+    command: docker
+    args: ["mcp", "gateway"]
+    lifecycle:
+      profile: strict      # fail-fast: required, no retries
+```
+
+See [Toolset Lifecycle]({{ '/configuration/tools/#toolset-lifecycle' | relative_url }}) for all profiles and tuning knobs, and [`/toolset-restart`]({{ '/features/tui/' | relative_url }}) to force a reconnect from the TUI.
+
+## Combined Example
+
+```yaml
+mcps:
+  github:
+    remote:
+      url: https://api.githubcopilot.com/mcp
+      transport_type: sse
+
+agents:
+  root:
+    model: anthropic/claude-sonnet-4-5
+    description: Full-featured developer assistant
+    instruction: You are an expert developer.
+    toolsets:
+      # Docker MCP catalog entry
+      - type: mcp
+        ref: docker:duckduckgo
+
+      # Reusable definition from the top-level mcps: block
+      - type: mcp
+        ref: github
+        tools: ["list_issues", "create_issue"]
+        toon: "list_.*"
+
+      # Local stdio server with auto-install
+      - type: mcp
+        command: gopls
+        version: "golang/tools@v0.21.0"
+        args: ["mcp"]
+
+      # Remote MCP with OAuth (handled automatically)
+      - type: mcp
+        remote:
+          url: "https://mcp.linear.app/sse"
+          transport_type: "sse"
+        instruction: Use Linear for issue tracking.
+```
+
+<div class="callout callout-warning" markdown="1">
+<div class="callout-title">Toolset order matters
+</div>
+  <p>If multiple toolsets provide a tool with the same name, the first one wins. Order your toolsets intentionally.</p>
+</div>
+
+## See Also
+
+- [Tool Configuration]({{ '/configuration/tools/' | relative_url }}) — full reference for every toolset type, plus shared options (lifecycle, TOON, model routing, …).
+- [Reusable MCP Servers]({{ '/configuration/overview/#reusable-mcp-servers-mcps' | relative_url }}) — the top-level `mcps:` block.
+- [Remote MCP Servers]({{ '/features/remote-mcp/' | relative_url }}) — catalog of public remote MCP endpoints + OAuth recipes.
+- [MCP Mode]({{ '/features/mcp-mode/' | relative_url }}) — expose your own agents as MCP tools to Claude Desktop, Claude Code, etc.
+- [Auto-Installing Tools]({{ '/configuration/tools/#auto-installing-tools' | relative_url }}) — automatic installation of MCP server binaries.

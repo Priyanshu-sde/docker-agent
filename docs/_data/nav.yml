@@ -77,6 +77,8 @@
       url: /tools/model-picker/
     - title: OpenAPI
       url: /tools/openapi/
+    - title: MCP
+      url: /tools/mcp/
     - title: A2A
       url: /tools/a2a/
     - title: RAG
