@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"cmp"
 	"context"
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -265,13 +266,14 @@ func callbackRedirectURLFrom(c *latest.RemoteOAuthConfig) string {
 type oauthTransport struct {
 	base http.RoundTripper
 	// TODO(rumpl): remove client reference, we need to find a better way to send elicitation requests
-	client          *remoteMCPClient
-	tokenStore      OAuthTokenStore
-	baseURL         string
-	managed         bool
-	oauthConfig     *latest.RemoteOAuthConfig
-	oauthHTTPClient *http.Client
-	oauthFlowMu     sync.Mutex
+	client                    *remoteMCPClient
+	tokenStore                OAuthTokenStore
+	baseURL                   string
+	managed                   bool
+	unmanagedOAuthRedirectURI string
+	oauthConfig               *latest.RemoteOAuthConfig
+	oauthHTTPClient           *http.Client
+	oauthFlowMu               sync.Mutex
 
 	// mu protects refreshFailedAt and lastErr* from concurrent access.
 	mu sync.Mutex
@@ -728,34 +730,9 @@ func (t *oauthTransport) handleManagedOAuthFlow(ctx context.Context, authServer,
 	redirectURI := callbackServer.resolveRedirectURI(callbackRedirectURLFrom(t.oauthConfig))
 	slog.DebugContext(ctx, "Using redirect URI", "uri", redirectURI)
 
-	var clientID string
-	var clientSecret string
-	var scopes []string
-
-	switch {
-	case t.oauthConfig != nil && t.oauthConfig.ClientID != "":
-		// Use explicit credentials from config
-		slog.DebugContext(ctx, "Using explicit OAuth credentials from config")
-		clientID = t.oauthConfig.ClientID
-		clientSecret = t.oauthConfig.ClientSecret
-		scopes = t.oauthConfig.Scopes
-	case authServerMetadata.RegistrationEndpoint != "":
-		slog.DebugContext(ctx, "Attempting dynamic client registration")
-		clientID, clientSecret, err = registerClient(
-			ctx,
-			t.oauthClient(),
-			authServerMetadata,
-			redirectURI,
-			nil,
-		)
-		if err != nil {
-			slog.DebugContext(ctx, "Dynamic registration failed", "error", err)
-			// TODO(rumpl): fall back to requesting client ID from user
-			return err
-		}
-	default:
-		// TODO(rumpl): fall back to requesting client ID from user
-		return errors.New("authorization server does not support dynamic client registration and no explicit OAuth credentials configured")
+	clientID, clientSecret, scopes, err := t.resolveClientCredentials(ctx, authServerMetadata, redirectURI)
+	if err != nil {
+		return err
 	}
 
 	state, err := GenerateState()
@@ -838,8 +815,73 @@ func (t *oauthTransport) handleManagedOAuthFlow(ctx context.Context, authServer,
 	return nil
 }
 
-// handleUnmanagedOAuthFlow performs the OAuth flow for remote/unmanaged scenarios
-// where the client handles the OAuth interaction instead of us
+// resolveClientCredentials picks the OAuth client_id (and optional secret +
+// scopes) used for both the authorize URL and the token exchange. Explicit
+// credentials from the per-toolset config take precedence; otherwise we
+// attempt RFC 7591 Dynamic Client Registration against the authorization
+// server. Returns an error if neither path is available.
+func (t *oauthTransport) resolveClientCredentials(ctx context.Context, authServerMetadata *AuthorizationServerMetadata, redirectURI string) (clientID, clientSecret string, scopes []string, err error) {
+	switch {
+	case t.oauthConfig != nil && t.oauthConfig.ClientID != "":
+		// Use explicit credentials from config
+		slog.DebugContext(ctx, "Using explicit OAuth credentials from config")
+		return t.oauthConfig.ClientID, t.oauthConfig.ClientSecret, t.oauthConfig.Scopes, nil
+	case authServerMetadata.RegistrationEndpoint != "":
+		slog.DebugContext(ctx, "Attempting dynamic client registration")
+		clientID, clientSecret, err = registerClient(
+			ctx,
+			t.oauthClient(),
+			authServerMetadata,
+			redirectURI,
+			nil,
+		)
+		if err != nil {
+			slog.DebugContext(ctx, "Dynamic registration failed", "error", err)
+			// TODO(rumpl): fall back to requesting client ID from user
+			return "", "", nil, err
+		}
+		return clientID, clientSecret, nil, nil
+	default:
+		// TODO(rumpl): fall back to requesting client ID from user
+		return "", "", nil, errors.New("authorization server does not support dynamic client registration and no explicit OAuth credentials configured")
+	}
+}
+
+// unmanagedRedirectURI returns the redirect_uri docker-agent should use when
+// driving the unmanaged OAuth flow itself. Per-toolset config takes
+// precedence (RemoteOAuthConfig.CallbackRedirectURL) over the runtime-wide
+// default (--mcp-oauth-redirect-uri).
+//
+// Returns the empty string when neither is set, in which case the unmanaged
+// flow falls back to the legacy client-driven behavior (client returns
+// {access_token, …} via ResumeElicitation).
+func (t *oauthTransport) unmanagedRedirectURI() string {
+	if t.oauthConfig != nil && t.oauthConfig.CallbackRedirectURL != "" {
+		return t.oauthConfig.CallbackRedirectURL
+	}
+	return t.unmanagedOAuthRedirectURI
+}
+
+// handleUnmanagedOAuthFlow runs the OAuth flow when the runtime is not
+// managing the browser/callback machinery itself. Two sub-behaviors:
+//
+//   - If a redirect URI is configured (either via per-toolset
+//     CallbackRedirectURL or the runtime-wide --mcp-oauth-redirect-uri),
+//     docker-agent drives the OAuth flow: generates state + PKCE, runs DCR
+//     if needed, builds the authorize URL, emits an elicitation carrying
+//     authorize_url + state, and expects the client to return {code, state}
+//     via ResumeElicitation. docker-agent then exchanges the code for the
+//     token. The client never touches the OAuth endpoints — it just opens
+//     the browser and forwards the deeplink payload back.
+//
+//   - Otherwise the client is expected to drive the OAuth flow end-to-end
+//     and return {access_token, refresh_token, …} via ResumeElicitation
+//     (the legacy contract).
+//
+// Both reply shapes are accepted by the elicitation-result handling below
+// regardless of which sub-behavior emitted the request, so a client that
+// receives an authorize_url but still wants to do the exchange itself is
+// free to return an access token.
 func (t *oauthTransport) handleUnmanagedOAuthFlow(ctx context.Context, authServer, wwwAuth string) error {
 	slog.DebugContext(ctx, "Starting unmanaged OAuth flow for server", "url", t.baseURL)
 
@@ -878,18 +920,66 @@ func (t *oauthTransport) handleUnmanagedOAuthFlow(ctx context.Context, authServe
 		return fmt.Errorf("failed to fetch authorization server metadata: %w", err)
 	}
 
-	slog.DebugContext(ctx, "Sending OAuth elicitation request to client")
+	// Decide which sub-behavior to run based on whether a redirect URI is
+	// configured. When set, docker-agent does the OAuth dance itself and
+	// emits authorize_url + state in the elicitation; otherwise it emits
+	// only metadata and waits for the client to return a ready token.
+	redirectURI := t.unmanagedRedirectURI()
+	driveFlow := redirectURI != ""
+
+	meta := map[string]any{
+		"cagent/type":          "oauth_flow",
+		"cagent/server_url":    t.baseURL,
+		"auth_server":          resourceMetadata.AuthorizationServers[0],
+		"auth_server_metadata": authServerMetadata,
+		"resource_metadata":    resourceMetadata,
+	}
+
+	// Variables populated only on the docker-agent-driven path; needed
+	// after the elicitation if the client returns {code, state}.
+	var (
+		clientID          string
+		clientSecret      string
+		scopes            []string
+		expectedState     string
+		pkceVerifier      string
+		resourceIndicator string
+	)
+
+	if driveFlow {
+		clientID, clientSecret, scopes, err = t.resolveClientCredentials(ctx, authServerMetadata, redirectURI)
+		if err != nil {
+			return err
+		}
+
+		expectedState, err = GenerateState()
+		if err != nil {
+			return fmt.Errorf("failed to generate state: %w", err)
+		}
+		pkceVerifier = GeneratePKCEVerifier()
+		resourceIndicator = cmp.Or(resourceMetadata.Resource, t.baseURL)
+
+		authURL := BuildAuthorizationURL(
+			authServerMetadata.AuthorizationEndpoint,
+			clientID,
+			redirectURI,
+			expectedState,
+			oauth2.S256ChallengeFromVerifier(pkceVerifier),
+			resourceIndicator,
+			scopes,
+		)
+		// Forward the values the client needs to open the browser and
+		// later correlate the deeplink callback back to this flow.
+		meta["cagent/authorize_url"] = authURL
+		meta["cagent/state"] = expectedState
+	}
+
+	slog.DebugContext(ctx, "Sending OAuth elicitation request to client", "drive_flow", driveFlow)
 
 	result, err := t.client.requestElicitation(ctx, &mcpsdk.ElicitParams{
 		Message:         "OAuth authorization required for " + t.baseURL,
 		RequestedSchema: nil,
-		Meta: map[string]any{
-			"cagent/type":          "oauth_flow",
-			"cagent/server_url":    t.baseURL,
-			"auth_server":          resourceMetadata.AuthorizationServers[0],
-			"auth_server_metadata": authServerMetadata,
-			"resource_metadata":    resourceMetadata,
-		},
+		Meta:            meta,
 	})
 	if err != nil {
 		return fmt.Errorf("failed to send elicitation request: %w", err)
@@ -901,35 +991,37 @@ func (t *oauthTransport) handleUnmanagedOAuthFlow(ctx context.Context, authServe
 		return errors.New("OAuth flow declined or cancelled by client")
 	}
 	if result.Content == nil {
-		return errors.New("no token received from client")
+		return errors.New("no payload received from client")
 	}
 
-	tokenData := result.Content
-
-	token := &OAuthToken{}
-
-	if accessToken, ok := tokenData["access_token"].(string); ok {
-		token.AccessToken = accessToken
-	} else {
-		return errors.New("access_token missing or invalid in client response")
+	token, err := t.consumeUnmanagedElicitationReply(
+		ctx,
+		result.Content,
+		authServerMetadata,
+		resourceMetadata,
+		driveFlow,
+		expectedState,
+		pkceVerifier,
+		clientID,
+		clientSecret,
+		redirectURI,
+		resourceIndicator,
+	)
+	if err != nil {
+		return err
 	}
 
-	if tokenType, ok := tokenData["token_type"].(string); ok {
-		token.TokenType = tokenType
-	}
-
-	if expiresIn, ok := tokenData["expires_in"].(float64); ok {
-		token.ExpiresIn = int(expiresIn)
-		token.ExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+	if driveFlow {
+		// On the docker-agent-driven path we generated the credentials, so
+		// stamp them onto the token for silent refresh later.
+		token.ClientID = clientID
+		token.ClientSecret = clientSecret
+		token.RequestedScopes = scopes
+	} else if t.oauthConfig != nil {
+		token.RequestedScopes = t.oauthConfig.Scopes
 	}
 	token.AuthServer = resourceMetadata.AuthorizationServers[0]
 
-	if refreshToken, ok := tokenData["refresh_token"].(string); ok {
-		token.RefreshToken = refreshToken
-	}
-	if t.oauthConfig != nil {
-		token.RequestedScopes = t.oauthConfig.Scopes
-	}
 	if err := t.tokenStore.StoreToken(t.baseURL, token); err != nil {
 		return fmt.Errorf("failed to store token: %w", err)
 	}
@@ -937,6 +1029,76 @@ func (t *oauthTransport) handleUnmanagedOAuthFlow(ctx context.Context, authServe
 	// Notify the runtime that the OAuth flow was successful
 	t.client.oauthSuccess()
 
-	slog.DebugContext(ctx, "Managed OAuth flow completed successfully")
+	slog.DebugContext(ctx, "Unmanaged OAuth flow completed successfully")
 	return nil
+}
+
+// consumeUnmanagedElicitationReply turns the ResumeElicitation payload into
+// an OAuthToken. It accepts two shapes:
+//
+//   - {access_token, token_type?, expires_in?, refresh_token?, scope?}
+//     The client did the OAuth dance itself; we just record the token.
+//
+//   - {code, state}
+//     The client received the deeplink callback; docker-agent verifies the
+//     state, exchanges the code at the token endpoint, and returns the
+//     resulting token. Only valid on the docker-agent-driven path (we need
+//     the stored PKCE verifier + client credentials to make the exchange).
+//
+// If the client mixes shapes (e.g. supplies both access_token and code), the
+// access_token wins to preserve the legacy behavior.
+func (t *oauthTransport) consumeUnmanagedElicitationReply(
+	ctx context.Context,
+	content map[string]any,
+	authServerMetadata *AuthorizationServerMetadata,
+	resourceMetadata protectedResourceMetadata,
+	driveFlow bool,
+	expectedState, pkceVerifier, clientID, clientSecret, redirectURI, resourceIndicator string,
+) (*OAuthToken, error) {
+	if accessToken, ok := content["access_token"].(string); ok && accessToken != "" {
+		token := &OAuthToken{AccessToken: accessToken}
+		if tokenType, ok := content["token_type"].(string); ok {
+			token.TokenType = tokenType
+		}
+		if expiresIn, ok := content["expires_in"].(float64); ok {
+			token.ExpiresIn = int(expiresIn)
+			token.ExpiresAt = time.Now().Add(time.Duration(token.ExpiresIn) * time.Second)
+		}
+		if refreshToken, ok := content["refresh_token"].(string); ok {
+			token.RefreshToken = refreshToken
+		}
+		return token, nil
+	}
+
+	code, hasCode := content["code"].(string)
+	state, hasState := content["state"].(string)
+	if !hasCode || code == "" || !hasState || state == "" {
+		return nil, errors.New("elicitation reply must include either access_token or {code, state}")
+	}
+	if !driveFlow {
+		// We never sent an authorize_url; receiving {code, state} means the
+		// client is confused about which contract is in effect.
+		return nil, errors.New("received {code, state} in elicitation reply but no redirect URI was configured for unmanaged OAuth flow")
+	}
+	if subtle.ConstantTimeCompare([]byte(state), []byte(expectedState)) != 1 {
+		return nil, errors.New("state mismatch in elicitation reply")
+	}
+
+	slog.DebugContext(ctx, "Exchanging authorization code received from client")
+	token, err := exchangeCodeForToken(
+		ctx,
+		t.oauthClient(),
+		authServerMetadata.TokenEndpoint,
+		code,
+		pkceVerifier,
+		clientID,
+		clientSecret,
+		redirectURI,
+		resourceIndicator,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to exchange code for token: %w", err)
+	}
+	_ = resourceMetadata // captured for future audit logging; intentionally unused here
+	return token, nil
 }

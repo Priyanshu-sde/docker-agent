@@ -71,6 +71,7 @@ func (m *failingInitClient) SetElicitationHandler(tools.ElicitationHandler) {}
 func (m *failingInitClient) SetSamplingHandler(tools.SamplingHandler)       {}
 func (m *failingInitClient) SetOAuthSuccessHandler(func())                  {}
 func (m *failingInitClient) SetManagedOAuth(bool)                           {}
+func (m *failingInitClient) SetUnmanagedOAuthRedirectURI(string)            {}
 func (m *failingInitClient) SetToolListChangedHandler(func())               {}
 func (m *failingInitClient) SetPromptListChangedHandler(func())             {}
 

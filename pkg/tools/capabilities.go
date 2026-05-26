@@ -57,6 +57,12 @@ type Sampleable interface {
 type OAuthCapable interface {
 	SetOAuthSuccessHandler(handler func())
 	SetManagedOAuth(managed bool)
+	// SetUnmanagedOAuthRedirectURI sets the `redirect_uri` that docker-agent
+	// advertises when running an MCP server OAuth flow in unmanaged mode.
+	// When non-empty, docker-agent drives PKCE + DCR + token exchange itself
+	// and expects the client to return {code, state} (in addition to the
+	// existing {access_token, …} reply shape). Ignored in managed mode.
+	SetUnmanagedOAuthRedirectURI(uri string)
 }
 
 // GetInstructions returns instructions if the toolset implements Instructable.
@@ -78,7 +84,7 @@ type ChangeNotifier interface {
 // It checks for Elicitable, Sampleable and OAuthCapable interfaces and
 // configures them. This is a convenience function that handles the capability
 // checking internally.
-func ConfigureHandlers(ts ToolSet, elicitHandler ElicitationHandler, samplingHandler SamplingHandler, oauthHandler func(), managedOAuth bool) {
+func ConfigureHandlers(ts ToolSet, elicitHandler ElicitationHandler, samplingHandler SamplingHandler, oauthHandler func(), managedOAuth bool, unmanagedOAuthRedirectURI string) {
 	if e, ok := As[Elicitable](ts); ok {
 		e.SetElicitationHandler(elicitHandler)
 	}
@@ -88,5 +94,6 @@ func ConfigureHandlers(ts ToolSet, elicitHandler ElicitationHandler, samplingHan
 	if o, ok := As[OAuthCapable](ts); ok {
 		o.SetOAuthSuccessHandler(oauthHandler)
 		o.SetManagedOAuth(managedOAuth)
+		o.SetUnmanagedOAuthRedirectURI(unmanagedOAuthRedirectURI)
 	}
 }

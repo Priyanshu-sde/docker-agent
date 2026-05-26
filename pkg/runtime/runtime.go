@@ -177,22 +177,23 @@ type ModelStore interface {
 
 // LocalRuntime manages the execution of agents
 type LocalRuntime struct {
-	toolMap              map[string]ToolHandlerFunc
-	team                 *team.Team
-	agents               *agentRouter
-	resumeChan           chan ResumeRequest
-	tracer               trace.Tracer
-	modelsStore          ModelStore
-	sessionCompaction    bool
-	managedOAuth         bool
-	nonInteractive       bool
-	startupInfoEmitted   bool                   // Track if startup info has been emitted to avoid unnecessary duplication
-	elicitationRequestCh chan ElicitationResult // Channel for receiving elicitation responses
-	elicitation          elicitationBridge      // Owns the per-stream events channel for outbound elicitation requests
-	sessionStore         session.Store
-	workingDir           string   // Working directory for hooks execution
-	env                  []string // Environment variables for hooks execution
-	modelSwitcherCfg     *ModelSwitcherConfig
+	toolMap                   map[string]ToolHandlerFunc
+	team                      *team.Team
+	agents                    *agentRouter
+	resumeChan                chan ResumeRequest
+	tracer                    trace.Tracer
+	modelsStore               ModelStore
+	sessionCompaction         bool
+	managedOAuth              bool
+	unmanagedOAuthRedirectURI string
+	nonInteractive            bool
+	startupInfoEmitted        bool                   // Track if startup info has been emitted to avoid unnecessary duplication
+	elicitationRequestCh      chan ElicitationResult // Channel for receiving elicitation responses
+	elicitation               elicitationBridge      // Owns the per-stream events channel for outbound elicitation requests
+	sessionStore              session.Store
+	workingDir                string   // Working directory for hooks execution
+	env                       []string // Environment variables for hooks execution
+	modelSwitcherCfg          *ModelSwitcherConfig
 
 	// hooksRegistry is the runtime-private hooks.Registry used to build
 	// every Executor. It carries the runtime-owned builtin hooks
@@ -288,6 +289,20 @@ func WithCurrentAgent(agentName string) Opt {
 func WithManagedOAuth(managed bool) Opt {
 	return func(r *LocalRuntime) {
 		r.managedOAuth = managed
+	}
+}
+
+// WithUnmanagedOAuthRedirectURI configures the redirect_uri the runtime
+// advertises when running MCP server OAuth flows in unmanaged mode (i.e.
+// when WithManagedOAuth(false) is set). When set, docker-agent generates
+// state + PKCE + DCR in-process and emits an elicitation carrying the
+// `authorize_url` + `state`; the client returns `{code, state}` via
+// ResumeElicitation and docker-agent does the token exchange itself.
+// When empty, the runtime falls back to the legacy unmanaged contract
+// where the client performs the OAuth flow and returns an access token.
+func WithUnmanagedOAuthRedirectURI(uri string) Opt {
+	return func(r *LocalRuntime) {
+		r.unmanagedOAuthRedirectURI = uri
 	}
 }
 

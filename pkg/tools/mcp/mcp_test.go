@@ -48,6 +48,8 @@ func (m *mockMCPClient) SetOAuthSuccessHandler(func()) {}
 
 func (m *mockMCPClient) SetManagedOAuth(bool) {}
 
+func (m *mockMCPClient) SetUnmanagedOAuthRedirectURI(string) {}
+
 func (m *mockMCPClient) SetToolListChangedHandler(func()) {}
 
 func (m *mockMCPClient) SetPromptListChangedHandler(func()) {}

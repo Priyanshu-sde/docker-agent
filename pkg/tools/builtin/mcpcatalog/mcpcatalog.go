@@ -84,11 +84,12 @@ type Toolset struct {
 	// OAuth-success refreshes, the managed-vs-unmanaged flag and
 	// tool-list change notifications behave identically to a YAML-
 	// declared `mcp.remote` toolset.
-	elicitationHandler  tools.ElicitationHandler
-	oauthSuccessHandler func()
-	toolsChangedHandler func()
-	managedOAuth        bool
-	managedOAuthSet     bool // distinguishes "default" from "explicitly false"
+	elicitationHandler        tools.ElicitationHandler
+	oauthSuccessHandler       func()
+	toolsChangedHandler       func()
+	managedOAuth              bool
+	managedOAuthSet           bool // distinguishes "default" from "explicitly false"
+	unmanagedOAuthRedirectURI string
 
 	// removeOAuthToken drops a persisted OAuth token by resource URL.
 	// Defaults to mcp.RemoveOAuthToken; tests inject a stub to avoid
@@ -222,6 +223,20 @@ func (t *Toolset) SetManagedOAuth(managed bool) {
 	for _, ts := range enabled {
 		if o, ok := tools.As[tools.OAuthCapable](ts); ok {
 			o.SetManagedOAuth(managed)
+		}
+	}
+}
+
+// SetUnmanagedOAuthRedirectURI forwards the unmanaged-OAuth redirect URI
+// to every enabled toolset; new toolsets pick it up at enable time.
+func (t *Toolset) SetUnmanagedOAuthRedirectURI(uri string) {
+	t.mu.Lock()
+	t.unmanagedOAuthRedirectURI = uri
+	enabled := t.snapshotEnabled()
+	t.mu.Unlock()
+	for _, ts := range enabled {
+		if o, ok := tools.As[tools.OAuthCapable](ts); ok {
+			o.SetUnmanagedOAuthRedirectURI(uri)
 		}
 	}
 }
@@ -562,6 +577,9 @@ func (t *Toolset) handleEnable(ctx context.Context, args EnableArgs) (*tools.Too
 	}
 	if t.managedOAuthSet {
 		mcpToolset.SetManagedOAuth(t.managedOAuth)
+	}
+	if t.unmanagedOAuthRedirectURI != "" {
+		mcpToolset.SetUnmanagedOAuthRedirectURI(t.unmanagedOAuthRedirectURI)
 	}
 
 	wrapped := tools.NewStartable(mcpToolset)

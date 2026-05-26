@@ -841,6 +841,7 @@ func (r *LocalRuntime) configureToolsetHandlers(a *agent.Agent, events EventSink
 			r.samplingHandler,
 			func() { events.Emit(Authorization(tools.ElicitationActionAccept, a.Name())) },
 			r.managedOAuth,
+			r.unmanagedOAuthRedirectURI,
 		)
 
 		// Wire RAG event forwarding so the TUI shows indexing progress.

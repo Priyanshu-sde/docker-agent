@@ -44,6 +44,27 @@ type Config struct {
 
 	MCPToolName  string
 	MCPKeepAlive time.Duration
+
+	// MCPOAuthRedirectURI is an opaque public HTTPS URL the runtime advertises
+	// as the OAuth `redirect_uri` when running an MCP server OAuth flow in
+	// unmanaged mode (see WithManagedOAuth(false)). When set, docker-agent
+	// generates state + PKCE + DCR in-process and emits an elicitation
+	// carrying the `authorize_url` + `state`; the client is then a thin
+	// relay that opens the browser, receives the callback (typically via a
+	// host-controlled bouncer + deeplink), and returns {code, state} via
+	// ResumeElicitation. docker-agent then exchanges the code for the
+	// token using this same URI as redirect_uri (RFC 6749 §4.1.3 requires
+	// the value to match the one sent at the /authorize step).
+	//
+	// When empty, the unmanaged flow keeps its original contract: the
+	// client is expected to drive the OAuth dance end-to-end and return
+	// {access_token, refresh_token, …}. This preserves backward compat
+	// with existing CLI-mirror clients.
+	//
+	// The URI itself is opaque to docker-agent — what it points at and how
+	// the browser eventually lands back in the host application is the
+	// caller's concern.
+	MCPOAuthRedirectURI string
 }
 
 func (runConfig *RuntimeConfig) Clone() *RuntimeConfig {

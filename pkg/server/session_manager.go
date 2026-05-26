@@ -665,6 +665,7 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 	opts := []runtime.Opt{
 		runtime.WithCurrentAgent(currentAgent),
 		runtime.WithManagedOAuth(false),
+		runtime.WithUnmanagedOAuthRedirectURI(rc.MCPOAuthRedirectURI),
 		runtime.WithSessionStore(sm.sessionStore),
 		runtime.WithTracer(otel.Tracer("cagent")),
 		runtime.WithModelSwitcherConfig(modelSwitcherCfg),

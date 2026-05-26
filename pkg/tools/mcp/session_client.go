@@ -235,3 +235,9 @@ func (c *sessionClient) oauthSuccess() {
 // SetManagedOAuth is a no-op at the session level. The remoteMCPClient
 // overrides this to store the managed flag for its OAuth transport.
 func (c *sessionClient) SetManagedOAuth(bool) {}
+
+// SetUnmanagedOAuthRedirectURI is a no-op at the session level. The
+// remoteMCPClient overrides this to store the URI for its OAuth transport.
+// Stdio MCP clients never run OAuth (they have no HTTP transport to
+// authenticate), so the URI is ignored there too.
+func (c *sessionClient) SetUnmanagedOAuthRedirectURI(string) {}

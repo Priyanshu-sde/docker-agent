@@ -963,6 +963,8 @@ func (s *oauthAwareToolSet) SetManagedOAuth(managed bool) {
 	s.managedOAuthSet = true
 }
 
+func (s *oauthAwareToolSet) SetUnmanagedOAuthRedirectURI(string) {}
+
 // TestEmitStartupInfo_DoesNotBlockOnInteractiveOAuth verifies that the
 // startup path does NOT trigger interactive flows on toolsets. In particular:
 //

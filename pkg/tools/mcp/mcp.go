@@ -137,6 +137,7 @@ type mcpClient interface {
 	SetSamplingHandler(handler tools.SamplingHandler)
 	SetOAuthSuccessHandler(handler func())
 	SetManagedOAuth(managed bool)
+	SetUnmanagedOAuthRedirectURI(uri string)
 	SetToolListChangedHandler(handler func())
 	SetPromptListChangedHandler(handler func())
 	// Wait blocks until the underlying connection is closed by the server.
@@ -783,6 +784,10 @@ func (ts *Toolset) SetOAuthSuccessHandler(handler func()) {
 
 func (ts *Toolset) SetManagedOAuth(managed bool) {
 	ts.mcpClient.SetManagedOAuth(managed)
+}
+
+func (ts *Toolset) SetUnmanagedOAuthRedirectURI(uri string) {
+	ts.mcpClient.SetUnmanagedOAuthRedirectURI(uri)
 }
 
 func (ts *Toolset) SetToolsChangedHandler(handler func()) {

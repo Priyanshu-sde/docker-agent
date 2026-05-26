@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -1236,4 +1237,329 @@ func TestGetAuthorizationServerMetadata_All404FallsBackToDefaults(t *testing.T) 
 	require.NoError(t, err)
 	assert.Equal(t, srv.URL+"/tenant/authorize", md.AuthorizationEndpoint,
 		"defaults must be derived from the issuer URL")
+}
+
+// --------- Unmanaged flow with docker-agent-driven OAuth ---------
+
+// unmanagedOAuthTestServer stands up an httptest.Server that emulates both
+// the MCP server (returns 401 + WWW-Authenticate) and the authorization
+// server (metadata + DCR + token endpoint) at known paths.
+type unmanagedOAuthTestServer struct {
+	*httptest.Server
+
+	tokenCalls atomic.Int32
+	lastForm   url.Values
+}
+
+func newUnmanagedOAuthTestServer(t *testing.T) *unmanagedOAuthTestServer {
+	t.Helper()
+	srv := &unmanagedOAuthTestServer{}
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(protectedResourceMetadata{
+			Resource:             srv.URL,
+			AuthorizationServers: []string{srv.URL},
+		})
+	})
+	mux.HandleFunc("/.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(AuthorizationServerMetadata{
+			Issuer:                srv.URL,
+			AuthorizationEndpoint: srv.URL + "/authorize",
+			TokenEndpoint:         srv.URL + "/token",
+			RegistrationEndpoint:  srv.URL + "/register",
+		})
+	})
+	mux.HandleFunc("/.well-known/openid-configuration", func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	})
+	mux.HandleFunc("/register", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"client_id":"registered-client-id","client_secret":"registered-secret"}`))
+	})
+	mux.HandleFunc("/token", func(w http.ResponseWriter, r *http.Request) {
+		srv.tokenCalls.Add(1)
+		_ = r.ParseForm()
+		srv.lastForm = r.Form
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"exchanged-at","token_type":"Bearer","expires_in":3600,"refresh_token":"refresh-tok"}`))
+	})
+	// The MCP endpoint at "/" returns 401 until a Bearer header is present.
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", `Bearer resource="`+srv.URL+`/.well-known/oauth-protected-resource"`)
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+
+	srv.Server = httptest.NewServer(mux)
+	return srv
+}
+
+// elicitCaptured records the elicitation request that the OAuth transport
+// sent and lets the test reply with a chosen payload, mirroring what a
+// real client (e.g. Docker Desktop) would do.
+type elicitCaptured struct {
+	mu      sync.Mutex
+	req     *gomcp.ElicitParams
+	reply   tools.ElicitationResult
+	replyFn func(req *gomcp.ElicitParams) tools.ElicitationResult
+}
+
+func (e *elicitCaptured) handler(_ context.Context, req *gomcp.ElicitParams) (tools.ElicitationResult, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.req = req
+	if e.replyFn != nil {
+		return e.replyFn(req), nil
+	}
+	return e.reply, nil
+}
+
+// newUnmanagedTestTransport builds an oauthTransport configured for the
+// unmanaged flow and wires the supplied elicitation handler.
+func newUnmanagedTestTransport(t *testing.T, baseURL, redirectURI string, capture *elicitCaptured) (*oauthTransport, *remoteMCPClient) {
+	t.Helper()
+	client := newRemoteClient(baseURL, "streamable", nil, NewInMemoryTokenStore(), nil, false)
+	client.unmanagedOAuthRedirectURI = redirectURI
+	client.SetElicitationHandler(capture.handler)
+	// Allow private-IP destinations so the httptest server's 127.0.0.1 URLs
+	// aren't blocked by the SSRF guard the production OAuth helper uses.
+	client.allowPrivateIPs = true
+	transport := &oauthTransport{
+		base:                      http.DefaultTransport,
+		client:                    client,
+		tokenStore:                client.tokenStore,
+		baseURL:                   baseURL,
+		managed:                   false,
+		unmanagedOAuthRedirectURI: redirectURI,
+		oauthHTTPClient:           oauthHTTPClientForAllowPrivateIPs(true),
+	}
+	return transport, client
+}
+
+// TestUnmanagedOAuthFlow_DriveFlow_ExchangesCodeForToken verifies the new
+// docker-agent-driven branch end-to-end: docker-agent emits the elicitation
+// with authorize_url + state, the client (test stub) replies with
+// {code, state}, and docker-agent exchanges the code at the token endpoint.
+func TestUnmanagedOAuthFlow_DriveFlow_ExchangesCodeForToken(t *testing.T) {
+	srv := newUnmanagedOAuthTestServer(t)
+	defer srv.Close()
+
+	const redirectURI = "https://example.test/oauth/cb"
+	capture := &elicitCaptured{}
+	capture.replyFn = func(req *gomcp.ElicitParams) tools.ElicitationResult {
+		// Echo the state docker-agent sent us, simulating a real OAuth
+		// callback round-trip.
+		state, _ := req.Meta["cagent/state"].(string)
+		return tools.ElicitationResult{
+			Action: tools.ElicitationActionAccept,
+			Content: map[string]any{
+				"code":  "abc",
+				"state": state,
+			},
+		}
+	}
+	transport, client := newUnmanagedTestTransport(t, srv.URL, redirectURI, capture)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL, strings.NewReader("{}"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Verify the elicitation carried the new fields.
+	require.NotNil(t, capture.req)
+	assert.Equal(t, "oauth_flow", capture.req.Meta["cagent/type"])
+	assert.Equal(t, srv.URL, capture.req.Meta["cagent/server_url"])
+	authorizeURL, _ := capture.req.Meta["cagent/authorize_url"].(string)
+	assert.NotEmpty(t, authorizeURL, "drive-flow elicitation must include cagent/authorize_url")
+	assert.Contains(t, authorizeURL, "redirect_uri="+url.QueryEscape(redirectURI))
+	state, _ := capture.req.Meta["cagent/state"].(string)
+	assert.NotEmpty(t, state, "drive-flow elicitation must include cagent/state")
+
+	// Verify docker-agent exchanged the code (not the client).
+	require.Equal(t, int32(1), srv.tokenCalls.Load(), "token endpoint must be hit exactly once")
+	assert.Equal(t, "authorization_code", srv.lastForm.Get("grant_type"))
+	assert.Equal(t, "abc", srv.lastForm.Get("code"))
+	assert.Equal(t, redirectURI, srv.lastForm.Get("redirect_uri"),
+		"redirect_uri sent at /token must match the one used at /authorize per RFC 6749 §4.1.3")
+	assert.Equal(t, "registered-client-id", srv.lastForm.Get("client_id"))
+	assert.NotEmpty(t, srv.lastForm.Get("code_verifier"), "PKCE verifier must be sent at exchange")
+
+	// Verify the token landed in the store with the credentials stamped on
+	// (for silent refresh later).
+	tok, err := client.tokenStore.GetToken(srv.URL)
+	require.NoError(t, err)
+	require.NotNil(t, tok)
+	assert.Equal(t, "exchanged-at", tok.AccessToken)
+	assert.Equal(t, "refresh-tok", tok.RefreshToken)
+	assert.Equal(t, "registered-client-id", tok.ClientID)
+	assert.Equal(t, "registered-secret", tok.ClientSecret)
+	assert.Equal(t, srv.URL, tok.AuthServer)
+}
+
+// TestUnmanagedOAuthFlow_DriveFlow_RejectsStateMismatch verifies the CSRF
+// check: if the client returns a `state` value that doesn't match what
+// docker-agent generated and embedded in the authorize URL, the flow
+// aborts WITHOUT calling the token endpoint.
+func TestUnmanagedOAuthFlow_DriveFlow_RejectsStateMismatch(t *testing.T) {
+	srv := newUnmanagedOAuthTestServer(t)
+	defer srv.Close()
+
+	capture := &elicitCaptured{
+		reply: tools.ElicitationResult{
+			Action: tools.ElicitationActionAccept,
+			Content: map[string]any{
+				"code":  "abc",
+				"state": "i-made-this-up",
+			},
+		},
+	}
+	transport, _ := newUnmanagedTestTransport(t, srv.URL, "https://example.test/oauth/cb", capture)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL, strings.NewReader("{}"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := transport.RoundTrip(req)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "state mismatch")
+	assert.Equal(t, int32(0), srv.tokenCalls.Load(), "token endpoint must not be hit on state mismatch")
+}
+
+// TestUnmanagedOAuthFlow_DriveFlow_AcceptsLegacyAccessTokenReply verifies
+// that when docker-agent is driving the flow but the client decides to do
+// the exchange itself anyway (returning {access_token, …}), the legacy
+// reply shape is still honored — no error, token stored verbatim, no
+// /token request from docker-agent.
+func TestUnmanagedOAuthFlow_DriveFlow_AcceptsLegacyAccessTokenReply(t *testing.T) {
+	srv := newUnmanagedOAuthTestServer(t)
+	defer srv.Close()
+
+	capture := &elicitCaptured{
+		reply: tools.ElicitationResult{
+			Action: tools.ElicitationActionAccept,
+			Content: map[string]any{
+				"access_token":  "client-provided-at",
+				"token_type":    "Bearer",
+				"refresh_token": "client-provided-refresh",
+			},
+		},
+	}
+	transport, client := newUnmanagedTestTransport(t, srv.URL, "https://example.test/oauth/cb", capture)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL, strings.NewReader("{}"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int32(0), srv.tokenCalls.Load(),
+		"docker-agent must not exchange when the client supplied a ready token")
+
+	tok, err := client.tokenStore.GetToken(srv.URL)
+	require.NoError(t, err)
+	assert.Equal(t, "client-provided-at", tok.AccessToken)
+	assert.Equal(t, "client-provided-refresh", tok.RefreshToken)
+}
+
+// TestUnmanagedOAuthFlow_LegacyMode_NoAuthorizeURLInElicitation verifies the
+// back-compat path: with no redirect URI configured, the elicitation does
+// NOT include authorize_url/state, the client returns an access token, and
+// docker-agent stores it directly.
+func TestUnmanagedOAuthFlow_LegacyMode_NoAuthorizeURLInElicitation(t *testing.T) {
+	srv := newUnmanagedOAuthTestServer(t)
+	defer srv.Close()
+
+	capture := &elicitCaptured{
+		reply: tools.ElicitationResult{
+			Action: tools.ElicitationActionAccept,
+			Content: map[string]any{
+				"access_token": "legacy-at",
+				"token_type":   "Bearer",
+			},
+		},
+	}
+	// Empty redirect URI → legacy client-driven mode.
+	transport, _ := newUnmanagedTestTransport(t, srv.URL, "", capture)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL, strings.NewReader("{}"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := transport.RoundTrip(req)
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	require.NotNil(t, capture.req)
+	_, hasAuthorizeURL := capture.req.Meta["cagent/authorize_url"]
+	assert.False(t, hasAuthorizeURL, "legacy unmanaged flow must not include cagent/authorize_url")
+	_, hasState := capture.req.Meta["cagent/state"]
+	assert.False(t, hasState, "legacy unmanaged flow must not include cagent/state")
+	// resource_metadata is still surfaced so the client can do its own DCR
+	// if desired.
+	assert.NotNil(t, capture.req.Meta["resource_metadata"])
+}
+
+// TestUnmanagedOAuthFlow_LegacyMode_RejectsCodeStateReply verifies that a
+// client which sends {code, state} despite docker-agent not emitting an
+// authorize_url is rejected — there is no stored PKCE verifier to exchange
+// the code with, so the flow cannot complete.
+func TestUnmanagedOAuthFlow_LegacyMode_RejectsCodeStateReply(t *testing.T) {
+	srv := newUnmanagedOAuthTestServer(t)
+	defer srv.Close()
+
+	capture := &elicitCaptured{
+		reply: tools.ElicitationResult{
+			Action: tools.ElicitationActionAccept,
+			Content: map[string]any{
+				"code":  "abc",
+				"state": "xyz",
+			},
+		},
+	}
+	transport, _ := newUnmanagedTestTransport(t, srv.URL, "", capture)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL, strings.NewReader("{}"))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := transport.RoundTrip(req)
+	if resp != nil {
+		resp.Body.Close()
+	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no redirect URI was configured")
+}
+
+// TestUnmanagedRedirectURI_PerToolsetTakesPrecedence verifies the precedence
+// order: per-toolset RemoteOAuthConfig.CallbackRedirectURL overrides the
+// runtime-wide --mcp-oauth-redirect-uri.
+func TestUnmanagedRedirectURI_PerToolsetTakesPrecedence(t *testing.T) {
+	transport := &oauthTransport{
+		unmanagedOAuthRedirectURI: "https://global.example/cb",
+		oauthConfig: &latest.RemoteOAuthConfig{
+			CallbackRedirectURL: "https://per-toolset.example/cb",
+		},
+	}
+	assert.Equal(t, "https://per-toolset.example/cb", transport.unmanagedRedirectURI())
+
+	transport.oauthConfig = nil
+	assert.Equal(t, "https://global.example/cb", transport.unmanagedRedirectURI())
+
+	transport.unmanagedOAuthRedirectURI = ""
+	assert.Empty(t, transport.unmanagedRedirectURI())
 }
