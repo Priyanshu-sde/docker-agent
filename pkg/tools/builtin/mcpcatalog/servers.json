@@ -3,7 +3,7 @@
   "source_url": "https://desktop.docker.com/mcp/catalog/v3/catalog.json",
   "schema_version": 3,
   "filter": "type=remote AND remote.transport_type=streamable-http",
-  "count": 44,
+  "count": 51,
   "servers": [
     {
       "id": "apify",
@@ -193,6 +193,26 @@
       }
     },
     {
+      "id": "cloudflare",
+      "title": "Cloudflare",
+      "description": "Manage Cloudflare workers, DNS, security and platform resources via the Cloudflare API.",
+      "url": "https://mcp.cloudflare.com/mcp",
+      "transport": "streamable-http",
+      "category": "infrastructure",
+      "tags": [
+        "infrastructure",
+        "cdn",
+        "edge",
+        "dns",
+        "remote"
+      ],
+      "icon": "https://www.google.com/s2/favicons?domain=cloudflare.com&sz=64",
+      "headers": {},
+      "auth": {
+        "type": "oauth"
+      }
+    },
+    {
       "id": "dappier-remote",
       "title": "Dappier Remote",
       "description": "Enable fast, free real-time web search and access premium data from trusted media brands—news, financial markets, sports, entertainment, weather, and more. Build powerful AI agents with Dappier.",
@@ -259,6 +279,25 @@
       "headers": {},
       "auth": {
         "type": "none"
+      }
+    },
+    {
+      "id": "figma",
+      "title": "Figma",
+      "description": "Read design files, components, frames and metadata directly from Figma.",
+      "url": "https://mcp.figma.com/mcp",
+      "transport": "streamable-http",
+      "category": "design",
+      "tags": [
+        "design",
+        "ui",
+        "collaboration",
+        "remote"
+      ],
+      "icon": "https://www.google.com/s2/favicons?domain=figma.com&sz=64",
+      "headers": {},
+      "auth": {
+        "type": "oauth"
       }
     },
     {
@@ -584,6 +623,26 @@
       }
     },
     {
+      "id": "microchip",
+      "title": "Microchip",
+      "description": "Look up Microchip semiconductor product specifications, datasheets and inventory data.",
+      "url": "https://api.microchip.com/mcp/resources",
+      "transport": "streamable-http",
+      "category": "hardware",
+      "tags": [
+        "hardware",
+        "embedded",
+        "semiconductor",
+        "documentation",
+        "remote"
+      ],
+      "icon": "https://www.google.com/s2/favicons?domain=microchip.com&sz=64",
+      "headers": {},
+      "auth": {
+        "type": "none"
+      }
+    },
+    {
       "id": "microsoft-learn",
       "title": "Microsoft Learn",
       "description": "Add trusted and up-to-date content from Microsoft Learn to your AI agent.",
@@ -681,6 +740,25 @@
             "example": "<YOUR_API_KEY>"
           }
         ]
+      }
+    },
+    {
+      "id": "neon",
+      "title": "Neon",
+      "description": "Provision and manage serverless PostgreSQL databases on Neon, including branches, roles and queries.",
+      "url": "https://mcp.neon.tech/mcp",
+      "transport": "streamable-http",
+      "category": "database",
+      "tags": [
+        "database",
+        "postgres",
+        "serverless",
+        "remote"
+      ],
+      "icon": "https://www.google.com/s2/favicons?domain=neon.tech&sz=64",
+      "headers": {},
+      "auth": {
+        "type": "oauth"
       }
     },
     {
@@ -835,6 +913,25 @@
       "headers": {},
       "auth": {
         "type": "none"
+      }
+    },
+    {
+      "id": "paypal",
+      "title": "PayPal",
+      "description": "Process payments, manage invoices and inspect PayPal merchant data.",
+      "url": "https://mcp.paypal.com/mcp",
+      "transport": "streamable-http",
+      "category": "payments",
+      "tags": [
+        "payments",
+        "finance",
+        "merchant",
+        "remote"
+      ],
+      "icon": "https://www.google.com/s2/favicons?domain=paypal.com&sz=64",
+      "headers": {},
+      "auth": {
+        "type": "oauth"
       }
     },
     {
@@ -1040,6 +1137,46 @@
             "secret": "stripe-remote.personal_access_token"
           }
         ]
+      }
+    },
+    {
+      "id": "supabase",
+      "title": "Supabase",
+      "description": "Manage Supabase projects, run database queries, edit schemas and configure edge functions and storage.",
+      "url": "https://mcp.supabase.com/mcp",
+      "transport": "streamable-http",
+      "category": "database",
+      "tags": [
+        "database",
+        "postgres",
+        "backend",
+        "auth",
+        "storage",
+        "remote"
+      ],
+      "icon": "https://www.google.com/s2/favicons?domain=supabase.com&sz=64",
+      "headers": {},
+      "auth": {
+        "type": "oauth"
+      }
+    },
+    {
+      "id": "tally",
+      "title": "Tally",
+      "description": "Build forms and inspect Tally form submissions and respondent data.",
+      "url": "https://api.tally.so/mcp",
+      "transport": "streamable-http",
+      "category": "productivity",
+      "tags": [
+        "productivity",
+        "forms",
+        "surveys",
+        "remote"
+      ],
+      "icon": "https://www.google.com/s2/favicons?domain=tally.so&sz=64",
+      "headers": {},
+      "auth": {
+        "type": "oauth"
       }
     },
     {
