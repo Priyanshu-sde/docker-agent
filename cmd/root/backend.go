@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/docker/docker-agent/pkg/config"
+	pathx "github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/teamloader"
@@ -28,6 +29,11 @@ type backend interface {
 	CreateSession(ctx context.Context, loaded *teamloader.LoadResult, req runtime.CreateSessionRequest) (runtime.Runtime, *session.Session, func(), error)
 
 	Spawner(rt runtime.Runtime) tui.SessionSpawner
+
+	// Close releases backend-owned resources (e.g., the shared session
+	// store). It is called once when the embedder is shutting down,
+	// after every per-session cleanup has run.
+	Close() error
 }
 
 // selectBackend picks the backend implied by the current flags.
@@ -43,9 +49,20 @@ func (f *runExecFlags) selectBackend(agentFileName string) (backend, error) {
 }
 
 // localBackend builds the in-process runtime and session.
+//
+// The session store is owned by the backend (not by individual
+// runtimes) because the TUI's session spawner reuses the same store
+// across spawned sessions. Closing it inside a per-session cleanup
+// would break later session lookups (issue #2872). The store is
+// lazily opened on the first CreateSession call and closed once when
+// Close is invoked.
 type localBackend struct {
 	flags       *runExecFlags
 	agentSource config.Source
+
+	storeOnce sync.Once
+	storeErr  error
+	store     session.Store
 }
 
 func (b *localBackend) LoadTeamRequest() runtime.LoadTeamRequest {
@@ -60,8 +77,34 @@ func (b *localBackend) CreateSessionRequest(workingDir string) runtime.CreateSes
 	return b.flags.createSessionRequest(workingDir)
 }
 
+// sessionStore returns the backend-owned session store, opening it on
+// first use. The store is shared by the initial runtime and by every
+// runtime spawned by [localBackend.Spawner].
+func (b *localBackend) sessionStore(req runtime.CreateSessionRequest) (session.Store, error) {
+	b.storeOnce.Do(func() {
+		sessionDB, err := pathx.ExpandHomeDir(req.SessionDB)
+		if err != nil {
+			b.storeErr = err
+			return
+		}
+		store, err := session.NewSQLiteSessionStore(sessionDB)
+		if err != nil {
+			b.storeErr = fmt.Errorf("creating session store: %w", err)
+			return
+		}
+		b.store = store
+	})
+	return b.store, b.storeErr
+}
+
 func (b *localBackend) CreateSession(ctx context.Context, loaded *teamloader.LoadResult, req runtime.CreateSessionRequest) (runtime.Runtime, *session.Session, func(), error) {
-	rt, sess, err := b.flags.createLocalRuntimeAndSession(ctx, loaded, req)
+	store, err := b.sessionStore(req)
+	if err != nil {
+		stopToolSets(loaded.Team)
+		return nil, nil, nil, err
+	}
+
+	rt, sess, err := b.flags.createLocalRuntimeAndSession(ctx, loaded, req, store)
 	if err != nil {
 		stopToolSets(loaded.Team)
 		return nil, nil, nil, err
@@ -81,6 +124,17 @@ func (b *localBackend) CreateSession(ctx context.Context, loaded *teamloader.Loa
 
 func (b *localBackend) Spawner(rt runtime.Runtime) tui.SessionSpawner {
 	return b.flags.createSessionSpawner(b.agentSource, rt.SessionStore())
+}
+
+func (b *localBackend) Close() error {
+	// Ensure any in-progress sessionStore initialization is observed
+	// before reading b.store. If sessionStore was never called, the Do
+	// runs an empty closure and b.store stays nil.
+	b.storeOnce.Do(func() {})
+	if b.store == nil {
+		return nil
+	}
+	return b.store.Close()
 }
 
 // remoteBackend talks to a docker-agent server.
@@ -140,5 +194,9 @@ func (b *remoteBackend) CreateSession(ctx context.Context, _ *teamloader.LoadRes
 }
 
 func (b *remoteBackend) Spawner(runtime.Runtime) tui.SessionSpawner {
+	return nil
+}
+
+func (b *remoteBackend) Close() error {
 	return nil
 }

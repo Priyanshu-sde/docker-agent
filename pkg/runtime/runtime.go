@@ -148,7 +148,12 @@ type Runtime interface {
 	// [ErrUnsupported] for runtimes that don't expose pause control.
 	TogglePause(ctx context.Context) (paused bool, err error)
 
-	// Close releases resources held by the runtime (e.g., session store connections).
+	// Close releases resources held by the runtime (e.g., background
+	// agents and pending lifecycles). The session store is *not* closed
+	// here: it is supplied by the embedder via WithSessionStore and may
+	// be shared with other runtimes (e.g. the TUI's spawner reuses the
+	// same store across spawned sessions). Embedders that own the store
+	// must close it themselves.
 	Close() error
 }
 
@@ -925,12 +930,15 @@ func (r *LocalRuntime) SessionStore() session.Store {
 	return r.sessionStore
 }
 
-// Close releases resources held by the runtime, including the session store.
+// Close releases resources held by the runtime. The session store is
+// *not* closed here: it is provided by the embedder via
+// WithSessionStore and may be shared with other runtimes (e.g. the
+// TUI's session spawner reuses the same store across spawned
+// sessions, so closing it here would break later session lookups).
+// Embedders that own the store are responsible for closing it once
+// when their process is shutting down.
 func (r *LocalRuntime) Close() error {
 	r.bgAgents.StopAll()
-	if r.sessionStore != nil {
-		return r.sessionStore.Close()
-	}
 	return nil
 }
 

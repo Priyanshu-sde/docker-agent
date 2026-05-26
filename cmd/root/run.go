@@ -21,7 +21,6 @@ import (
 	latestcfg "github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/hooks"
 	"github.com/docker/docker-agent/pkg/hooks/builtins"
-	pathx "github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/paths"
 	"github.com/docker/docker-agent/pkg/permissions"
 	"github.com/docker/docker-agent/pkg/profiling"
@@ -281,6 +280,11 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err := b.Close(); err != nil {
+			slog.ErrorContext(ctx, "Failed to close backend", "error", err)
+		}
+	}()
 
 	loadResult, err := b.LoadTeam(ctx, b.LoadTeamRequest())
 	if err != nil {
@@ -389,7 +393,7 @@ func (f *runExecFlags) snapshotRuntimeOpts() ([]runtime.Opt, builtins.SnapshotCo
 	}, ctrl, nil
 }
 
-func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadResult *teamloader.LoadResult, req runtime.CreateSessionRequest) (runtime.Runtime, *session.Session, error) {
+func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadResult *teamloader.LoadResult, req runtime.CreateSessionRequest, sessStore session.Store) (runtime.Runtime, *session.Session, error) {
 	t := loadResult.Team
 
 	// Merge user-level global permissions into the team's checker so the
@@ -403,16 +407,6 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 		return nil, nil, err
 	}
 	agentName := agt.Name()
-
-	sessionDB, err := pathx.ExpandHomeDir(req.SessionDB)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	sessStore, err := session.NewSQLiteSessionStore(sessionDB)
-	if err != nil {
-		return nil, nil, fmt.Errorf("creating session store: %w", err)
-	}
 
 	rtOpts, ctrl, err := f.snapshotRuntimeOpts()
 	if err != nil {
