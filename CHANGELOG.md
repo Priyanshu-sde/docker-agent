@@ -3,6 +3,15 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.68.0] - 2026-05-27
+
+This is a maintenance release with dependency updates and internal improvements.
+
+## Technical Changes
+- Maintenance release with dependency updates
+
+
+
 ## [v1.65.0] - 2026-05-21
 
 This release adds a skills dialog to the TUI and improves HTTP configuration options for API tools, along with proxy handling fixes.
@@ -2930,3 +2939,5 @@ This release improves the terminal user interface with better error handling and
 [v1.64.0]: https://github.com/docker/docker-agent/releases/tag/v1.64.0
 
 [v1.65.0]: https://github.com/docker/docker-agent/releases/tag/v1.65.0
+
+[v1.68.0]: https://github.com/docker/docker-agent/releases/tag/v1.68.0
