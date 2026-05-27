@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"testing"
 
+	"github.com/docker/aijson"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -135,7 +136,9 @@ func TestNewHandler_EmitsRepairTelemetry(t *testing.T) {
 	out := buf.String()
 	assert.Contains(t, out, "tool_input_repaired")
 	assert.Contains(t, out, "tool=read_multiple_files")
-	assert.Contains(t, out, "wrap_in_array")
+	// Track the exported aijson constant rather than the underlying string
+	// so the assertion follows the library if it ever renames the value.
+	assert.Contains(t, out, string(aijson.KindWrapInArray))
 }
 
 // TestNewHandler_NoTelemetryOnValidInput pins the hot-path contract: a
