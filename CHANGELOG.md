@@ -5,11 +5,86 @@ All notable changes to this project will be documented in this file.
 
 ## [v1.68.0] - 2026-05-27
 
-This is a maintenance release with dependency updates and internal improvements.
+This release adds new features for skills visibility, MCP improvements, sandbox enhancements, TUI improvements, and includes numerous bug fixes and dependency updates.
+
+## What's New
+
+- Adds `docker agent debug skills` command to inspect loaded skills and their sources
+- Adds word-level highlighting in the `edit_file` diff view in TUI
+- Adds 7 remote streamable-HTTP servers to the MCP catalog toolset
+- Enables `redact_secrets` by default for improved security
+- Adds sandbox alias/runtime defaults and persistent network allowlist support
+- Shows the file path from which each skill is loaded
+
+## Improvements
+
+- Smarter search across sessions
+- Persists cookies in remote MCP client for sticky sessions
+- Lazy header evaluation in tools for better performance
+- Refactors tool argument shape repair to use `github.com/docker/aijson`
+- Redacts secrets in command history
+- Skips image push in forked repositories in CI
+- Documents `--sandbox auto-kit`, `--no-kit` flag, `reset_remote_mcp_server_auth` meta-tool, `mcp_catalog` toolset, and all toolset config options for `api`, `fetch`, and `openapi`
+- Reorganizes RAG reference and adds dedicated MCP tool reference page
+
+## Bug Fixes
+
+- Fixes Anthropic SSE in-band errors to return correct HTTP status codes
+- Fixes per-message render caches being retained after streaming completes
+- Fixes shared session store being closed prematurely in `runtime.Close`
+- Fixes MCP OAuth discovery to support RFC 8414 §3.1 path-aware metadata URLs
+- Reduces retained tool output memory
+- Fixes git operations in snapshot to be scoped from worktree root
+- Reverts large MCP media spooling to disk (caused regressions)
+- Honours `timeout` and `allow_private_ips` config in A2A with SSRF protection
 
 ## Technical Changes
-- Maintenance release with dependency updates
 
+- Bumps `github.com/pb33f/libopenapi` to v0.36.5
+- Bumps direct Go dependencies (multiple rounds)
+
+### Pull Requests
+
+- [#2869](https://github.com/docker/docker-agent/pull/2869) - Show the path from where the skill is loaded
+- [#2862](https://github.com/docker/docker-agent/pull/2862) - chore: bump github.com/pb33f/libopenapi to v0.36.5
+- [#2867](https://github.com/docker/docker-agent/pull/2867) - docs: document --sandbox auto-kit and --no-kit flag
+- [#2874](https://github.com/docker/docker-agent/pull/2874) - docs: document reset_remote_mcp_server_auth meta-tool
+- [#2880](https://github.com/docker/docker-agent/pull/2880) - fix(anthropic): handle SSE in-band errors with correct HTTP status codes
+- [#2881](https://github.com/docker/docker-agent/pull/2881) - feat: add 'docker agent debug skills' command
+- [#2876](https://github.com/docker/docker-agent/pull/2876) - docs: document mcp_catalog toolset and reorganize RAG reference
+- [#2883](https://github.com/docker/docker-agent/pull/2883) - chore(deps): bump direct Go dependencies
+- [#2882](https://github.com/docker/docker-agent/pull/2882) - a2a: honour `timeout` and `allow_private_ips` config (with SSRF protection)
+- [#2875](https://github.com/docker/docker-agent/pull/2875) - docs: add dedicated MCP tool reference page
+- [#2889](https://github.com/docker/docker-agent/pull/2889) - feat(config): enable redact_secrets by default
+- [#2888](https://github.com/docker/docker-agent/pull/2888) - feat(sandbox): alias/runtime sandbox defaults and persistent network allowlist
+- [#2866](https://github.com/docker/docker-agent/pull/2866) - fix(#2861): release per-message render caches when streaming completes
+- [#2879](https://github.com/docker/docker-agent/pull/2879) - fix: don't close shared session store in runtime.Close
+- [#2878](https://github.com/docker/docker-agent/pull/2878) - Polish --sandbox auto-kit output and tool auto-install logging
+- [#2877](https://github.com/docker/docker-agent/pull/2877) - fix(mcp/oauth): discover RFC 8414 §3.1 path-aware metadata URLs
+- [#2854](https://github.com/docker/docker-agent/pull/2854) - fix: reduce retained tool output memory
+- [#2893](https://github.com/docker/docker-agent/pull/2893) - Revert "fix: spool large mcp media to disk"
+- [#2894](https://github.com/docker/docker-agent/pull/2894) - feat(mcp_catalog): add 7 remote streamable-http servers
+- [#2895](https://github.com/docker/docker-agent/pull/2895) - docs: document all toolset config options for api, fetch, openapi
+- [#2898](https://github.com/docker/docker-agent/pull/2898) - Bump go dependencies
+- [#2892](https://github.com/docker/docker-agent/pull/2892) - feat(pkg/history): redact secrets in command history
+- [#2805](https://github.com/docker/docker-agent/pull/2805) - ci: skip image push in forked repositories
+- [#2899](https://github.com/docker/docker-agent/pull/2899) - refactor(tools): use github.com/docker/aijson for tool-arg shape repair
+- [#2902](https://github.com/docker/docker-agent/pull/2902) - persist cookies in remote MCP client for sticky sessions
+- [#2901](https://github.com/docker/docker-agent/pull/2901) - Smarter search
+- [#2900](https://github.com/docker/docker-agent/pull/2900) - feat(tui): word-level highlighting in edit_file diff view
+- [#2907](https://github.com/docker/docker-agent/pull/2907) - Lazy headers in tools
+- [#2904](https://github.com/docker/docker-agent/pull/2904) - fix(snapshot): scope git operations from worktree root
+- [#2908](https://github.com/docker/docker-agent/pull/2908) - chore: bump direct go dependencies
+
+
+## [v1.67.0] - 2026-05-27
+
+This release was cancelled.
+
+
+## [v1.66.0] - 2026-05-27
+
+This release was cancelled.
 
 
 ## [v1.65.0] - 2026-05-21
@@ -2939,5 +3014,9 @@ This release improves the terminal user interface with better error handling and
 [v1.64.0]: https://github.com/docker/docker-agent/releases/tag/v1.64.0
 
 [v1.65.0]: https://github.com/docker/docker-agent/releases/tag/v1.65.0
+
+[v1.66.0]: https://github.com/docker/docker-agent/releases/tag/v1.66.0
+
+[v1.67.0]: https://github.com/docker/docker-agent/releases/tag/v1.67.0
 
 [v1.68.0]: https://github.com/docker/docker-agent/releases/tag/v1.68.0
