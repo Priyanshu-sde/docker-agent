@@ -420,3 +420,38 @@ func labF(t float64) float64 {
 	}
 	return 7.787*t + 16.0/116.0
 }
+
+// deriveEmphasisBg returns a more saturated, slightly lighter (for dark
+// themes) or darker (for light themes) variant of the given hex color.
+// It is used to highlight the precise tokens that changed inside a diff
+// line, on top of the row's existing add/remove background tint.
+//
+// The transformation preserves the original hue so the result stays
+// recognizably "add" (greenish) or "remove" (reddish) for every theme that
+// follows that convention. If parsing fails the input is returned as-is.
+func deriveEmphasisBg(hex string) color.Color {
+	r, g, b, ok := parseHexRGB(hex)
+	if !ok {
+		return lipgloss.Color(hex)
+	}
+
+	h, s, l := rgbToHSL(r, g, b)
+
+	// Push saturation toward a strong, vivid value. Diff backgrounds are
+	// typically very desaturated (~0.1-0.25); we want emphasis to read as
+	// a distinct color block.
+	s = max(s, 0.55)
+
+	// Shift lightness away from the line background so the emphasis block
+	// is visible. For dark backgrounds (l < 0.5) we lift; for light ones we
+	// drop. The magnitude is intentionally modest so changed tokens remain
+	// readable against the surrounding row color.
+	if l < 0.5 {
+		l = min(l+0.18, 0.50)
+	} else {
+		l = max(l-0.18, 0.65)
+	}
+
+	nr, ng, nb := hslToRGB(h, s, l)
+	return lipgloss.Color(RGBToHex(nr, ng, nb))
+}

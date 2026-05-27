@@ -916,6 +916,8 @@ func ApplyTheme(theme *Theme) {
 	DiffRemoveBg = lipgloss.Color(c.DiffRemoveBg)
 	DiffAddFg = lipgloss.Color(c.Success)
 	DiffRemoveFg = lipgloss.Color(c.Error)
+	DiffAddEmphBg = deriveEmphasisBg(c.DiffAddBg)
+	DiffRemoveEmphBg = deriveEmphasisBg(c.DiffRemoveBg)
 	// UI element colors
 	LineNumber = lipgloss.Color(c.LineNumber)
 	Separator = lipgloss.Color(c.Separator)
@@ -1100,6 +1102,8 @@ func rebuildStyles() {
 	DiffAddStyle = BaseStyle.Background(DiffAddBg).Foreground(DiffAddFg)
 	DiffRemoveStyle = BaseStyle.Background(DiffRemoveBg).Foreground(DiffRemoveFg)
 	DiffUnchangedStyle = BaseStyle.Background(BackgroundAlt)
+	DiffAddEmphStyle = BaseStyle.Background(DiffAddEmphBg).Foreground(DiffAddFg).Bold(true)
+	DiffRemoveEmphStyle = BaseStyle.Background(DiffRemoveEmphBg).Foreground(DiffRemoveFg).Bold(true)
 
 	// Syntax highlighting styles
 	LineNumberStyle = BaseStyle.Foreground(LineNumber).Background(BackgroundAlt)
