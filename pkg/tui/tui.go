@@ -183,6 +183,9 @@ type appModel struct {
 	// leanMode enables a simplified TUI with minimal chrome.
 	leanMode bool
 
+	// hideSidebar hides the sidebar and disables the ctrl+b toggle.
+	hideSidebar bool
+
 	// buildCommandCategories is a function that returns the list of command categories.
 	buildCommandCategories func(context.Context, tea.Model) []commands.Category
 
@@ -213,6 +216,15 @@ type Option func(*appModel)
 func WithLeanMode() Option {
 	return func(m *appModel) {
 		m.leanMode = true
+	}
+}
+
+// WithHideSidebar hides the chat sidebar. Unlike lean mode, the rest of
+// the chrome (tab bar, status bar, dialogs) remains visible. The user
+// cannot bring the sidebar back via the TUI.
+func WithHideSidebar() Option {
+	return func(m *appModel) {
+		m.hideSidebar = true
 	}
 }
 
@@ -454,6 +466,9 @@ func (m *appModel) chatPageOpts() []chat.PageOption {
 	if m.leanMode {
 		opts = append(opts, chat.WithLeanMode())
 	}
+	if m.hideSidebar {
+		opts = append(opts, chat.WithHideSidebar())
+	}
 	return opts
 }
 
@@ -608,6 +623,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleReorderTab(msg)
 
 	case messages.ToggleSidebarMsg:
+		if m.hideSidebar {
+			return m, nil
+		}
 		if m.tuiStore != nil {
 			persistedID := m.persistedSessionID(m.supervisor.ActiveID())
 			if err := m.tuiStore.ToggleSidebarCollapsed(context.Background(), persistedID); err != nil {
@@ -1747,7 +1765,7 @@ func (m *appModel) AllBindings() []key.Binding {
 		),
 	)
 
-	if !m.leanMode {
+	if !m.leanMode && !m.hideSidebar {
 		bindings = append(bindings, key.NewBinding(
 			key.WithKeys("ctrl+b"),
 			key.WithHelp("Ctrl+b", "toggle sidebar"),
@@ -1942,7 +1960,7 @@ func (m *appModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 
 	// Toggle sidebar (propagates to content view regardless of focus)
 	case key.Matches(msg, key.NewBinding(key.WithKeys("ctrl+b"))):
-		if m.leanMode {
+		if m.leanMode || m.hideSidebar {
 			return m, nil
 		}
 		return m.forwardChat(msg)

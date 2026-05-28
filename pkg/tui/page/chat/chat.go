@@ -136,8 +136,9 @@ type chatPage struct {
 	sessionState *service.SessionState
 
 	// State
-	working  bool
-	leanMode bool
+	working     bool
+	leanMode    bool
+	hideSidebar bool
 
 	msgCancel       context.CancelFunc
 	streamCancelled bool
@@ -171,12 +172,18 @@ type chatPage struct {
 	sidebarDragMoved      bool // True if mouse moved beyond threshold during drag
 }
 
+// sidebarHidden reports whether the sidebar should be omitted entirely from
+// layout and rendering (lean mode or explicit --sidebar=false).
+func (p *chatPage) sidebarHidden() bool {
+	return p.leanMode || p.hideSidebar
+}
+
 // computeSidebarLayout calculates the layout based on current state.
 func (p *chatPage) computeSidebarLayout() sidebarLayout {
 	innerWidth := p.width - appPaddingHorizontal
 
-	// Lean mode: no sidebar at all
-	if p.leanMode {
+	// No sidebar at all (lean mode or hideSidebar): chat fills the area.
+	if p.sidebarHidden() {
 		return sidebarLayout{
 			mode:       sidebarCollapsedNarrow,
 			innerWidth: innerWidth,
@@ -280,6 +287,15 @@ type PageOption func(*chatPage)
 func WithLeanMode() PageOption {
 	return func(p *chatPage) {
 		p.leanMode = true
+	}
+}
+
+// WithHideSidebar hides the sidebar without enabling lean mode.
+// The sidebar cannot be re-shown via the TUI.
+func WithHideSidebar() PageOption {
+	return func(p *chatPage) {
+		p.hideSidebar = true
+		p.keyMap.ToggleSidebar.SetEnabled(false)
 	}
 }
 
@@ -496,12 +512,19 @@ func (p *chatPage) View() string {
 		bodyContent = lipgloss.JoinHorizontal(lipgloss.Left, chatView, toggleCol, sidebarView)
 
 	case sidebarCollapsed, sidebarCollapsedNarrow:
-		if p.leanMode {
+		switch {
+		case p.leanMode:
 			// Lean mode: no sidebar header, no fixed height
 			bodyContent = styles.ChatStyle.
 				Width(sl.innerWidth).
 				Render(messagesView)
-		} else {
+		case p.hideSidebar:
+			// Sidebar hidden: chat fills the full height, no sidebar header.
+			bodyContent = styles.ChatStyle.
+				Height(sl.chatHeight).
+				Width(sl.innerWidth).
+				Render(messagesView)
+		default:
 			sidebarRendered := p.renderCollapsedSidebar(sl)
 			chatView := styles.ChatStyle.
 				Height(sl.chatHeight).
