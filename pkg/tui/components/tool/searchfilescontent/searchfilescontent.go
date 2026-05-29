@@ -26,8 +26,8 @@ func extractArgs(args string) string {
 
 	path := pathx.ShortenHome(parsed.Path)
 	query := parsed.Query
-	if len(query) > 30 {
-		query = query[:27] + "..."
+	if r := []rune(query); len(r) > 30 {
+		query = string(r[:27]) + "..."
 	}
 
 	if parsed.IsRegex {
