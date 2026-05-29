@@ -255,7 +255,7 @@ In addition to the common fields, each event ships its own payload:
 | `user_prompt_submit`        | `prompt` — the text the user just submitted                                                                           |
 | `turn_start`                | _none_ (just the common fields)                                                                                       |
 | `turn_end`                  | `agent_name`, `reason` — one of `normal`, `continue`, `steered`, `error`, `canceled`, `hook_blocked`, `loop_detected` |
-| `before_llm_call`           | `iteration` — 1-based run-loop iteration counter (the model call this hook is gating)                                |
+| `before_llm_call`           | `iteration` — 1-based run-loop iteration counter (the model call this hook is gating), `model_id`                    |
 | `after_llm_call`            | `agent_name`, `stop_response`, `last_user_message`, `model_id`                                                       |
 | `session_end`               | `reason` — one of `clear`, `logout`, `prompt_input_exit`, `other`                                                     |
 | `pre_compact`               | `source` — one of `manual`, `auto`, `overflow`, `tool_overflow`                                                       |

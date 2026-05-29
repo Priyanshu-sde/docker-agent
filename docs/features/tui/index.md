@@ -29,6 +29,9 @@ $ docker agent run agent.yaml --debug
 
 # Hide the sidebar (cannot be re-enabled via Ctrl+B)
 $ docker agent run agent.yaml --sidebar=false
+
+# Disable specific slash commands
+$ docker agent run agent.yaml --disable-commands="/cost,/eval,/model"
 ```
 
 ## Slash Commands
