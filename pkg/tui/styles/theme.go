@@ -1173,22 +1173,22 @@ func rebuildStyles() {
 	NotificationStyle = BaseStyle.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Success).
-		Padding(0, 1)
+		Padding(0, 3, 0, 1)
 
 	NotificationInfoStyle = BaseStyle.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Info).
-		Padding(0, 1)
+		Padding(0, 3, 0, 1)
 
 	NotificationWarningStyle = BaseStyle.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Warning).
-		Padding(0, 1)
+		Padding(0, 3, 0, 1)
 
 	NotificationErrorStyle = BaseStyle.
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(Error).
-		Padding(0, 1)
+		Padding(0, 3, 0, 1)
 
 	// Completion styles
 	CompletionBoxStyle = BaseStyle.

@@ -726,7 +726,11 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// --- Notifications ---
 
-	case notification.ShowMsg, notification.HideMsg:
+	case notificationCopiedMsg:
+		m.notification = m.notification.MarkCopied(msg.ID)
+		return m, nil
+
+	case notification.ShowMsg, notification.HideMsg, notification.DismissMsg, notification.AutoHideMsg:
 		updated, cmd := m.notification.Update(msg)
 		m.notification = updated
 		return m, cmd
@@ -1957,9 +1961,12 @@ func (m *appModel) switchFocus() (tea.Model, tea.Cmd) {
 
 // handleMouseClick routes mouse clicks to the appropriate component based on Y coordinate.
 func (m *appModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) {
-	// Check if click hits a notification close button
+	// Check if click hits a notification close button before handling body clicks.
 	if cmd := m.notification.HandleClick(msg.X, msg.Y); cmd != nil {
 		return m, cmd
+	}
+	if id, text, ok := m.notification.CopyHit(msg.X, msg.Y); ok {
+		return m, copyNotificationToClipboard(id, text)
 	}
 
 	// Dialogs use full-window coordinates (they're positioned over the entire screen)
@@ -2024,21 +2031,40 @@ func (m *appModel) handleMouseClick(msg tea.MouseClickMsg) (tea.Model, tea.Cmd) 
 
 // handleMouseMotion routes mouse motion events with adjusted coordinates.
 func (m *appModel) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	batchWith := func(cmd tea.Cmd) tea.Cmd {
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+		return tea.Batch(cmds...)
+	}
+
+	if !m.leanMode {
+		updated, cmd := m.notification.HandleMouseMotion(msg.X, msg.Y)
+		m.notification = updated
+		if cmd != nil {
+			cmds = append(cmds, cmd)
+		}
+	}
+
 	if m.isDragging {
 		cmd := m.handleEditorResize(msg.Y)
-		return m, cmd
+		return m, batchWith(cmd)
 	}
 
 	// Forward drag motion to tab bar when a tab drag is active.
 	if m.tabBar.IsDragging() {
 		adjustedMsg := msg
 		adjustedMsg.X = msg.X - styles.AppPadding
-		m.tabBar.Update(adjustedMsg)
-		return m, nil
+		if cmd := m.tabBar.Update(adjustedMsg); cmd != nil {
+			return m, batchWith(cmd)
+		}
+		return m, tea.Batch(cmds...)
 	}
 
 	if m.dialogMgr.Open() {
-		return m.forwardDialog(msg)
+		model, cmd := m.forwardDialog(msg)
+		return model, batchWith(cmd)
 	}
 
 	// Update hover state for resize handle
@@ -2046,15 +2072,17 @@ func (m *appModel) handleMouseMotion(msg tea.MouseMotionMsg) (tea.Model, tea.Cmd
 	m.isHoveringHandle = region == regionResizeHandle
 	switch region {
 	case regionContent:
-		return m.forwardChat(msg)
+		model, cmd := m.forwardChat(msg)
+		return model, batchWith(cmd)
 	case regionEditor:
 		adjustedMsg := msg
 		adjustedMsg.X = msg.X - styles.AppPadding
 		adjustedMsg.Y = msg.Y - m.editorTop()
-		return m.forwardEditor(adjustedMsg)
+		model, cmd := m.forwardEditor(adjustedMsg)
+		return model, batchWith(cmd)
 	}
 
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 // handleMouseRelease routes mouse release events with adjusted coordinates.
