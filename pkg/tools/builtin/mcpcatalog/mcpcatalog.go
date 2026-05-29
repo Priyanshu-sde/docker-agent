@@ -143,27 +143,22 @@ Workflow:
      Use any term related to the user's intent ("notion", "stripe",
      "docs", "search", "browser", …).
   2. Call ` + ToolNameEnable + ` with the server's "id" to activate it.
-     This adds the server's tools to your set on the *next* turn.
-     Authentication (OAuth or API key) is deferred — it is triggered when
-     the host enumerates the server's tools, which happens once enabling
-     completes. For api_key servers, make sure the listed env var(s) are
-     set in the user's shell BEFORE enabling, otherwise the server will
-     refuse the connection.
+     The server's tools appear in your set on the *next* turn; the host
+     handles any required connection setup. For api_key servers, make
+     sure the listed env var(s) are set in the user's shell BEFORE
+     enabling, otherwise the server will refuse the connection.
   3. On your NEXT turn (once the activated server's tools appear in
      your set), go straight to the user's ORIGINAL request using those
      tools. Do NOT stop and ask the user to repeat themselves; do NOT
-     narrate the OAuth flow or say things like "OAuth will happen on
-     the next turn" — if OAuth is needed the host surfaces the
-     authorization dialog and the tool call resumes once the user
-     grants access. Enabling a server is a means to an end, not a
-     stopping point.
+     narrate connection setup. Enabling a server is a means to an end,
+     not a stopping point.
   4. Call ` + ToolNameDisable + ` to remove a server when no longer needed.
      This tool only appears once at least one server is enabled.
-  5. If a previously authorized OAuth server starts rejecting requests
-     (token revoked, scopes changed, signed in to the wrong account),
-     call ` + ToolNameResetAuth + ` to wipe the persisted credentials.
-     The next enable will trigger a fresh authorization URL. This tool
-     also only appears once at least one server is enabled.
+  5. If a previously enabled server starts rejecting requests
+     (credentials revoked, scopes changed, signed in to the wrong
+     account), call ` + ToolNameResetAuth + ` to clear any persisted
+     credentials so the next enable starts fresh. This tool also only
+     appears once at least one server is enabled.
 
 Prefer enabling only the servers you actually need — every server adds
 tools to the prompt and contributes to context usage.`
@@ -315,7 +310,7 @@ func (t *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 		{
 			Name:         ToolNameEnable,
 			Category:     "mcp_catalog",
-			Description:  "Activate a remote MCP server from the catalog by id. Connection (and any required OAuth flow or API-key check) is deferred until the host next lists the agent's tools.",
+			Description:  "Activate a remote MCP server from the catalog by id. Connection setup is deferred until the host next enumerates tools; the server's tools become available on the next turn.",
 			Parameters:   tools.MustSchemaFor[EnableArgs](),
 			OutputSchema: tools.MustSchemaFor[string](),
 			Handler:      tools.NewHandler(t.handleEnable),
@@ -352,7 +347,7 @@ func (t *Toolset) Tools(ctx context.Context) ([]tools.Tool, error) {
 			tools.Tool{
 				Name:         ToolNameResetAuth,
 				Category:     "mcp_catalog",
-				Description:  "Clear persisted OAuth credentials (access token, refresh token, dynamic-client-registration data) for a catalog server. The next enable will trigger a fresh authorization flow. No-op for api_key/none servers.",
+				Description:  "Clear any persisted credentials for a catalog server so the next enable starts a fresh connection. Use when a previously enabled server starts rejecting requests. No-op for servers with no persisted credentials.",
 				Parameters:   tools.MustSchemaFor[ResetAuthArgs](),
 				OutputSchema: tools.MustSchemaFor[string](),
 				Handler:      tools.NewHandler(t.handleResetAuth),
@@ -600,28 +595,17 @@ func (t *Toolset) handleEnable(ctx context.Context, args EnableArgs) (*tools.Too
 	}
 
 	msg := strings.Builder{}
-	fmt.Fprintf(&msg, "enabled %q (%s) — connection deferred until the host next enumerates tools.\n", id, server.Title)
+	fmt.Fprintf(&msg, "enabled %q (%s) — the server's tools will appear on your next turn. Proceed with the user's original request; the host handles any required connection setup.\n", id, server.Title)
 	fmt.Fprintf(&msg, "endpoint: %s\n", server.URL)
-	switch server.Auth.Type {
-	case "oauth":
-		msg.WriteString("auth: OAuth — the host will surface any required authorization (browser redirect or in-app dialog) the first time the server's tools are used, and resume the tool call once access is granted. On your next turn, continue with the user's original request; do not pause to announce the OAuth flow.\n")
-	case "api_key":
-		if len(missing) > 0 {
-			fmt.Fprintf(&msg, "auth: API key — WARNING: the following env vars are NOT set: %s. Set them, then call %s and %s for this id again, otherwise tool calls will fail.\n",
-				strings.Join(missing, ", "), ToolNameDisable, ToolNameEnable)
-		} else {
-			msg.WriteString("auth: API key — env vars present, ready to use.\n")
-		}
-	default:
-		if len(missing) > 0 {
-			// Headers reference env vars that didn't resolve, even though
-			// the catalog says no auth is required — surface it so the
-			// user is not surprised by a 401 on the first tool call.
-			fmt.Fprintf(&msg, "auth: none — WARNING: header(s) reference unresolved env var(s): %s. Set them, then call %s and %s for this id again.\n",
-				strings.Join(missing, ", "), ToolNameDisable, ToolNameEnable)
-		} else {
-			msg.WriteString("auth: none — ready to use.\n")
-		}
+	// Only surface unresolved env vars — the model can act on those by
+	// asking the user to set the variable and retrying. Every other auth
+	// detail (OAuth flow type, redirect URI, token persistence) is the
+	// host's concern and is intentionally not exposed to the model; the
+	// previous wording leaked "auth: OAuth — elicited on the next turn"
+	// and led the model to stop and ask the user to repeat themselves.
+	if len(missing) > 0 {
+		fmt.Fprintf(&msg, "WARNING: the following env var(s) are NOT set: %s. Ask the user to set them, then call %s and %s for this id again, otherwise tool calls will fail.\n",
+			strings.Join(missing, ", "), ToolNameDisable, ToolNameEnable)
 	}
 	return tools.ResultSuccess(msg.String()), nil
 }
@@ -768,7 +752,7 @@ func (t *Toolset) handleList(_ context.Context, _ ListArgs) (*tools.ToolCallResu
 
 // ResetAuthArgs is the input schema for reset_remote_mcp_server_auth.
 type ResetAuthArgs struct {
-	ID string `json:"id" jsonschema:"Catalog id of the server whose persisted OAuth credentials should be cleared."`
+	ID string `json:"id" jsonschema:"Catalog id of the server whose persisted credentials should be cleared."`
 }
 
 func (t *Toolset) handleResetAuth(ctx context.Context, args ResetAuthArgs) (*tools.ToolCallResult, error) {
@@ -779,7 +763,7 @@ func (t *Toolset) handleResetAuth(ctx context.Context, args ResetAuthArgs) (*too
 	}
 
 	if server.Auth.Type != "oauth" {
-		return tools.ResultSuccess(fmt.Sprintf("server %q uses %s auth — nothing to reset.", id, server.Auth.Type)), nil
+		return tools.ResultSuccess(fmt.Sprintf("server %q has no persisted credentials — nothing to reset.", id)), nil
 	}
 
 	// Stop and forget any live MCP toolset for this server. The active
@@ -809,15 +793,15 @@ func (t *Toolset) handleResetAuth(ctx context.Context, args ResetAuthArgs) (*too
 	}
 
 	if err := t.removeOAuthToken(server.URL); err != nil {
-		return tools.ResultError(fmt.Sprintf("failed to clear OAuth credentials for %q: %v", id, err)), nil
+		return tools.ResultError(fmt.Sprintf("failed to clear credentials for %q: %v", id, err)), nil
 	}
 
 	msg := strings.Builder{}
-	fmt.Fprintf(&msg, "cleared OAuth credentials for %q (%s).\n", id, server.URL)
+	fmt.Fprintf(&msg, "cleared credentials for %q (%s).\n", id, server.URL)
 	if wasEnabled {
-		msg.WriteString("the server was enabled and has been disabled; re-enable it to start a fresh authorization flow.\n")
+		msg.WriteString("the server was enabled and has been disabled; re-enable it to start a fresh connection.\n")
 	} else {
-		msg.WriteString("enable the server to start a fresh authorization flow.\n")
+		msg.WriteString("enable the server to start a fresh connection.\n")
 	}
 	return tools.ResultSuccess(msg.String()), nil
 }

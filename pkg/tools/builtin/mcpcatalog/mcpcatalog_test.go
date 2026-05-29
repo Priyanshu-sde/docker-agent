@@ -122,7 +122,14 @@ func TestEnableDisableLifecycle(t *testing.T) {
 	res, err := ts.handleEnable(ctx, EnableArgs{ID: oauthID})
 	require.NoError(t, err)
 	require.False(t, res.IsError, "enable failed: %s", res.Output)
-	assert.Contains(t, res.Output, "OAuth")
+	assert.Contains(t, res.Output, "enabled")
+	// The OAuth-branch wording was intentionally removed: the model has
+	// no agency over the OAuth flow, so the tool result no longer mentions
+	// "OAuth" or "authorization" — the previous "elicited on the next
+	// turn" wording caused the model to stop and ask the user to repeat
+	// themselves. See handleEnable for the rationale.
+	assert.NotContains(t, res.Output, "OAuth", "tool result must not leak OAuth details to the model")
+	assert.NotContains(t, res.Output, "authorization", "tool result must not leak OAuth details to the model")
 	assert.Equal(t, int32(1), changes.Load(), "enable should fire tools-changed handler exactly once")
 
 	ts.mu.RLock()
@@ -322,7 +329,10 @@ func TestEnableAPIKeyEnvPresent(t *testing.T) {
 	res, err := ts.handleEnable(t.Context(), EnableArgs{ID: apiKeyID})
 	require.NoError(t, err)
 	require.False(t, res.IsError)
-	assert.Contains(t, res.Output, "auth: API key")
+	assert.Contains(t, res.Output, "enabled")
+	// With every required env var present, no WARNING line is emitted —
+	// the tool result is intentionally terse so the model proceeds to the
+	// user's original request rather than narrating setup.
 	assert.NotContains(t, res.Output, "WARNING")
 }
 
@@ -550,7 +560,7 @@ func TestResetAuthForwardsToTokenStore(t *testing.T) {
 	res, err := ts.handleResetAuth(t.Context(), ResetAuthArgs{ID: oauthServer.ID})
 	require.NoError(t, err)
 	require.False(t, res.IsError, "reset auth: %s", res.Output)
-	assert.Contains(t, res.Output, "cleared OAuth credentials")
+	assert.Contains(t, res.Output, "cleared credentials")
 	assert.Equal(t, []string{oauthServer.URL}, removedURLs,
 		"removeOAuthToken must be called once with the catalog URL")
 }
@@ -588,7 +598,7 @@ func TestResetAuthNoOpForNonOAuth(t *testing.T) {
 	res, err := ts.handleResetAuth(t.Context(), ResetAuthArgs{ID: apiKeyID})
 	require.NoError(t, err)
 	require.False(t, res.IsError)
-	assert.Contains(t, res.Output, "nothing to reset")
+	assert.Contains(t, res.Output, "no persisted credentials")
 	assert.Zero(t, called, "api_key servers must not touch the OAuth token store")
 }
 
