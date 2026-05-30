@@ -152,6 +152,7 @@ type agentPickerModel struct {
 func newAgentPickerModel(choices []agentChoice) *agentPickerModel {
 	vp := viewport.New()
 	vp.FillHeight = true
+	vp.SoftWrap = true
 	return &agentPickerModel{
 		choices:    choices,
 		details:    vp,
@@ -278,15 +279,16 @@ func (m *agentPickerModel) detailsContent(choice agentChoice) string {
 	case choice.yaml != "":
 		return highlightYAML(strings.TrimRight(choice.yaml, "\n"))
 	case choice.err != nil:
-		return "Failed to load agent:\n\n" + choice.err.Error()
+		return "Failed to load agent:\n\n" + sanitizeYAML(choice.err.Error())
 	default:
 		return "No configuration available."
 	}
 }
 
 // highlightYAML syntax-colorizes YAML using chroma with the active TUI theme.
-// On any tokenisation error it returns the source unchanged.
+// On any tokenisation error it returns the (sanitized) source unchanged.
 func highlightYAML(src string) string {
+	src = sanitizeYAML(src)
 	lexer := lexers.Get("yaml")
 	if lexer == nil {
 		return src
@@ -302,6 +304,30 @@ func highlightYAML(src string) string {
 		b.WriteString(chromaTokenStyle(token.Type, style).Render(token.Value))
 	}
 	return b.String()
+}
+
+// sanitizeYAML normalizes line endings, expands tabs, and strips terminal
+// control characters from config content that may come from untrusted (remote)
+// sources, so it cannot inject escape sequences or break the dialog layout.
+func sanitizeYAML(s string) string {
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.ReplaceAll(s, "\r", "\n")
+	s = strings.ReplaceAll(s, "\t", "    ")
+	return stripControl(s)
+}
+
+// stripControl removes control characters (including ESC) that could inject
+// terminal escape sequences or corrupt the layout. Newlines are preserved.
+func stripControl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r == '\n' {
+			return r
+		}
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // chromaTokenStyle maps a chroma token type to a lipgloss style using the
@@ -477,11 +503,12 @@ func (m *agentPickerModel) renderCard(choice agentChoice, cardWidth int, selecte
 		Render(card)
 }
 
-// truncateDetail collapses whitespace (including newlines) into single spaces
-// and truncates the result to width columns. This keeps card-detail text on a
-// single line so untrusted or multi-line descriptions can't break the layout.
+// truncateDetail collapses whitespace (including newlines) into single spaces,
+// strips terminal control characters, and truncates the result to width
+// columns. This keeps card-detail text on a single line so untrusted or
+// multi-line descriptions can't break the layout or inject escape sequences.
 func truncateDetail(text string, width int) string {
-	return toolcommon.TruncateText(strings.Join(strings.Fields(text), " "), width)
+	return toolcommon.TruncateText(stripControl(strings.Join(strings.Fields(text), " ")), width)
 }
 
 // prependAgentRef returns args with ref inserted as the leading positional

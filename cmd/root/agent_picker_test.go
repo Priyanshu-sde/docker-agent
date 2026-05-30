@@ -144,6 +144,34 @@ func TestAgentPickerDetailsFixedSize(t *testing.T) {
 	assert.Equal(t, topH, h, "height changed at bottom")
 }
 
+func TestStripControl(t *testing.T) {
+	// The ESC byte is removed, neutralizing the escape sequence (the
+	// remaining "[31m" is harmless literal text). Other control chars go too;
+	// newlines are preserved.
+	assert.Equal(t, "[31mredtext[0m", stripControl("\x1b[31mredtext\x1b[0m"))
+	assert.NotContains(t, stripControl("\x1b[31mredtext\x1b[0m"), "\x1b")
+	assert.Equal(t, "ab", stripControl("a\x07b"))
+	assert.Equal(t, "line1\nline2", stripControl("line1\nline2"))
+	assert.Equal(t, "ab", stripControl("a\x7fb"))
+}
+
+func TestSanitizeYAML(t *testing.T) {
+	// CRLF/CR normalized to LF, tabs expanded, ESC/control chars stripped.
+	assert.Equal(t, "a\nb", sanitizeYAML("a\r\nb"))
+	assert.Equal(t, "a\nb", sanitizeYAML("a\rb"))
+	assert.Equal(t, "    x", sanitizeYAML("\tx"))
+	assert.NotContains(t, sanitizeYAML("key: \x1b[31mvalue\x1b[0m"), "\x1b")
+}
+
+func TestHighlightYAMLStripsInjectedEscapes(t *testing.T) {
+	// A malicious config can't smuggle its own escape sequences through.
+	out := highlightYAML("key: \x1b[31mvalue\x1b[0m\x07")
+	plain := ansi.Strip(out)
+	assert.NotContains(t, plain, "\x1b")
+	assert.NotContains(t, plain, "\x07")
+	assert.Contains(t, plain, "value")
+}
+
 func TestAgentPickerModelNavigation(t *testing.T) {
 	m := newAgentPickerModel([]agentChoice{
 		{ref: "default"},
