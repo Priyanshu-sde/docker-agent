@@ -32,7 +32,14 @@ import (
 	"github.com/docker/docker-agent/pkg/tui"
 	"github.com/docker/docker-agent/pkg/tui/styles"
 	"github.com/docker/docker-agent/pkg/userconfig"
+	"github.com/docker/docker-agent/pkg/worktree"
 )
+
+// worktreeAutoName is the value stored when --worktree is given without an
+// explicit name (cobra's NoOptDefVal). It also doubles as the reserved name a
+// user can pass explicitly (--worktree=auto) to request a generated name; with
+// cobra's optional-value flags the two are indistinguishable by design.
+const worktreeAutoName = "auto"
 
 type runExecFlags struct {
 	agentName         string
@@ -57,6 +64,8 @@ type runExecFlags struct {
 	sbx               bool
 	noKit             bool
 	agentPickerSpec   string
+	worktree          bool
+	worktreeName      string
 
 	// Exec only
 	exec          bool
@@ -155,12 +164,18 @@ func addRunOrExecFlags(cmd *cobra.Command, flags *runExecFlags) {
 	cmd.PersistentFlags().BoolVar(&flags.noKit, "no-kit", false, "Do not stage a docker-agent kit (skills, prompt files) when running in a sandbox")
 	cmd.PersistentFlags().StringVar(&flags.agentPickerSpec, "agent-picker", "", "Show a full-screen picker to choose an agent before launching. Optional comma-separated list of agent refs (defaults to \"default,coder\")")
 	cmd.PersistentFlags().Lookup("agent-picker").NoOptDefVal = strings.Join(defaultAgentPickerRefs, ",")
+	cmd.PersistentFlags().StringVarP(&flags.worktreeName, "worktree", "w", "", "Run the agent in a fresh git worktree of the working directory (isolates changes from your checkout). Optionally name it: --worktree=my-name")
+	cmd.PersistentFlags().Lookup("worktree").NoOptDefVal = worktreeAutoName
 	cmd.MarkFlagsMutuallyExclusive("fake", "record")
 	cmd.MarkFlagsMutuallyExclusive("remote", "sandbox")
 	cmd.MarkFlagsMutuallyExclusive("remote", "session-db")
 	cmd.MarkFlagsMutuallyExclusive("remote", "session")
 	cmd.MarkFlagsMutuallyExclusive("remote", "record")
 	cmd.MarkFlagsMutuallyExclusive("remote", "fake")
+	// A worktree is a local directory: it has no meaning for a remote runtime
+	// and is not wired through the sandbox boundary.
+	cmd.MarkFlagsMutuallyExclusive("remote", "worktree")
+	cmd.MarkFlagsMutuallyExclusive("sandbox", "worktree")
 
 	// --exec only
 	cmd.PersistentFlags().BoolVar(&flags.exec, "exec", false, "Execute without a TUI")
@@ -232,8 +247,16 @@ func (f *runExecFlags) runRunCommand(cmd *cobra.Command, args []string) (command
 	}
 
 	if f.sandbox {
+		if cmd.Flags().Changed("worktree") {
+			return errors.New("--worktree cannot be combined with a sandboxed run")
+		}
 		return runInSandbox(ctx, cmd, args, &f.runConfig, f.sandboxTemplate, f.sbx, f.noKit, agentCfg)
 	}
+
+	// --worktree was provided (with or without a value). The string flag lets
+	// users name the worktree (--worktree=my-name); without a value cobra
+	// stores the sentinel that triggers a random name.
+	f.worktree = cmd.Flags().Changed("worktree")
 
 	out := cli.NewPrinter(cmd.OutOrStdout())
 
@@ -348,6 +371,26 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	}
 
 	wd, _ := os.Getwd()
+	if f.worktree {
+		name := f.worktreeName
+		if name == worktreeAutoName {
+			name = ""
+		}
+		wt, err := worktree.Create(ctx, wd, name)
+		if err != nil {
+			switch {
+			case errors.Is(err, worktree.ErrNotGitRepository):
+				return fmt.Errorf("--worktree requires %s to be inside a git repository", wd)
+			case errors.Is(err, worktree.ErrInvalidName):
+				return fmt.Errorf("invalid --worktree name: %w", err)
+			default:
+				return err
+			}
+		}
+		wd = wt.Dir
+		f.runConfig.WorkingDir = wt.Dir
+		out.Println("Using git worktree: " + wt.Dir + " (branch " + wt.Branch + ")")
+	}
 	rt, sess, cleanup, err := b.CreateSession(ctx, loadResult, b.CreateSessionRequest(wd))
 	if err != nil {
 		return err

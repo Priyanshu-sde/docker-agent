@@ -170,6 +170,11 @@ linters:
         linters:
           - staticcheck
         text: "SA1019:.*FunctionCall.*deprecated"
+      # Vendored verbatim from moby/moby; keep its //nolint:gosec directives
+      # even though our config excludes gosec G404 globally.
+      - path: pkg/worktree/namesgenerator/
+        linters:
+          - nolintlint
 issues:
   max-same-issues: 3
 formatters:

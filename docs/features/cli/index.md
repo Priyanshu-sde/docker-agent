@@ -37,7 +37,6 @@ $ docker agent run [config] [message...] [flags]
 | `--dry-run`                             | Initialize the agent without executing anything (useful for validating a config)                                                          |
 | `--remote <addr>`                       | Use a remote runtime at the given address instead of running the agent locally                                                            |
 | `--lean`                                | Use a simplified TUI with minimal chrome                                                                                                  |
-| `--theme <name>`                        | Preselect a TUI theme by name at launch (overrides `settings.theme` in user config; ignored in `--exec` mode). Run `/theme` to browse available names. |
 | `--app-name <name>`                     | Override the application name label shown in the TUI (status bar, window title, "/exit" notifications).                                   |
 | `--sidebar`                             | Control sidebar visibility. Set to `--sidebar=false` to hide the sidebar and disable the Ctrl+B toggle (default: `true`).                 |
 | `--disable-commands <list>`             | Hide and disable specific slash commands in the TUI. Accepts a comma-separated list of command names (leading slash optional, case-insensitive). E.g. `--disable-commands="/cost,/eval,/model"`. |
@@ -48,6 +47,7 @@ $ docker agent run [config] [message...] [flags]
 | `--template <image>`                    | Template image for the sandbox (default: `docker/sandbox-templates:docker-agent`)                                                         |
 | `--sbx`                                 | Prefer the `sbx` CLI backend when available (default `true`; set `--sbx=false` to force `docker sandbox`)                                 |
 | `--no-kit`                              | Disable the [auto-kit]({{ '/configuration/sandbox/' | relative_url }}#auto-kit): do not stage skills or prompt files into the sandbox    |
+| `-w, --worktree [name]`                 | Run the agent in a fresh git worktree of the working directory, isolating its changes from your checkout. Optionally name it (`--worktree=my-feature`); otherwise a name is generated. Requires the working directory to be inside a git repository. Cannot be combined with `--remote` or `--sandbox`. |
 | `--working-dir <path>`                  | Set the working directory for the session (applies to tools and relative paths)                                                           |
 | `--env-from-file <path>`                | Load environment variables from file (repeatable)                                                                                         |
 | `--code-mode-tools`                     | Provide a single tool to call other tools via JavaScript (forces code-mode tools globally)                                                |
@@ -83,10 +83,24 @@ $ docker agent run agent.yaml --hook-pre-tool-use "./scripts/validate.sh" --hook
 $ docker agent run agent.yaml "question 1" "question 2" "question 3"
 
 # Customize TUI display
-$ docker agent run agent.yaml --theme dracula
 $ docker agent run agent.yaml --app-name "My Project"
 $ docker agent run agent.yaml --sidebar=false
 $ docker agent run agent.yaml --disable-commands="/cost,/eval,/model"
+```
+
+<div class="callout callout-tip" markdown="1">
+<div class="callout-title">Isolate a run in a git worktree
+</div>
+  <p>When the working directory is inside a git repository, <code>--worktree</code> creates a fresh <a href="https://git-scm.com/docs/git-worktree">git worktree</a> and points the session at it, so the agent's edits land on a separate branch and never touch your checkout. The worktree is stored under <code>&lt;data-dir&gt;/worktrees/&lt;name&gt;</code> on a branch named <code>worktree-&lt;name&gt;</code>.</p>
+</div>
+
+```bash
+# Run in an isolated worktree with a generated name (e.g. "focused_turing")
+$ docker agent run agent.yaml --worktree
+$ docker agent run agent.yaml -w "Refactor the auth package"
+
+# Give the worktree (and its branch) an explicit name
+$ docker agent run agent.yaml --worktree=auth-refactor
 ```
 
 ### `docker agent run --exec`
