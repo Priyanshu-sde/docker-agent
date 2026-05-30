@@ -33,6 +33,11 @@ type Worktree struct {
 	Branch string
 	// Name is the worktree's name (the part after the "worktree-" branch prefix).
 	Name string
+	// SourceDir is the root of the repository the worktree was branched
+	// from. The worktree lives under the data directory, far from the
+	// original checkout, so setup hooks need this to copy untracked files
+	// (.env, local config) git won't carry over.
+	SourceDir string
 }
 
 // Create creates a new git worktree for the repository containing dir and
@@ -69,7 +74,7 @@ func Create(ctx context.Context, dir, name string) (*Worktree, error) {
 		return nil, fmt.Errorf("creating git worktree: %w", err)
 	}
 
-	return &Worktree{Dir: dest, Branch: branch, Name: name}, nil
+	return &Worktree{Dir: dest, Branch: branch, Name: name, SourceDir: root}, nil
 }
 
 // validateName rejects names that would escape the worktrees directory or

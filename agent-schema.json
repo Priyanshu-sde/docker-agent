@@ -1038,6 +1038,13 @@
           "items": {
             "$ref": "#/definitions/HookMatcherConfig"
           }
+        },
+        "worktree_create": {
+          "type": "array",
+          "description": "Hooks that run once, just after `docker agent run --worktree` creates a git worktree and before the session starts. They execute inside the new worktree (their working directory is the fresh checkout), and the worktree path, branch, and source repository root are passed in worktree_path / worktree_branch / worktree_source_dir. Use them to prepare the checkout: copy untracked files like .env, install dependencies, warm caches, before the agent begins. A hook may abort the run by blocking (decision=block / continue=false / exit code 2); stdout is surfaced as additional context. Dispatched from the CLI rather than the run loop because the worktree (and the working directory every downstream component captures) must be settled before the runtime and session exist.",
+          "items": {
+            "$ref": "#/definitions/HookDefinition"
+          }
         }
       },
       "additionalProperties": false

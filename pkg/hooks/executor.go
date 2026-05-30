@@ -96,6 +96,7 @@ func compileEvents(c *Config) map[EventType][]matcher {
 		EventBeforeCompaction:       flat(c.BeforeCompaction),
 		EventAfterCompaction:        flat(c.AfterCompaction),
 		EventToolResponseTransform:  compileMatchers(c.ToolResponseTransform),
+		EventWorktreeCreate:         flat(c.WorktreeCreate),
 	}
 }
 
@@ -294,7 +295,8 @@ func stdoutAsContext(event EventType) bool {
 		EventUserPromptSubmit,
 		EventTurnStart,
 		EventPreCompact,
-		EventStop:
+		EventStop,
+		EventWorktreeCreate:
 		return true
 	}
 	return false

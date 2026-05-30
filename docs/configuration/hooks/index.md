@@ -59,6 +59,7 @@ docker-agent dispatches the following hook events:
 | `on_agent_switch`           | When the runtime moves the active agent (transfer_task, handoff, return)          | No         |
 | `on_session_resume`         | When the user explicitly approves continuation past `max_iterations`              | No         |
 | `on_tool_approval_decision` | After the runtime's approval chain (yolo / permissions / readonly / ask) resolves | No         |
+| `worktree_create`           | After `docker agent run --worktree` creates a git worktree, before the session     | Yes        |
 
 <div class="callout callout-info" markdown="1">
 <div class="callout-title">Two compaction events
@@ -270,6 +271,7 @@ In addition to the common fields, each event ships its own payload:
 | `on_agent_switch`           | `from_agent`, `to_agent`, `agent_switch_kind` (`transfer_task`, `transfer_task_return`, or `handoff`)                 |
 | `on_session_resume`         | `previous_max_iterations`, `new_max_iterations`                                                                       |
 | `on_tool_approval_decision` | `tool_name`, `tool_use_id`, `tool_input`, `approval_decision`, `approval_source`                                      |
+| `worktree_create`           | `worktree_path`, `worktree_branch`, `worktree_source_dir` (`cwd` is also set to the new worktree)                     |
 
 Notes:
 
@@ -336,7 +338,7 @@ This is the symmetric counterpart of `pre_tool_use`'s `updated_input`, applied t
 
 ### Context-Contributing Events
 
-For `session_start`, `user_prompt_submit`, `turn_start`, `post_tool_use`, `pre_compact`, and `stop`, hooks may set `hook_specific_output.additional_context` to inject text into the conversation. `turn_start` context is **transient** (recomputed every turn, never persisted); `session_start` context **persists** for the life of the session.
+For `session_start`, `user_prompt_submit`, `turn_start`, `post_tool_use`, `pre_compact`, and `stop`, hooks may set `hook_specific_output.additional_context` to inject text into the conversation. `turn_start` context is **transient** (recomputed every turn, never persisted); `session_start` context **persists** for the life of the session. (`worktree_create` also surfaces stdout, but to the CLI user rather than the conversation — the session doesn't exist yet.)
 
 ### Before-Compaction Specific Output
 
@@ -598,6 +600,35 @@ At every transfer the runtime ships a snapshot of the previous agent's model end
 ### Tool-Approval-Decision: who-approved-what audit trail
 
 `on_tool_approval_decision` fires after the runtime's tool-approval chain (yolo / permissions / readonly / pre_tool_use hooks / interactive prompt) has resolved a verdict for a tool call. `approval_decision` is `allow`, `deny`, or `canceled`; `approval_source` is a stable classifier of which step produced the verdict. Observational only — it gives audit pipelines a single, structured "who approved what" record without re-implementing the chain.
+
+### Worktree-Create: prepare an isolated checkout
+
+`worktree_create` fires once, just after `docker agent run --worktree[=name]` creates a fresh [git worktree]({{ '/features/cli/' | relative_url }}) and **before** the session starts. Each hook runs **inside** the new worktree — its working directory (and `cwd` in the input) is the fresh checkout — so setup commands operate on the new tree rather than your original one. The worktree path and branch are in `worktree_path` and `worktree_branch`, and `worktree_source_dir` carries the repository root it was branched from.
+
+Use it to prepare the checkout before the agent begins: copy untracked files git won't carry over (`.env`, local config), install dependencies, or warm caches. Because the worktree lives under the docker-agent data directory — not next to your checkout — resolve the original files through `worktree_source_dir` rather than a relative path. A hook may **abort the run** by returning `decision: block` / `{"continue": false}` / exit code 2 (for example, when a setup step fails); plain stdout is surfaced as additional context.
+
+```yaml
+hooks:
+  worktree_create:
+    # Copy untracked dotfiles git won't bring into the new worktree.
+    - name: seed local env
+      type: command
+      command: |
+        INPUT=$(cat)
+        SRC=$(echo "$INPUT" | jq -r '.worktree_source_dir // ""')
+        [ -n "$SRC" ] && [ -f "$SRC/.env" ] && [ ! -f .env ] && cp "$SRC/.env" .env
+        echo "Prepared worktree"
+    # Install dependencies, aborting the run on failure.
+    - name: install dependencies
+      type: command
+      timeout: 600
+      command: |
+        if [ -f package.json ]; then
+          npm install || { echo '{"continue": false, "system_message": "npm install failed"}'; exit 2; }
+        fi
+```
+
+Unlike most events, `worktree_create` is dispatched from the CLI rather than the run loop, because the worktree (and the working directory the runtime, session, tools, and snapshot machinery all capture) must be settled before the runtime and session exist. See [`examples/worktree_create_hook.yaml`](https://github.com/docker/docker-agent/blob/main/examples/worktree_create_hook.yaml) for the full file.
 
 ### Pre-Compact: steer the summary
 

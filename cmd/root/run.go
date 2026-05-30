@@ -27,6 +27,7 @@ import (
 	"github.com/docker/docker-agent/pkg/profiling"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
+	"github.com/docker/docker-agent/pkg/team"
 	"github.com/docker/docker-agent/pkg/teamloader"
 	"github.com/docker/docker-agent/pkg/telemetry"
 	"github.com/docker/docker-agent/pkg/tui"
@@ -390,6 +391,15 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 		wd = wt.Dir
 		f.runConfig.WorkingDir = wt.Dir
 		out.Println("Using git worktree: " + wt.Dir + " (branch " + wt.Branch + ")")
+		// loadResult is nil for the remote backend; --worktree is mutually
+		// exclusive with --remote so this is belt-and-suspenders, matching
+		// the nil-guard used for cleanup throughout this function.
+		if loadResult != nil {
+			if err := f.dispatchWorktreeCreate(ctx, out, loadResult.Team, wt); err != nil {
+				stopToolSets(loadResult.Team)
+				return err
+			}
+		}
 	}
 	rt, sess, cleanup, err := b.CreateSession(ctx, loadResult, b.CreateSessionRequest(wd))
 	if err != nil {
@@ -424,6 +434,54 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	}
 
 	return runTUI(ctx, rt, sess, b.Spawner(rt), cleanup, f.tuiOpts(), opts...)
+}
+
+// dispatchWorktreeCreate fires the worktree_create hooks of the agent the
+// run targets, just after the worktree is created and before the session
+// exists. Unlike every other event, this is dispatched from the CLI rather
+// than the run loop: the worktree (and the working directory the runtime,
+// session, tools and snapshot machinery all capture) must be settled first.
+// Hooks run inside the new worktree so setup commands (copy .env, install
+// deps) operate on the fresh checkout. A blocking verdict aborts the run.
+func (f *runExecFlags) dispatchWorktreeCreate(ctx context.Context, out *cli.Printer, t *team.Team, wt *worktree.Worktree) error {
+	agt, err := t.AgentOrDefault(f.agentName)
+	if err != nil {
+		return err
+	}
+	hooksCfg := agt.Hooks()
+	if hooksCfg == nil {
+		return nil
+	}
+
+	executor := hooks.NewExecutor(hooksCfg, wt.Dir, os.Environ())
+	if !executor.Has(hooks.EventWorktreeCreate) {
+		return nil
+	}
+
+	result, err := executor.Dispatch(ctx, hooks.EventWorktreeCreate, &hooks.Input{
+		AgentName:         agt.Name(),
+		Cwd:               wt.Dir,
+		WorktreePath:      wt.Dir,
+		WorktreeBranch:    wt.Branch,
+		WorktreeSourceDir: wt.SourceDir,
+	})
+	if err != nil {
+		return fmt.Errorf("running worktree_create hooks: %w", err)
+	}
+	if result.SystemMessage != "" {
+		out.Println(result.SystemMessage)
+	}
+	if result.AdditionalContext != "" {
+		out.Println(result.AdditionalContext)
+	}
+	if !result.Allowed {
+		msg := result.Message
+		if msg == "" {
+			msg = "a worktree_create hook blocked the run"
+		}
+		return fmt.Errorf("worktree_create hook aborted the run: %s", msg)
+	}
+	return nil
 }
 
 func (f *runExecFlags) loadAgentFrom(ctx context.Context, req runtime.LoadTeamRequest) (*teamloader.LoadResult, error) {

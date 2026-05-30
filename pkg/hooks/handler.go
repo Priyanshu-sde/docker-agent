@@ -124,9 +124,20 @@ func newCommandFactory() HandlerFactory {
 	}
 }
 
+// hookWorkingDir resolves the directory a command hook runs in. An
+// absolute override wins; a relative override is joined onto the
+// executor's working directory; with no override the executor's working
+// directory is used. Falling back to the executor's working directory
+// (rather than "", which would inherit the process cwd) matters when the
+// executor runs before the process has chdir'd into it — e.g. the
+// CLI-dispatched worktree_create event, whose working dir is the freshly
+// created worktree.
 func hookWorkingDir(base, override string) string {
-	if override == "" || filepath.IsAbs(override) {
+	if filepath.IsAbs(override) {
 		return override
+	}
+	if override == "" {
+		return base
 	}
 	if base == "" {
 		return override

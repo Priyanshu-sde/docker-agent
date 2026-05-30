@@ -1,0 +1,74 @@
+#
+# worktree_create hook
+# ==========================================================================
+#
+# The worktree_create event fires once, just after
+#
+#     docker agent run --worktree[=name] agent.yaml
+#
+# creates a fresh git worktree and BEFORE the session starts. Each hook runs
+# INSIDE the new worktree (its working directory is the fresh checkout), so
+# setup commands operate on the new tree rather than your original checkout.
+#
+# The hook Input carries:
+#
+#   .cwd                 - the new worktree directory (also the hook's workdir)
+#   .worktree_path       - same as .cwd, passed explicitly for convenience
+#   .worktree_branch     - the branch checked out in the worktree (worktree-<name>)
+#   .worktree_source_dir - the repo root the worktree was branched from
+#
+# Use it to prepare the checkout before the agent begins: copy untracked
+# files git won't carry over (.env, local config), install dependencies,
+# warm caches, etc.
+#
+# A hook may ABORT the run by blocking — return decision=block /
+# {"continue": false} or exit with code 2 — for example when a setup step
+# fails. Plain stdout is surfaced to the user as additional context.
+#
+# Unlike most events, worktree_create is dispatched from the CLI rather than
+# the run loop, because the worktree (and the working directory the runtime,
+# session, tools and snapshot machinery all capture) must be settled before
+# the runtime and session exist.
+#
+# Try it:
+#   cd into a git repo, then:
+#     docker agent run --worktree examples/worktree_create_hook.yaml
+#
+
+agents:
+  root:
+    model: openai/gpt-4o
+    description: Demonstrates the worktree_create hook for preparing a fresh git worktree.
+    instruction: |
+      You are a coding assistant working inside an isolated git worktree.
+      Use the shell and filesystem tools to help the user.
+    toolsets:
+      - type: shell
+      - type: filesystem
+
+    hooks:
+      worktree_create:
+        # Copy untracked dotfiles git won't bring into the new worktree.
+        # The worktree lives under the docker-agent data directory, far
+        # from the original checkout, so resolve the source via
+        # .worktree_source_dir rather than a relative path.
+        - name: seed local env
+          type: command
+          timeout: 30
+          command: |
+            INPUT=$(cat)
+            BRANCH=$(echo "$INPUT" | jq -r '.worktree_branch // "unknown"')
+            SRC=$(echo "$INPUT" | jq -r '.worktree_source_dir // ""')
+            if [ -n "$SRC" ] && [ -f "$SRC/.env" ] && [ ! -f .env ]; then
+              cp "$SRC/.env" .env
+            fi
+            echo "Prepared worktree on branch $BRANCH"
+
+        # Install dependencies in the fresh tree, aborting the run on failure.
+        - name: install dependencies
+          type: command
+          timeout: 600
+          command: |
+            if [ -f package.json ]; then
+              npm install || { echo '{"continue": false, "system_message": "npm install failed"}'; exit 2; }
+            fi

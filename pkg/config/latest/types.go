@@ -1949,6 +1949,18 @@ type HooksConfig struct {
 	// tool_response_transform scrubs tool output. Tool-matched, like
 	// pre_tool_use / post_tool_use.
 	ToolResponseTransform []HookMatcherConfig `json:"tool_response_transform,omitempty" yaml:"tool_response_transform,omitempty"`
+
+	// WorktreeCreate hooks run once, just after `docker agent run
+	// --worktree` creates a git worktree and before the session starts.
+	// They execute inside the new worktree (their working directory is
+	// the fresh checkout) with the worktree path, branch, and source
+	// repository root passed in worktree_path / worktree_branch /
+	// worktree_source_dir. Use them to prepare the checkout — copy
+	// untracked files like .env from the source dir, install
+	// dependencies, warm caches. A hook may abort the run by blocking
+	// (decision="block" / continue=false / exit code 2); stdout is added
+	// as context.
+	WorktreeCreate []HookDefinition `json:"worktree_create,omitempty" yaml:"worktree_create,omitempty"`
 }
 
 // IsEmpty returns true if no hooks are configured
@@ -1978,7 +1990,8 @@ func (h *HooksConfig) IsEmpty() bool {
 		len(h.OnToolApprovalDecision) == 0 &&
 		len(h.BeforeCompaction) == 0 &&
 		len(h.AfterCompaction) == 0 &&
-		len(h.ToolResponseTransform) == 0
+		len(h.ToolResponseTransform) == 0 &&
+		len(h.WorktreeCreate) == 0
 }
 
 // HookMatcherConfig represents a hook matcher with its hooks.
@@ -2234,6 +2247,13 @@ func (h *HooksConfig) Validate() error {
 	// Validate ToolResponseTransform matchers
 	for i, m := range h.ToolResponseTransform {
 		if err := m.validate("tool_response_transform", i); err != nil {
+			return err
+		}
+	}
+
+	// Validate WorktreeCreate hooks
+	for i, hook := range h.WorktreeCreate {
+		if err := hook.validate("worktree_create", i); err != nil {
 			return err
 		}
 	}

@@ -161,6 +161,22 @@ const (
 	// Tool-scoped: matchers select which tools the hook runs against,
 	// like pre_tool_use / post_tool_use.
 	EventToolResponseTransform EventType = "tool_response_transform"
+	// EventWorktreeCreate fires once, just after the CLI creates a git
+	// worktree for a `--worktree` run and before the session starts. The
+	// new working directory is reported in [Input.Cwd] (hooks run there)
+	// and the worktree path, branch, and source repository root are also
+	// carried explicitly in [Input.WorktreePath], [Input.WorktreeBranch],
+	// and [Input.WorktreeSourceDir]. Use it to prepare the fresh checkout
+	// — copy untracked files like .env from the source dir, install
+	// dependencies, warm caches — before the agent begins.
+	//
+	// Unlike most events it is dispatched from the CLI rather than the
+	// run loop, because the worktree (and the working directory every
+	// downstream component captures) must be settled before the runtime
+	// and session exist. Plain stdout is surfaced as additional context;
+	// a hook may abort the run by returning decision="block" (or
+	// continue=false / exit code 2), e.g. when setup fails.
+	EventWorktreeCreate EventType = "worktree_create"
 )
 
 // Input is the JSON-serializable payload passed to hooks via stdin.
@@ -293,6 +309,16 @@ type Input struct {
 	// applied to the session so observability handlers can audit /
 	// archive what was summarized.
 	Summary string `json:"summary,omitempty"`
+
+	// WorktreeCreate specific: the absolute path of the freshly created
+	// git worktree and the branch checked out in it. [Input.Cwd] is set
+	// to the same path so command hooks run inside the new worktree.
+	// WorktreeSourceDir is the repository root the worktree was branched
+	// from, so setup hooks can copy untracked files (.env, local config)
+	// from the original checkout into the fresh one.
+	WorktreePath      string `json:"worktree_path,omitempty"`
+	WorktreeBranch    string `json:"worktree_branch,omitempty"`
+	WorktreeSourceDir string `json:"worktree_source_dir,omitempty"`
 }
 
 // ModelEndpoint identifies one of an agent's configured models plus

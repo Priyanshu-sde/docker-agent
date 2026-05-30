@@ -230,6 +230,32 @@ func TestCommandHookUsesPerHookEnvAndWorkingDir(t *testing.T) {
 	assert.True(t, strings.HasSuffix(result.AdditionalContext, "/scripts"), result.AdditionalContext)
 }
 
+// TestCommandHookDefaultsToExecutorWorkingDir pins that a hook WITHOUT a
+// working_dir override runs in the executor's working directory rather
+// than inheriting the process cwd. This matters for executors that run
+// before the process has chdir'd into their working dir — e.g. the
+// CLI-dispatched worktree_create event, whose working dir is the freshly
+// created worktree.
+func TestCommandHookDefaultsToExecutorWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	// Resolve symlinks so the comparison is stable on macOS, where
+	// TempDir lives under /var -> /private/var.
+	workDir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+
+	exec := NewExecutor(&Config{SessionStart: []Hook{{
+		Type:    HookTypeCommand,
+		Command: `printf '{"hook_specific_output":{"additional_context":"%s"}}' "$(pwd)"`,
+	}}}, workDir, os.Environ())
+
+	result, err := exec.Dispatch(t.Context(), EventSessionStart, &Input{SessionID: "s"})
+	require.NoError(t, err)
+	got, err := filepath.EvalSymlinks(strings.TrimSpace(result.AdditionalContext))
+	require.NoError(t, err)
+	assert.Equal(t, workDir, got)
+}
+
 func TestHookOnErrorBlockCanDenyNonFailClosedEvent(t *testing.T) {
 	t.Parallel()
 
