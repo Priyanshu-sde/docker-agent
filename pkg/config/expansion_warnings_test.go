@@ -66,9 +66,11 @@ func TestWarnExpansionMismatches_LowerCaseShellIdent(t *testing.T) {
 	assert.Contains(t, out, "shell-style")
 }
 
-func TestWarnExpansionMismatches_JSEnvInPathField(t *testing.T) {
+func TestWarnExpansionMismatches_JSEnvInPathFieldNoLongerWarns(t *testing.T) {
 	t.Parallel()
 
+	// working_dir and path flow through pkg/path.ExpandPath, which now accepts
+	// ${env.X}, so these must not warn anymore (#2615).
 	cfg := &latest.Config{
 		Agents: []latest.AgentConfig{{
 			Name: "root",
@@ -87,10 +89,32 @@ func TestWarnExpansionMismatches_JSEnvInPathField(t *testing.T) {
 		warnExpansionMismatches(ctx, logger, cfg)
 	})
 
+	assert.NotContains(t, out, "WARN")
+}
+
+func TestWarnExpansionMismatches_JSEnvInToolsetEnv(t *testing.T) {
+	t.Parallel()
+
+	// Toolset env values are still expanded with os.Expand, so ${env.X} there
+	// remains a silent no-op we must warn about.
+	cfg := &latest.Config{
+		Agents: []latest.AgentConfig{{
+			Name: "root",
+			Toolsets: []latest.Toolset{{
+				Type:    "mcp",
+				Command: "x",
+				Env: map[string]string{
+					"MEM_DIR": "${env.MEM_DIR}/db",
+				},
+			}},
+		}},
+	}
+
+	out := captureWarnings(t, func(ctx context.Context, logger *slog.Logger) {
+		warnExpansionMismatches(ctx, logger, cfg)
+	})
+
 	assert.Contains(t, out, "JS-style")
-	assert.Contains(t, out, "working_dir")
-	assert.Contains(t, out, "path")
-	assert.Contains(t, out, "HOME")
 	assert.Contains(t, out, "MEM_DIR")
 }
 
@@ -102,11 +126,15 @@ func TestWarnExpansionMismatches_DoesNotLeakValueInPathField(t *testing.T) {
 		Agents: []latest.AgentConfig{{
 			Name: "root",
 			Toolsets: []latest.Toolset{{
-				Type: "memory",
+				Type:    "mcp",
+				Command: "x",
 				// Realistic shape: secret prefix followed by an unsupported
-				// JS-style expansion. We must surface the variable name so
-				// users can fix the typo, but we must not echo the secret.
-				Path: secretToken + "/${env.MEM_DIR}/db",
+				// JS-style expansion in a shell-expanded env value. We must
+				// surface the variable name so users can fix the typo, but we
+				// must not echo the secret.
+				Env: map[string]string{
+					"TOKEN": secretToken + "/${env.MEM_DIR}/db",
+				},
 			}},
 		}},
 	}

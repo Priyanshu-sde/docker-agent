@@ -35,8 +35,11 @@ var jsEnvRefStrict = regexp.MustCompile(`\$\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*
 //
 //   - JS template literals (`${env.X}`) for prompt/instruction/header/command
 //     fields rendered through pkg/js.
-//   - Shell-style (`$VAR` / `${VAR}` / `~`) for path fields and toolset env
-//     values, processed by os.Expand and pkg/path.
+//   - Shell-style (`$VAR` / `${VAR}` / `~`) for toolset env values and the
+//     ScriptShell/hook fields that are forwarded verbatim to exec.Cmd.
+//
+// Toolset path fields (working_dir, path) are not checked here: they flow
+// through pkg/path.ExpandPath, which now accepts both syntaxes (#2615).
 //
 // Mixing them up currently fails silently; we emit warnings to make the
 // problem visible without changing runtime behavior.
@@ -82,13 +85,11 @@ func warnExpansionMismatches(ctx context.Context, logger *slog.Logger, cfg *late
 
 			// Toolset env values are expanded with os.Expand (shell-style),
 			// not the JS evaluator, so a stray `${env.X}` is the silent-failure
-			// case here.
+			// case here. working_dir and path are not checked: they flow through
+			// pkg/path.ExpandPath, which accepts both ${env.X} and ${X} (#2615).
 			for k, v := range t.Env {
 				warnPathField(ctx, logger, loc, "env."+k, v)
 			}
-
-			warnPathField(ctx, logger, loc, "working_dir", t.WorkingDir)
-			warnPathField(ctx, logger, loc, "path", t.Path)
 
 			for name, sh := range t.Shell {
 				shellLoc := loc + " shell[" + name + "]"
