@@ -60,6 +60,40 @@ func TestExpandPath(t *testing.T) {
 			envSetup: map[string]string{"MY_TEST_SUBDIR": "data"},
 			expected: filepath.Join(home, "data", "memory.db"),
 		},
+		{
+			name:     "js env ref",
+			input:    "${env.HOME}/.data/memory.db",
+			expected: filepath.Join(home, ".data", "memory.db"),
+		},
+		{
+			name:     "js env ref custom var",
+			input:    "${env.MY_TEST_DATA_DIR}/memory.db",
+			envSetup: map[string]string{"MY_TEST_DATA_DIR": "/tmp/testdata"},
+			expected: "/tmp/testdata/memory.db",
+		},
+		{
+			name:     "js env ref with surrounding whitespace",
+			input:    "${ env.MY_TEST_DATA_DIR }/memory.db",
+			envSetup: map[string]string{"MY_TEST_DATA_DIR": "/tmp/testdata"},
+			expected: "/tmp/testdata/memory.db",
+		},
+		{
+			name:     "tilde and js env ref combined",
+			input:    "~/${env.MY_TEST_SUBDIR}/memory.db",
+			envSetup: map[string]string{"MY_TEST_SUBDIR": "data"},
+			expected: filepath.Join(home, "data", "memory.db"),
+		},
+		{
+			name:     "shell and js env refs mixed",
+			input:    "${MY_TEST_DATA_DIR}/${env.MY_TEST_SUBDIR}/memory.db",
+			envSetup: map[string]string{"MY_TEST_DATA_DIR": "/tmp/testdata", "MY_TEST_SUBDIR": "data"},
+			expected: "/tmp/testdata/data/memory.db",
+		},
+		{
+			name:     "undefined js env ref expands to empty",
+			input:    "/base/${env.MY_TEST_UNDEFINED}/memory.db",
+			expected: "/base//memory.db",
+		},
 	}
 
 	for _, tt := range tests {
