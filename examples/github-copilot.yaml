@@ -4,7 +4,12 @@
 # but you can override it (or add any other custom header) via
 # `provider_opts.http_headers`.
 #
+# Newer Copilot models (gpt-5, Codex, ...) are only served via the Responses
+# API; docker-agent auto-selects the right endpoint per model, so no extra
+# config is needed. You can still force it with `provider_opts.api_type`.
+#
 # See https://github.com/docker/docker-agent/issues/2471
+#      https://github.com/docker/docker-agent/issues/2885
 
 agents:
   root:

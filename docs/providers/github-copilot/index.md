@@ -97,6 +97,25 @@ models:
 Header names are matched case-insensitively, so `copilot-integration-id`
 works too.
 
+## Chat Completions vs. Responses API
+
+GitHub Copilot proxies OpenAI models behind two endpoints: the legacy
+`/chat/completions` and the newer `/responses`. Newer models (the `gpt-5`
+family, Codex variants, etc.) are only served via `/responses` and reject
+`/chat/completions` with a `400 Bad Request`. docker-agent auto-selects the
+right endpoint per model, so no configuration is needed in the common case.
+
+If you ever need to force one or the other, set `api_type` explicitly:
+
+```yaml
+models:
+  copilot:
+    provider: github-copilot
+    model: gpt-5
+    provider_opts:
+      api_type: openai_responses # or openai_chatcompletions
+```
+
 ## Custom HTTP Headers
 
 `provider_opts.http_headers` is a generic escape hatch that works for any
