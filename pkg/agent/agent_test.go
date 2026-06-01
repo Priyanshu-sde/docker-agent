@@ -126,6 +126,34 @@ func TestAgentTools(t *testing.T) {
 	}
 }
 
+// TestAgentNoDuplicateListWarnings verifies that a toolset that starts
+// successfully but keeps failing to list its tools (e.g. a remote MCP server
+// stuck returning "toolset not started") surfaces only one warning per
+// failure streak, not one on every turn.
+func TestAgentNoDuplicateListWarnings(t *testing.T) {
+	t.Parallel()
+
+	stub := newStubToolSet(nil, nil, errors.New("toolset not started"))
+	a := New("root", "test", WithToolSets(stub))
+
+	// Turn 1: first list failure → warning.
+	_, err := a.Tools(t.Context())
+	require.NoError(t, err)
+	warnings := a.DrainWarnings()
+	require.Len(t, warnings, 1, "turn 1: exactly one warning on first list failure")
+	assert.Contains(t, warnings[0], "list failed")
+
+	// Turn 2: repeated list failure → no new warning.
+	_, err = a.Tools(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, a.DrainWarnings(), "turn 2: no duplicate warning on repeated list failure")
+
+	// Turn 3: still failing → still no new warning.
+	_, err = a.Tools(t.Context())
+	require.NoError(t, err)
+	assert.Empty(t, a.DrainWarnings(), "turn 3: no duplicate warning on repeated list failure")
+}
+
 // mockProvider implements provider.Provider for testing
 type mockProvider struct {
 	id modelsdev.ID

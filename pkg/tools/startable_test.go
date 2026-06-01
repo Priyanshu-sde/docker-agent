@@ -50,6 +50,26 @@ func (f *flappyToolSet) Stop(_ context.Context) error {
 	return nil
 }
 
+// listFlappyToolSet implements ToolSet with a scripted sequence of errors
+// returned from Tools(). nil in the sequence means a successful listing.
+type listFlappyToolSet struct {
+	errs    []error
+	callIdx int
+}
+
+func (f *listFlappyToolSet) Tools(context.Context) ([]tools.Tool, error) {
+	if f.callIdx < len(f.errs) {
+		err := f.errs[f.callIdx]
+		f.callIdx++
+		if err != nil {
+			return nil, err
+		}
+	}
+	return []tools.Tool{{Name: "flappy_tool"}}, nil
+}
+
+func (f *listFlappyToolSet) Stop(_ context.Context) error { return nil }
+
 func TestDescribeToolSet_UsesDescriber(t *testing.T) {
 	t.Parallel()
 
@@ -156,4 +176,53 @@ func TestStartableToolSet_StopResetsFailureState(t *testing.T) {
 	// Second failure after Stop: must warn again.
 	assert.Check(t, s.Start(t.Context()) != nil)
 	assert.Check(t, is.Equal(s.ShouldReportFailure(), true), "failure after Stop must produce fresh warning")
+}
+
+// TestStartableToolSet_ShouldReportListFailure_OncePerStreak verifies that
+// ShouldReportListFailure returns true exactly once per Tools() failure streak,
+// suppressing duplicate warnings on repeated retries.
+func TestStartableToolSet_ShouldReportListFailure_OncePerStreak(t *testing.T) {
+	t.Parallel()
+
+	errBoom := errors.New("toolset not started")
+	f := &listFlappyToolSet{errs: []error{errBoom, errBoom, nil}}
+	s := tools.NewStartable(f)
+
+	// Turn 1: first failure — should report.
+	_, err := s.Tools(t.Context())
+	assert.Check(t, err != nil, "expected list error on turn 1")
+	assert.Check(t, is.Equal(s.ShouldReportListFailure(), true), "turn 1: first failure should be reported")
+	assert.Check(t, is.Equal(s.ShouldReportListFailure(), false), "turn 1: second call must return false")
+
+	// Turn 2: second failure in same streak — must NOT report again.
+	_, err = s.Tools(t.Context())
+	assert.Check(t, err != nil, "expected list error on turn 2")
+	assert.Check(t, is.Equal(s.ShouldReportListFailure(), false), "turn 2: duplicate failure must not report")
+
+	// Turn 3: success — silent recovery.
+	_, err = s.Tools(t.Context())
+	assert.Check(t, err == nil, "expected success on turn 3")
+	assert.Check(t, is.Equal(s.ShouldReportListFailure(), false), "turn 3: success must not report a failure")
+}
+
+// TestStartableToolSet_ListFailureRecoveryResetsStreak verifies that a
+// successful Tools() call resets the list-failure streak: after a
+// fail → succeed → fail cycle, the fresh failure is reported again.
+func TestStartableToolSet_ListFailureRecoveryResetsStreak(t *testing.T) {
+	t.Parallel()
+
+	errBoom := errors.New("toolset not started")
+	f := &listFlappyToolSet{errs: []error{errBoom, nil, errBoom}}
+	s := tools.NewStartable(f)
+
+	_, err := s.Tools(t.Context())
+	assert.Check(t, err != nil)
+	assert.Check(t, is.Equal(s.ShouldReportListFailure(), true))
+
+	_, err = s.Tools(t.Context())
+	assert.Check(t, err == nil)
+
+	_, err = s.Tools(t.Context())
+	assert.Check(t, err != nil)
+	assert.Check(t, is.Equal(s.ShouldReportListFailure(), true), "fresh failure after recovery must warn")
 }

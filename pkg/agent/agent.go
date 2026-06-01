@@ -317,8 +317,16 @@ func (a *Agent) collectTools(ctx context.Context) ([]tools.Tool, error) {
 		ta, err := toolSet.Tools(ctx)
 		if err != nil {
 			desc := tools.DescribeToolSet(toolSet)
-			slog.WarnContext(ctx, "Toolset listing failed; skipping", "agent", a.Name(), "toolset", desc, "error", err)
-			a.AddToolWarning(fmt.Sprintf("%s list failed: %v", desc, err))
+			// Route through the once-per-streak guard so a toolset stuck
+			// returning an error (e.g. a remote MCP server replying
+			// "toolset not started") surfaces a single warning per streak
+			// instead of one on every conversation turn.
+			if toolSet.ShouldReportListFailure() {
+				slog.WarnContext(ctx, "Toolset listing failed; skipping", "agent", a.Name(), "toolset", desc, "error", err)
+				a.AddToolWarning(fmt.Sprintf("%s list failed: %v", desc, err))
+			} else {
+				slog.DebugContext(ctx, "Toolset listing still failing; retrying next turn", "agent", a.Name(), "toolset", desc, "error", err)
+			}
 			continue
 		}
 		agentTools = append(agentTools, ta...)
