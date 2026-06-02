@@ -1,0 +1,15 @@
+models:
+  sonnet:
+    provider: anthropic
+    model: claude-sonnet-4-6
+
+agents:
+  root:
+    model: sonnet
+    description: Atlassian Expert
+    instruction: You are an AI assistant with expertise in the Atlassian suite of products (Jira, Confluence).
+    toolsets:
+      - type: mcp
+        remote:
+          url: https://mcp.atlassian.com/v1/mcp/authv2
+          transport_type: streamable
