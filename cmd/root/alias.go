@@ -200,15 +200,12 @@ func runAliasAddCommand(cmd *cobra.Command, args []string, flags *aliasAddFlags)
 	return nil
 }
 
-// aliasListEntry is the JSON representation of a single alias. It embeds the
-// alias name (which is the map key in the config) alongside its options.
+// aliasListEntry is the JSON representation of a single alias. It pairs the
+// alias name (the map key in the config) with its embedded options.
 type aliasListEntry struct {
-	Name            string `json:"name"`
-	Path            string `json:"path"`
-	Yolo            bool   `json:"yolo,omitempty"`
-	Model           string `json:"model,omitempty"`
-	HideToolResults bool   `json:"hide_tool_results,omitempty"`
-	Sandbox         bool   `json:"sandbox,omitempty"`
+	userconfig.Alias
+
+	Name string `json:"name"`
 }
 
 func runAliasListCommand(cmd *cobra.Command, args []string, asJSON bool) (commandErr error) {
@@ -232,15 +229,7 @@ func runAliasListCommand(cmd *cobra.Command, args []string, asJSON bool) (comman
 	if asJSON {
 		entries := make([]aliasListEntry, 0, len(names))
 		for _, name := range names {
-			alias := allAliases[name]
-			entries = append(entries, aliasListEntry{
-				Name:            name,
-				Path:            alias.Path,
-				Yolo:            alias.Yolo,
-				Model:           alias.Model,
-				HideToolResults: alias.HideToolResults,
-				Sandbox:         alias.Sandbox,
-			})
+			entries = append(entries, aliasListEntry{Name: name, Alias: *allAliases[name]})
 		}
 		encoded, err := json.MarshalIndent(entries, "", "  ")
 		if err != nil {

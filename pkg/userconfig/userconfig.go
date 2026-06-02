@@ -24,15 +24,15 @@ import (
 // Alias represents an alias configuration with optional runtime settings
 type Alias struct {
 	// Path is the agent file path or OCI reference
-	Path string `yaml:"path"`
+	Path string `yaml:"path" json:"path"`
 	// Yolo enables auto-approve mode for all tool calls
-	Yolo bool `yaml:"yolo,omitempty"`
+	Yolo bool `yaml:"yolo,omitempty" json:"yolo,omitempty"`
 	// Model overrides the agent's model (format: [agent=]provider/model)
-	Model string `yaml:"model,omitempty"`
+	Model string `yaml:"model,omitempty" json:"model,omitempty"`
 	// HideToolResults hides tool call results in the TUI
-	HideToolResults bool `yaml:"hide_tool_results,omitempty"`
+	HideToolResults bool `yaml:"hide_tool_results,omitempty" json:"hide_tool_results,omitempty"`
 	// Sandbox runs the agent inside a Docker sandbox by default.
-	Sandbox bool `yaml:"sandbox,omitempty"`
+	Sandbox bool `yaml:"sandbox,omitempty" json:"sandbox,omitempty"`
 }
 
 // HasOptions returns true if the alias has any runtime options set
