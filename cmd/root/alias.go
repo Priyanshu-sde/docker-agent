@@ -1,6 +1,7 @@
 package root
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"path/filepath"
@@ -30,6 +31,9 @@ func newAliasCmd() *cobra.Command {
 
   # List all registered aliases
   docker-agent alias list
+
+  # List all registered aliases as JSON
+  docker-agent alias list --json
 
   # Remove an alias
   docker-agent alias remove code`,
@@ -97,13 +101,21 @@ the alias is used:
 }
 
 func newAliasListCmd() *cobra.Command {
-	return &cobra.Command{
+	var asJSON bool
+
+	cmd := &cobra.Command{
 		Use:     "list",
 		Aliases: []string{"ls"},
 		Short:   "List all registered aliases",
 		Args:    cobra.NoArgs,
-		RunE:    runAliasListCommand,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAliasListCommand(cmd, args, asJSON)
+		},
 	}
+
+	cmd.Flags().BoolVar(&asJSON, "json", false, "Output aliases as JSON")
+
+	return cmd
 }
 
 func newAliasRemoveCmd() *cobra.Command {
@@ -188,7 +200,18 @@ func runAliasAddCommand(cmd *cobra.Command, args []string, flags *aliasAddFlags)
 	return nil
 }
 
-func runAliasListCommand(cmd *cobra.Command, args []string) (commandErr error) {
+// aliasListEntry is the JSON representation of a single alias. It embeds the
+// alias name (which is the map key in the config) alongside its options.
+type aliasListEntry struct {
+	Name            string `json:"name"`
+	Path            string `json:"path"`
+	Yolo            bool   `json:"yolo,omitempty"`
+	Model           string `json:"model,omitempty"`
+	HideToolResults bool   `json:"hide_tool_results,omitempty"`
+	Sandbox         bool   `json:"sandbox,omitempty"`
+}
+
+func runAliasListCommand(cmd *cobra.Command, args []string, asJSON bool) (commandErr error) {
 	telemetry.TrackCommand(cmd.Context(), "alias", append([]string{"list"}, args...))
 	defer func() { // do not inline this defer so that commandErr is not resolved early
 		telemetry.TrackCommandError(cmd.Context(), "alias", append([]string{"list"}, args...), commandErr)
@@ -202,6 +225,31 @@ func runAliasListCommand(cmd *cobra.Command, args []string) (commandErr error) {
 	}
 
 	allAliases := cfg.Aliases
+
+	// Sort aliases by name for consistent output
+	names := slices.Sorted(maps.Keys(allAliases))
+
+	if asJSON {
+		entries := make([]aliasListEntry, 0, len(names))
+		for _, name := range names {
+			alias := allAliases[name]
+			entries = append(entries, aliasListEntry{
+				Name:            name,
+				Path:            alias.Path,
+				Yolo:            alias.Yolo,
+				Model:           alias.Model,
+				HideToolResults: alias.HideToolResults,
+				Sandbox:         alias.Sandbox,
+			})
+		}
+		encoded, err := json.MarshalIndent(entries, "", "  ")
+		if err != nil {
+			return fmt.Errorf("failed to encode aliases as JSON: %w", err)
+		}
+		out.Println(string(encoded))
+		return nil
+	}
+
 	if len(allAliases) == 0 {
 		out.Println("No aliases registered.")
 		out.Println("\nCreate an alias with: docker agent alias add <name> <agent-path>")
@@ -209,9 +257,6 @@ func runAliasListCommand(cmd *cobra.Command, args []string) (commandErr error) {
 	}
 
 	out.Printf("Registered aliases (%d):\n\n", len(allAliases))
-
-	// Sort aliases by name for consistent output
-	names := slices.Sorted(maps.Keys(allAliases))
 
 	// Find max name width for alignment (using display width for proper Unicode handling)
 	maxLen := 0
