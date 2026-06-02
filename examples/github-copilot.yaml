@@ -13,16 +13,16 @@
 
 agents:
   root:
-    model: github-copilot/gpt-4o
+    model: github-copilot/gpt-4.1
     description: A helpful AI assistant powered by GitHub Copilot
     instruction: |
       You are a helpful AI assistant.
       Be helpful, accurate, and concise in your responses.
 
 models:
-  github-copilot/gpt-4o:
+  github-copilot/gpt-4.1:
     provider: github-copilot
-    model: gpt-4o
+    model: gpt-4.1
     # Optional: override the default Copilot-Integration-Id header or add
     # any other custom HTTP headers. Header names are matched
     # case-insensitively against the default.
