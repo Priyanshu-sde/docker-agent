@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -209,8 +210,10 @@ func (u *Updater) tryUpdate(ctx context.Context, stdin io.Reader, stderr io.Writ
 	fmt.Fprintf(stderr, "docker-agent: updated to %s, restarting...\n", release.Tag)
 
 	// Re-execute the freshly installed binary with the original arguments,
-	// marking the child so it will not attempt to update again.
-	env := append(os.Environ(), envReExecMarker+"=1", envBackupMarker+"="+backup)
+	// marking the child so it will not attempt to update again. Strip any
+	// inherited self-update markers first so a stale backup path from a prior
+	// cycle cannot shadow the one we set (getenv returns the first match).
+	env := append(selfUpdateEnv(os.Environ()), envReExecMarker+"=1", envBackupMarker+"="+backup)
 	if err := u.reExec(exePath, os.Args, env); err != nil {
 		if restoreErr := restore(); restoreErr != nil {
 			return fmt.Errorf("re-executing updated binary and restoring previous binary: %w", errors.Join(err, restoreErr))
@@ -234,18 +237,17 @@ type releaseInfo struct {
 	Tag         string
 	Asset       string
 	DownloadURL string
-	Digest      string
 }
 
 // latestRelease fetches the latest GitHub release metadata and locates the
 // asset matching the current platform.
 func (u *Updater) latestRelease(ctx context.Context, assetName string) (releaseInfo, error) {
-	url := fmt.Sprintf("%s/repos/%s/%s/releases/latest", u.APIBaseURL, u.Owner, u.Repo)
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/releases/latest", u.APIBaseURL, u.Owner, u.Repo)
 
 	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return releaseInfo{}, err
 	}
@@ -267,7 +269,6 @@ func (u *Updater) latestRelease(ctx context.Context, assetName string) (releaseI
 		Assets  []struct {
 			Name               string `json:"name"`
 			BrowserDownloadURL string `json:"browser_download_url"`
-			Digest             string `json:"digest"`
 		} `json:"assets"`
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 4<<20)).Decode(&release); err != nil {
@@ -282,11 +283,13 @@ func (u *Updater) latestRelease(ctx context.Context, assetName string) (releaseI
 			if asset.BrowserDownloadURL == "" {
 				return releaseInfo{}, fmt.Errorf("release asset %s has no download URL", assetName)
 			}
+			if err := u.validateDownloadURL(asset.BrowserDownloadURL); err != nil {
+				return releaseInfo{}, err
+			}
 			return releaseInfo{
 				Tag:         release.TagName,
 				Asset:       asset.Name,
 				DownloadURL: asset.BrowserDownloadURL,
-				Digest:      asset.Digest,
 			}, nil
 		}
 	}
@@ -294,15 +297,39 @@ func (u *Updater) latestRelease(ctx context.Context, assetName string) (releaseI
 	return releaseInfo{}, fmt.Errorf("latest release %s does not contain asset %s", release.TagName, assetName)
 }
 
+// validateDownloadURL rejects asset URLs that do not point at the trusted
+// download host. The asset URL comes from the GitHub API response, so a
+// tampered or compromised response could otherwise redirect the binary
+// download to an attacker-controlled host. The trusted host is derived from
+// the hardcoded DownloadBaseURL (github.com in production), and the scheme of
+// that base URL is enforced too.
+func (u *Updater) validateDownloadURL(rawURL string) error {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parsing asset download URL: %w", err)
+	}
+	base, err := url.Parse(u.DownloadBaseURL)
+	if err != nil {
+		return fmt.Errorf("parsing download base URL: %w", err)
+	}
+	if parsed.Scheme != base.Scheme {
+		return fmt.Errorf("asset download URL %q scheme is not %q", rawURL, base.Scheme)
+	}
+	if !strings.EqualFold(parsed.Hostname(), base.Hostname()) {
+		return fmt.Errorf("asset download URL host %q is not the trusted host %q", parsed.Hostname(), base.Hostname())
+	}
+	return nil
+}
+
 // downloadAndStage downloads the release asset into a temp file next to exePath
 // (same filesystem, so the later rename is atomic) and returns its path.
 func (u *Updater) downloadAndStage(ctx context.Context, release releaseInfo, exePath string) (string, error) {
-	url := release.DownloadURL
+	dlURL := release.DownloadURL
 
 	dlCtx, cancel := context.WithTimeout(ctx, downloadTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(dlCtx, http.MethodGet, dlURL, http.NoBody)
 	if err != nil {
 		return "", err
 	}
@@ -310,12 +337,12 @@ func (u *Updater) downloadAndStage(ctx context.Context, release releaseInfo, exe
 
 	resp, err := u.HTTPClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("downloading %s: %w", url, err)
+		return "", fmt.Errorf("downloading %s: %w", dlURL, err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("downloading %s: HTTP %d", url, resp.StatusCode)
+		return "", fmt.Errorf("downloading %s: HTTP %d", dlURL, resp.StatusCode)
 	}
 
 	dir := filepath.Dir(exePath)
@@ -366,27 +393,18 @@ func (u *Updater) downloadAndStage(ctx context.Context, release releaseInfo, exe
 	return tmpPath, nil
 }
 
-// verifyChecksum verifies gotHex against GitHub's asset digest, falling back to
-// the release checksums file. It fails closed when neither source provides a
-// matching SHA-256 for the asset.
+// verifyChecksum verifies gotHex against the SHA-256 listed for the asset in
+// the release's checksums.txt, fetched from the hardcoded DownloadBaseURL
+// rather than any API-supplied value. It fails closed when checksums.txt is
+// missing or does not list the asset, so a tampered API response cannot
+// substitute its own digest for a malicious binary.
 func (u *Updater) verifyChecksum(ctx context.Context, release releaseInfo, gotHex string) error {
-	if release.Digest != "" {
-		algorithm, digest, ok := strings.Cut(release.Digest, ":")
-		if ok && strings.EqualFold(algorithm, "sha256") && digest != "" {
-			if strings.EqualFold(digest, gotHex) {
-				return nil
-			}
-			return fmt.Errorf("checksum mismatch for %s: expected %s, got %s", release.Asset, digest, gotHex)
-		}
-		return fmt.Errorf("unsupported digest for %s: %q", release.Asset, release.Digest)
-	}
-
-	url := fmt.Sprintf("%s/%s/%s/releases/download/%s/checksums.txt", u.DownloadBaseURL, u.Owner, u.Repo, release.Tag)
+	endpoint := fmt.Sprintf("%s/%s/%s/releases/download/%s/checksums.txt", u.DownloadBaseURL, u.Owner, u.Repo, release.Tag)
 
 	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody)
 	if err != nil {
 		return err
 	}
@@ -610,15 +628,34 @@ func answerIsYes(answer string) bool {
 	}
 }
 
-// isInteractive reports whether stdin is a terminal we can prompt on. A
-// non-*os.File reader (e.g. tests) or a non-terminal file descriptor (pipe,
-// redirect, CI) is treated as non-interactive.
+// isInteractive reports whether stdin is a terminal we can prompt on. It probes
+// for an Fd() accessor (satisfied by *os.File and by common wrappers) rather
+// than asserting a concrete *os.File, so a wrapped real terminal is still
+// detected. A reader without a file descriptor (e.g. a bytes buffer in tests)
+// or a non-terminal descriptor (pipe, redirect, CI) is non-interactive.
 func isInteractive(stdin io.Reader) bool {
-	f, ok := stdin.(*os.File)
+	f, ok := stdin.(interface{ Fd() uintptr })
 	if !ok {
 		return false
 	}
 	return isatty.IsTerminal(f.Fd()) || isatty.IsCygwinTerminal(f.Fd())
+}
+
+// selfUpdateEnv returns environ with every DOCKER_AGENT_SELF_UPDATE_* entry
+// removed so the caller can append fresh markers without leaving duplicates.
+// Duplicates matter because getenv returns the first match, so a stale backup
+// path inherited from a prior update cycle would otherwise shadow the new one
+// and leak the temp backup file.
+func selfUpdateEnv(environ []string) []string {
+	filtered := make([]string, 0, len(environ))
+	for _, kv := range environ {
+		key, _, _ := strings.Cut(kv, "=")
+		if key == envReExecMarker || key == envBackupMarker {
+			continue
+		}
+		filtered = append(filtered, kv)
+	}
+	return filtered
 }
 
 // isTruthy reports whether s represents an enabled boolean flag.

@@ -395,22 +395,88 @@ func TestLatestReleaseAuthHeader(t *testing.T) {
 	var gotAuth string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotAuth = r.Header.Get("Authorization")
-		fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":"docker-agent-plan9-mips","browser_download_url":%q,"digest":"sha256:abc123"}]}`, "http://"+r.Host+"/download")
+		fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":"docker-agent-plan9-mips","browser_download_url":%q}]}`, "http://"+r.Host+"/download")
 	}))
 	t.Cleanup(srv.Close)
 
 	u := &Updater{
-		Owner:      "docker",
-		Repo:       "docker-agent",
-		APIBaseURL: srv.URL,
-		HTTPClient: srv.Client(),
+		Owner:           "docker",
+		Repo:            "docker-agent",
+		APIBaseURL:      srv.URL,
+		DownloadBaseURL: srv.URL,
+		HTTPClient:      srv.Client(),
 	}
 
 	release, err := u.latestRelease(t.Context(), "docker-agent-plan9-mips")
 	require.NoError(t, err)
 	assert.Equal(t, "v9.9.9", release.Tag)
-	assert.Equal(t, "sha256:abc123", release.Digest)
 	assert.Equal(t, "Bearer secret-token", gotAuth)
+}
+
+func TestLatestReleaseRejectsUntrustedDownloadHost(t *testing.T) {
+	// The asset download URL points at an attacker-controlled host while the
+	// trusted DownloadBaseURL is the test server: resolution must fail rather
+	// than follow the foreign URL.
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":"docker-agent-plan9-mips","browser_download_url":%q}]}`, "http://evil.example.com/docker-agent-plan9-mips")
+	}))
+	t.Cleanup(srv.Close)
+
+	u := &Updater{
+		Owner:           "docker",
+		Repo:            "docker-agent",
+		APIBaseURL:      srv.URL,
+		DownloadBaseURL: srv.URL,
+		HTTPClient:      srv.Client(),
+	}
+
+	_, err := u.latestRelease(t.Context(), "docker-agent-plan9-mips")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not the trusted host")
+}
+
+func TestValidateDownloadURL(t *testing.T) {
+	t.Parallel()
+
+	u := &Updater{DownloadBaseURL: "https://github.com"}
+
+	require.NoError(t, u.validateDownloadURL("https://github.com/docker/docker-agent/releases/download/v1/asset"))
+	require.NoError(t, u.validateDownloadURL("https://GitHub.com/docker/docker-agent/releases/download/v1/asset"))
+
+	require.Error(t, u.validateDownloadURL("https://objects.githubusercontent.com/asset"), "foreign host must be rejected")
+	require.Error(t, u.validateDownloadURL("http://github.com/asset"), "non-HTTPS must be rejected")
+	require.Error(t, u.validateDownloadURL("https://evil.example.com/asset"))
+	require.Error(t, u.validateDownloadURL("://bad"))
+}
+
+func TestSelfUpdateEnvStripsMarkers(t *testing.T) {
+	t.Parallel()
+
+	in := []string{
+		"PATH=/usr/bin",
+		envBackupMarker + "=/tmp/stale",
+		"HOME=/home/me",
+		envReExecMarker + "=1",
+	}
+
+	got := selfUpdateEnv(in)
+	assert.Equal(t, []string{"PATH=/usr/bin", "HOME=/home/me"}, got)
+
+	// Appending fresh markers must yield exactly one entry for each key.
+	full := append(selfUpdateEnv(in), envReExecMarker+"=1", envBackupMarker+"=/tmp/new")
+	assert.Equal(t, 1, countKey(full, envReExecMarker))
+	assert.Equal(t, 1, countKey(full, envBackupMarker))
+	assert.Contains(t, full, envBackupMarker+"=/tmp/new")
+}
+
+func countKey(env []string, key string) int {
+	n := 0
+	for _, kv := range env {
+		if k, _, _ := strings.Cut(kv, "="); k == key {
+			n++
+		}
+	}
+	return n
 }
 
 func TestCleanupRemovesBackup(t *testing.T) {
