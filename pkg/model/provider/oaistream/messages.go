@@ -270,7 +270,7 @@ func MergeConsecutiveMessages(openaiMessages []openai.ChatCompletionMessageParam
 
 		// Only merge system or user messages
 		if currentRole == "system" || currentRole == "user" {
-			var mergedContent string
+			var mergedContent strings.Builder
 			var mergedMultiContent []openai.ChatCompletionContentPartUnionParam
 			j := i
 
@@ -284,10 +284,10 @@ func MergeConsecutiveMessages(openaiMessages []openai.ChatCompletionMessageParam
 
 				// Extract content
 				if str, ok := getStringContent(msgToMerge); ok {
-					if mergedContent != "" {
-						mergedContent += "\n"
+					if mergedContent.Len() > 0 {
+						mergedContent.WriteString("\n")
 					}
-					mergedContent += str
+					mergedContent.WriteString(str)
 				} else if parts := getMultiContent(msgToMerge); parts != nil {
 					mergedMultiContent = append(mergedMultiContent, parts...)
 				} else if textParts := getSystemTextParts(msgToMerge); textParts != nil {
@@ -307,7 +307,7 @@ func MergeConsecutiveMessages(openaiMessages []openai.ChatCompletionMessageParam
 			var mergedMessage openai.ChatCompletionMessageParamUnion
 			if currentRole == "system" {
 				if len(mergedMultiContent) == 0 {
-					mergedMessage = openai.SystemMessage(mergedContent)
+					mergedMessage = openai.SystemMessage(mergedContent.String())
 				} else {
 					textParts := make([]openai.ChatCompletionContentPartTextParam, 0)
 					for _, part := range mergedMultiContent {
@@ -319,7 +319,7 @@ func MergeConsecutiveMessages(openaiMessages []openai.ChatCompletionMessageParam
 				}
 			} else {
 				if len(mergedMultiContent) == 0 {
-					mergedMessage = openai.UserMessage(mergedContent)
+					mergedMessage = openai.UserMessage(mergedContent.String())
 				} else {
 					mergedMessage = openai.UserMessage(mergedMultiContent)
 				}
