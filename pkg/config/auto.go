@@ -53,9 +53,9 @@ func (e *AutoModelFallbackError) Error() string {
 }
 
 var DefaultModels = map[string]string{
-	"openai":         "gpt-5-mini",
+	"openai":         "gpt-5",
 	"anthropic":      "claude-sonnet-4-6",
-	"google":         "gemini-2.5-flash",
+	"google":         "gemini-3.5-flash",
 	"dmr":            "ai/qwen3:latest",
 	"mistral":        "mistral-small-latest",
 	"amazon-bedrock": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",

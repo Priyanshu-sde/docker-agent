@@ -1,6 +1,15 @@
+models:
+  smart:
+    first_available:
+      - anthropic/claude-sonnet-4-6
+      - openai/gpt-5
+      - google/gemini-3.5-flash
+      - mistral/mistral-small-latest
+      - dmr/ai/qwen3
+
 agents:
   root:
-    model: auto
+    model: smart
     description: A helpful AI assistant
     welcome_message: |
       Hello! I'm your AI assistant. How can I help you today?
