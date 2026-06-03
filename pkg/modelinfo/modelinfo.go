@@ -255,8 +255,10 @@ const DefaultAnthropicContextLimit = 200000
 // back to fallback. Callers that have no sensible fallback should pass 0 and
 // treat a 0 result as "unknown".
 //
-// The supplied ctx is wrapped with loadCapsTimeout so the lookup is both
-// cancellable with the caller and bounded on its own.
+// The supplied ctx is wrapped with loadCapsTimeout so the lookup stays
+// cancellable with the caller and the underlying models.dev load is bounded.
+// Note that the first lookup may serialize behind a shared store load: the
+// timeout bounds the load itself, not time spent waiting for the store lock.
 func ContextLimit(ctx context.Context, store *modelsdev.Store, id modelsdev.ID, fallback int64) int64 {
 	if store == nil {
 		return fallback
@@ -278,8 +280,10 @@ func ContextLimit(ctx context.Context, store *modelsdev.Store, id modelsdev.ID, 
 // When the store is nil or the model is not found, LoadCaps returns a
 // conservative capability set that only allows text MIME types.
 //
-// The supplied ctx is wrapped with loadCapsTimeout so the lookup is both
-// cancellable with the caller and bounded on its own.
+// The supplied ctx is wrapped with loadCapsTimeout so the lookup stays
+// cancellable with the caller and the underlying models.dev load is bounded.
+// Note that the first lookup may serialize behind a shared store load: the
+// timeout bounds the load itself, not time spent waiting for the store lock.
 func LoadCaps(ctx context.Context, store *modelsdev.Store, id modelsdev.ID) ModelCapabilities {
 	if store == nil {
 		return ModelCapabilities{}
