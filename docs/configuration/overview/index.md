@@ -197,6 +197,7 @@ API keys and secrets are read from environment variables — never stored in con
 | `DOCKER_AGENT_DEFAULT_MODEL`        | Default model used when none is specified, in `provider/model` form (e.g. `openai/gpt-5-mini`).      |
 | `DOCKER_AGENT_MODELS_GATEWAY`       | Route model traffic through a gateway. Equivalent to the `--models-gateway` flag.                    |
 | `DOCKER_AGENT_HIDE_TELEMETRY_BANNER`| Set to `1` to suppress the first-run telemetry notice.                                               |
+| `DOCKER_AGENT_AUTO_UPDATE`          | Set to a truthy value (`1`, `true`, `yes`, `on`) to let standalone release binaries self-update before running. See [Optional Self-Updates]({{ '/getting-started/installation/#optional-self-updates' | relative_url }}). |
 
 <div class="callout callout-info" markdown="1">
 <div class="callout-title">Legacy <code>CAGENT_*</code> aliases

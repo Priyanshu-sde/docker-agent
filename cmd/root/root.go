@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker-agent/pkg/feedback"
 	"github.com/docker/docker-agent/pkg/logging"
 	"github.com/docker/docker-agent/pkg/paths"
+	"github.com/docker/docker-agent/pkg/selfupdate"
 	"github.com/docker/docker-agent/pkg/telemetry"
 	"github.com/docker/docker-agent/pkg/version"
 )
@@ -168,6 +169,16 @@ We collect anonymous usage data to help improve docker agent. To disable:
 }
 
 func Execute(ctx context.Context, stdin io.Reader, stdout, stderr io.Writer, args ...string) error {
+	selfupdate.Cleanup(ctx)
+
+	// Opt-in self-update: when enabled, replace this binary with the latest
+	// release and re-exec before doing any real work. Skipped for invocations
+	// where restarting would be wrong (plugin metadata handshake, shell
+	// completion) and always falls back to the current binary on any failure.
+	if selfupdate.Enabled() && !isManagementInvocation(args) {
+		selfupdate.Run(ctx, stdin, stderr)
+	}
+
 	rootCmd := NewRootCmd()
 	rootCmd.SetIn(stdin)
 	rootCmd.SetOut(stdout)
@@ -219,6 +230,32 @@ func visitAll(cmd *cobra.Command, fn func(*cobra.Command)) {
 	for _, cmd := range cmd.Commands() {
 		visitAll(cmd, fn)
 	}
+}
+
+// isManagementInvocation reports whether args correspond to an invocation that
+// must not trigger a self-update + restart: the docker CLI plugin metadata
+// handshake, shell-completion script generation, and the version/help queries.
+// Updating mid-handshake would corrupt the plugin protocol, and restarting a
+// completion call would be surprising.
+//
+// Help and version are detected anywhere in args, not just at args[0], so that
+// per-subcommand help (e.g. "run --help") is also skipped.
+func isManagementInvocation(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case metadata.MetadataSubcommandName, cobra.ShellCompRequestCmd, cobra.ShellCompNoDescRequestCmd, "completion", "version", "help", "--version":
+		return true
+	}
+	// A help request can appear after a subcommand ("run --help"); never update
+	// just to print help text.
+	for _, arg := range args {
+		if arg == "--help" || arg == "-h" {
+			return true
+		}
+	}
+	return false
 }
 
 // setupLogging configures slog logging behavior.
