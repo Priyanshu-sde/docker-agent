@@ -22,7 +22,7 @@ func gatherMissingEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway
 
 	// Models
 	if modelsGateway == "" {
-		names := GatherEnvVarsForModels(cfg)
+		names := GatherEnvVarsForModels(ctx, cfg, env)
 		for _, e := range names {
 			requiredEnv[e] = true
 		}
@@ -50,7 +50,7 @@ func gatherMissingEnvVars(ctx context.Context, cfg *latest.Config, modelsGateway
 	return missing, toolErr
 }
 
-func GatherEnvVarsForModels(cfg *latest.Config) []string {
+func GatherEnvVarsForModels(ctx context.Context, cfg *latest.Config, env environment.Provider) []string {
 	requiredEnv := map[string]bool{}
 
 	// Inspect only the models that are actually used by docker-agent model-backed agents.
@@ -61,7 +61,7 @@ func GatherEnvVarsForModels(cfg *latest.Config) []string {
 		modelNames := strings.SplitSeq(agent.Model, ",")
 		for modelName := range modelNames {
 			modelName = strings.TrimSpace(modelName)
-			gatherEnvVarsForModel(cfg, modelName, requiredEnv)
+			gatherEnvVarsForModel(ctx, cfg, modelName, requiredEnv, env)
 		}
 	}
 
@@ -70,29 +70,29 @@ func GatherEnvVarsForModels(cfg *latest.Config) []string {
 
 // gatherEnvVarsForModel collects required environment variables for a single model,
 // including any models referenced in its routing rules.
-func gatherEnvVarsForModel(cfg *latest.Config, modelName string, requiredEnv map[string]bool) {
+func gatherEnvVarsForModel(ctx context.Context, cfg *latest.Config, modelName string, requiredEnv map[string]bool, env environment.Provider) {
 	model := cfg.Models[modelName]
 
 	// Add env vars for the model itself
-	addEnvVarsForModelConfig(&model, cfg.Providers, requiredEnv)
+	addEnvVarsForModelConfig(ctx, &model, cfg.Providers, requiredEnv, env)
 
 	// If the model has routing rules, also check all referenced models
 	for _, rule := range model.Routing {
 		ruleModelName := rule.Model
 		if ruleModel, exists := cfg.Models[ruleModelName]; exists {
 			// Model reference - add its env vars
-			addEnvVarsForModelConfig(&ruleModel, cfg.Providers, requiredEnv)
+			addEnvVarsForModelConfig(ctx, &ruleModel, cfg.Providers, requiredEnv, env)
 		} else if providerName, _, ok := strings.Cut(ruleModelName, "/"); ok {
 			// Inline spec (e.g., "openai/gpt-4o") - infer env vars from provider
 			inlineModel := latest.ModelConfig{Provider: providerName}
-			addEnvVarsForModelConfig(&inlineModel, cfg.Providers, requiredEnv)
+			addEnvVarsForModelConfig(ctx, &inlineModel, cfg.Providers, requiredEnv, env)
 		}
 	}
 }
 
 // addEnvVarsForModelConfig adds required environment variables for a model config.
 // It checks custom providers first, then built-in aliases, then hardcoded fallbacks.
-func addEnvVarsForModelConfig(model *latest.ModelConfig, customProviders map[string]latest.ProviderConfig, requiredEnv map[string]bool) {
+func addEnvVarsForModelConfig(ctx context.Context, model *latest.ModelConfig, customProviders map[string]latest.ProviderConfig, requiredEnv map[string]bool, env environment.Provider) {
 	// A model with non-API-key auth (e.g. Workload Identity Federation) does
 	// not require a TokenKey or the hardcoded API-key env var. Instead, the
 	// env vars referenced by its identity-token source are required.
@@ -105,32 +105,41 @@ func addEnvVarsForModelConfig(model *latest.ModelConfig, customProviders map[str
 
 	if model.TokenKey != "" {
 		requiredEnv[model.TokenKey] = true
-	} else if customProviders != nil {
+		return
+	}
+	if model.BaseURL != "" {
+		return
+	}
+	if customProviders != nil {
 		// Check custom providers from config
 		if provCfg, exists := customProviders[model.Provider]; exists {
 			if provCfg.TokenKey != "" {
 				requiredEnv[provCfg.TokenKey] = true
-			} else {
-				// Fall through to check the effective provider type
+			} else if provCfg.BaseURL == "" {
+				// Custom providers with a base_url and no token_key are intentionally
+				// unauthenticated; native provider aliases without a base_url use the
+				// effective provider's default credentials.
 				effective := provCfg.Provider
 				if effective == "" {
 					effective = "openai"
 				}
-				addEnvVarsForCoreProvider(effective, model, requiredEnv)
+				addEnvVarsForCoreProvider(ctx, effective, model, requiredEnv, env)
 			}
+			return
 		}
-	} else if alias, exists := provider.LookupAlias(model.Provider); exists {
+	}
+	if alias, exists := provider.LookupAlias(model.Provider); exists {
 		// Check built-in aliases
 		if alias.TokenEnvVar != "" {
 			requiredEnv[alias.TokenEnvVar] = true
 		}
 	} else {
-		addEnvVarsForCoreProvider(model.Provider, model, requiredEnv)
+		addEnvVarsForCoreProvider(ctx, model.Provider, model, requiredEnv, env)
 	}
 }
 
 // addEnvVarsForCoreProvider adds the required env vars for a core provider type.
-func addEnvVarsForCoreProvider(providerType string, model *latest.ModelConfig, requiredEnv map[string]bool) {
+func addEnvVarsForCoreProvider(ctx context.Context, providerType string, model *latest.ModelConfig, requiredEnv map[string]bool, env environment.Provider) {
 	switch providerType {
 	case "openai":
 		requiredEnv["OPENAI_API_KEY"] = true
@@ -138,10 +147,10 @@ func addEnvVarsForCoreProvider(providerType string, model *latest.ModelConfig, r
 		requiredEnv["ANTHROPIC_API_KEY"] = true
 	case "google":
 		if model.ProviderOpts["project"] == nil && model.ProviderOpts["location"] == nil {
-			if os.Getenv("GOOGLE_GENAI_USE_VERTEXAI") != "" {
+			if value, _ := env.Get(ctx, "GOOGLE_GENAI_USE_VERTEXAI"); value != "" {
 				requiredEnv["GOOGLE_CLOUD_PROJECT"] = true
 				requiredEnv["GOOGLE_CLOUD_LOCATION"] = true
-			} else if _, exist := os.LookupEnv("GEMINI_API_KEY"); !exist {
+			} else if value, _ := env.Get(ctx, "GEMINI_API_KEY"); value == "" {
 				requiredEnv["GOOGLE_API_KEY"] = true
 			}
 		}

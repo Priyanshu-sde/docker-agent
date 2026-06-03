@@ -20,6 +20,10 @@ import (
 func ResolveModelAliases(ctx context.Context, cfg *latest.Config, store *modelsdev.Store) {
 	// Resolve model aliases in the models section
 	for name, modelCfg := range cfg.Models {
+		if modelCfg.IsFirstAvailable() || isInlineModelEntry(name, modelCfg) {
+			continue
+		}
+
 		// Skip alias resolution for models with custom base_url (direct or via provider)
 		// Custom endpoints like Azure Foundry use alias names as deployment names
 		if hasCustomBaseURL(&modelCfg, cfg.Providers) {
@@ -44,6 +48,10 @@ func ResolveModelAliases(ctx context.Context, cfg *latest.Config, store *modelsd
 		}
 		cfg.Models[name] = modelCfg
 	}
+}
+
+func isInlineModelEntry(name string, modelCfg latest.ModelConfig) bool {
+	return name == modelCfg.Provider+"/"+modelCfg.Model
 }
 
 // hasCustomBaseURL checks if a model config has a custom base_url, either directly

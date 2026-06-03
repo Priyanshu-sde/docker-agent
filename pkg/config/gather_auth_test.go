@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/environment"
 )
 
 func TestGatherEnvVarsForModels_WIFAuth(t *testing.T) {
@@ -127,7 +128,7 @@ func TestGatherEnvVarsForModels_WIFAuth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := GatherEnvVarsForModels(tt.cfg)
+			got := GatherEnvVarsForModels(t.Context(), tt.cfg, environment.NewNoEnvProvider())
 			for _, want := range tt.wantPresent {
 				assert.Contains(t, got, want, "expected %q in %v", want, got)
 			}

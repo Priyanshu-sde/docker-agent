@@ -122,6 +122,19 @@ func TestResolveModelAliases(t *testing.T) {
 			},
 		},
 		{
+			name: "does not resolve inline model entries added for CLI overrides",
+			cfg: &latest.Config{
+				Models: map[string]latest.ModelConfig{
+					"anthropic/claude-sonnet-4-5": {Provider: "anthropic", Model: "claude-sonnet-4-5"},
+				},
+			},
+			expected: &latest.Config{
+				Models: map[string]latest.ModelConfig{
+					"anthropic/claude-sonnet-4-5": {Provider: "anthropic", Model: "claude-sonnet-4-5"},
+				},
+			},
+		},
+		{
 			name: "resolves routing rules",
 			cfg: &latest.Config{
 				Models: map[string]latest.ModelConfig{
@@ -229,6 +242,19 @@ func TestResolveModelAliases(t *testing.T) {
 						Provider: "my_anthropic",
 						Model:    "claude-sonnet-4-5", // NOT resolved - custom provider name
 					},
+				},
+			},
+		},
+		{
+			name: "skips first_available selector",
+			cfg: &latest.Config{
+				Models: map[string]latest.ModelConfig{
+					"smart": {FirstAvailable: []string{"anthropic/claude-sonnet-4-5"}},
+				},
+			},
+			expected: &latest.Config{
+				Models: map[string]latest.ModelConfig{
+					"smart": {FirstAvailable: []string{"anthropic/claude-sonnet-4-5"}},
 				},
 			},
 		},

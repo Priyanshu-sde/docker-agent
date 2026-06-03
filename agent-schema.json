@@ -1496,6 +1496,23 @@
         "auth": {
           "$ref": "#/definitions/AuthConfig",
           "description": "Non-API-key authentication scheme for this model. When set, takes precedence over both the provider's API-key path and any auth defined on the referenced ProviderConfig."
+        },
+        "first_available": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Candidate model references in priority order. At load time docker-agent selects the first candidate whose credentials are configured. Candidates may be named models or inline 'provider/model' specs. Local providers (dmr, ollama) need no credentials and make reliable final fallbacks. Mutually exclusive with other model configuration fields.",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "examples": [
+            [
+              "anthropic/claude-sonnet-4-5",
+              "openai/gpt-5",
+              "dmr/ai/qwen3"
+            ]
+          ]
         }
       },
       "additionalProperties": false

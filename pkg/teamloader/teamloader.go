@@ -110,8 +110,6 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 	modelsStore, err := runConfig.ModelsDevStore()
 	if err != nil {
 		slog.DebugContext(ctx, "Failed to create modelsdev store for alias resolution", "error", err)
-	} else {
-		config.ResolveModelAliases(ctx, cfg, modelsStore)
 	}
 
 	// Apply model overrides from CLI flags before checking required env vars
@@ -121,6 +119,18 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 
 	// Early check for required env vars before loading models and tools.
 	env := runConfig.EnvProvider()
+
+	// Resolve `first_available` model selectors into concrete provider/model
+	// definitions now that the environment is available, so the rest of the
+	// pipeline sees regular model definitions.
+	if err := config.ResolveFirstAvailableModels(ctx, cfg, runConfig.ModelsGateway, env); err != nil {
+		return nil, err
+	}
+
+	if modelsStore != nil {
+		config.ResolveModelAliases(ctx, cfg, modelsStore)
+	}
+
 	if err := config.CheckRequiredEnvVars(ctx, cfg, runConfig.ModelsGateway, env); err != nil {
 		return nil, err
 	}

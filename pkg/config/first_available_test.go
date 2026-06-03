@@ -1,0 +1,394 @@
+package config
+
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/environment"
+)
+
+func TestResolveFirstAvailableModels_SelectsFirstWithCredentials(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"smart": {
+				FirstAvailable: []string{
+					"anthropic/claude-sonnet-4-6",
+					"openai/gpt-5",
+					"dmr/ai/qwen3",
+				},
+			},
+		},
+	}
+
+	env := environment.NewMapEnvProvider(map[string]string{
+		"OPENAI_API_KEY": "test-key",
+	})
+
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "", env))
+
+	got := cfg.Models["smart"]
+	assert.Equal(t, "openai", got.Provider)
+	assert.Equal(t, "gpt-5", got.Model)
+	assert.Empty(t, got.FirstAvailable)
+}
+
+func TestResolveFirstAvailableModels_FallsBackToLocalProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"smart": {
+				FirstAvailable: []string{
+					"anthropic/claude-sonnet-4-6",
+					"openai/gpt-5",
+					"dmr/ai/qwen3",
+				},
+			},
+		},
+	}
+
+	// No API keys: dmr needs none, so it is selected.
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewNoEnvProvider()))
+
+	got := cfg.Models["smart"]
+	assert.Equal(t, "dmr", got.Provider)
+	assert.Equal(t, "ai/qwen3", got.Model)
+}
+
+func TestResolveFirstAvailableModels_NamedCandidate(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"claude": {Provider: "anthropic", Model: "claude-sonnet-4-6"},
+			"gpt":    {Provider: "openai", Model: "gpt-5"},
+			"smart":  {FirstAvailable: []string{"claude", "gpt"}},
+		},
+	}
+
+	env := environment.NewMapEnvProvider(map[string]string{
+		"ANTHROPIC_API_KEY": "test-key",
+	})
+
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "", env))
+
+	got := cfg.Models["smart"]
+	assert.Equal(t, "anthropic", got.Provider)
+	assert.Equal(t, "claude-sonnet-4-6", got.Model)
+}
+
+func TestResolveFirstAvailableModels_SkipsRoutingCandidateWithMissingCredentials(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"router": {
+				Provider: "openai",
+				Model:    "gpt-5",
+				Routing: []latest.RoutingRule{
+					{Model: "anthropic/claude-sonnet-4-6", Examples: []string{"reasoning"}},
+				},
+			},
+			"smart": {FirstAvailable: []string{"router", "dmr/ai/qwen3"}},
+		},
+	}
+
+	env := environment.NewMapEnvProvider(map[string]string{
+		"OPENAI_API_KEY": "test-key",
+	})
+
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "", env))
+
+	got := cfg.Models["smart"]
+	assert.Equal(t, "dmr", got.Provider)
+	assert.Equal(t, "ai/qwen3", got.Model)
+}
+
+func TestResolveFirstAvailableModels_RejectsRoutingCandidateWithNestedRouter(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"inner_router": {
+				Provider: "openai",
+				Model:    "gpt-5",
+				Routing: []latest.RoutingRule{
+					{Model: "anthropic/claude-sonnet-4-6", Examples: []string{"reasoning"}},
+				},
+			},
+			"outer_router": {
+				Provider: "openai",
+				Model:    "gpt-5",
+				Routing: []latest.RoutingRule{
+					{Model: "inner_router", Examples: []string{"reasoning"}},
+				},
+			},
+			"smart": {FirstAvailable: []string{"outer_router", "dmr/ai/qwen3"}},
+		},
+	}
+
+	err := ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewMapEnvProvider(map[string]string{
+		"OPENAI_API_KEY": "test-key",
+	}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "cannot be used as a first_available candidate dependency")
+}
+
+func TestResolveFirstAvailableModels_GatewaySelectsFirst(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"smart": {
+				FirstAvailable: []string{
+					"anthropic/claude-sonnet-4-6",
+					"openai/gpt-5",
+				},
+			},
+		},
+	}
+
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "gateway:8080", environment.NewNoEnvProvider()))
+
+	got := cfg.Models["smart"]
+	assert.Equal(t, "anthropic", got.Provider)
+	assert.Equal(t, "claude-sonnet-4-6", got.Model)
+}
+
+func TestResolveFirstAvailableModels_NoCandidateAvailable(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"smart": {
+				FirstAvailable: []string{
+					"anthropic/claude-sonnet-4-6",
+					"openai/gpt-5",
+				},
+			},
+		},
+	}
+
+	err := ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewNoEnvProvider())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "No 'first_available' candidate has credentials configured.")
+	assert.Contains(t, err.Error(), "Set the environment variables for at least one candidate:")
+	assert.Contains(t, err.Error(), " - anthropic/claude-sonnet-4-6: ANTHROPIC_API_KEY")
+	assert.Contains(t, err.Error(), " - openai/gpt-5: OPENAI_API_KEY")
+	assert.Contains(t, err.Error(), "Set one of those groups of environment variables")
+	assert.Contains(t, err.Error(), "Run docker agent with --env-from-file")
+}
+
+func TestResolveFirstAvailableModels_InvalidCandidate(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"smart": {FirstAvailable: []string{"not-a-valid-ref"}},
+		},
+	}
+
+	err := ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewNoEnvProvider())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "not a known model")
+}
+
+func TestResolveFirstAvailableModels_UnknownProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"smart": {FirstAvailable: []string{"unknown/model", "dmr/ai/qwen3"}},
+		},
+	}
+
+	err := ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewNoEnvProvider())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "uses unknown provider 'unknown'")
+}
+
+func TestResolveFirstAvailableModels_RejectsNestedSelector(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Models: map[string]latest.ModelConfig{
+			"inner": {FirstAvailable: []string{"dmr/ai/qwen3"}},
+			"smart": {FirstAvailable: []string{"inner"}},
+		},
+	}
+
+	err := ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewNoEnvProvider())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "itself a first_available selector")
+}
+
+func TestValidateFirstAvailable(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		model   latest.ModelConfig
+		wantErr string
+	}{
+		{
+			name:  "valid",
+			model: latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}},
+		},
+		{
+			name:    "empty list",
+			model:   latest.ModelConfig{FirstAvailable: []string{}},
+			wantErr: "must contain at least one candidate",
+		},
+		{
+			name:    "combined with provider/model",
+			model:   latest.ModelConfig{Provider: "openai", Model: "gpt-5", FirstAvailable: []string{"openai/gpt-5"}},
+			wantErr: "cannot be combined with provider/model",
+		},
+		{
+			name: "combined with routing",
+			model: latest.ModelConfig{
+				FirstAvailable: []string{"openai/gpt-5"},
+				Routing:        []latest.RoutingRule{{Model: "openai/gpt-5", Examples: []string{"x"}}},
+			},
+			wantErr: "cannot be combined with routing",
+		},
+		{
+			name:    "combined with token key",
+			model:   latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}, TokenKey: "CUSTOM_API_KEY"},
+			wantErr: "cannot be combined with token_key",
+		},
+		{
+			name:    "combined with model options",
+			model:   latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}, ProviderOpts: map[string]any{"project": "p"}},
+			wantErr: "cannot be combined with provider_opts",
+		},
+		{
+			name:    "combined with auth",
+			model:   latest.ModelConfig{FirstAvailable: []string{"anthropic/claude-sonnet-4-6"}, Auth: &latest.AuthConfig{Type: "anthropic_wif"}},
+			wantErr: "cannot be combined with auth",
+		},
+		{
+			name:    "empty candidate",
+			model:   latest.ModelConfig{FirstAvailable: []string{"  "}},
+			wantErr: "must not be empty",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := latest.Config{Models: map[string]latest.ModelConfig{"smart": tt.model}}
+			err := cfg.Validate()
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestResolveFirstAvailableModels_IgnoresUnusedUnavailableSelector(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Agents: []latest.AgentConfig{{Name: "agent", Model: "used"}},
+		Models: map[string]latest.ModelConfig{
+			"used":   {FirstAvailable: []string{"dmr/ai/qwen3"}},
+			"unused": {FirstAvailable: []string{"anthropic/claude-sonnet-4-6"}},
+		},
+	}
+
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewNoEnvProvider()))
+
+	assert.Equal(t, "dmr", cfg.Models["used"].Provider)
+	unused := cfg.Models["unused"]
+	assert.True(t, unused.IsFirstAvailable())
+}
+
+func TestResolveFirstAvailableModels_GeminiCredentialsFromEnvProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Agents: []latest.AgentConfig{{Name: "agent", Model: "smart"}},
+		Models: map[string]latest.ModelConfig{
+			"smart": {FirstAvailable: []string{"google/gemini-2.5-pro", "dmr/ai/qwen3"}},
+		},
+	}
+	env := environment.NewMapEnvProvider(map[string]string{"GEMINI_API_KEY": "test-key"})
+
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "", env))
+
+	got := cfg.Models["smart"]
+	assert.Equal(t, "google", got.Provider)
+	assert.Equal(t, "gemini-2.5-pro", got.Model)
+}
+
+func TestResolveFirstAvailableModels_ProcessEnvDoesNotAffectGeminiSelection(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "process-key")
+
+	cfg := &latest.Config{
+		Agents: []latest.AgentConfig{{Name: "agent", Model: "smart"}},
+		Models: map[string]latest.ModelConfig{
+			"smart": {FirstAvailable: []string{"google/gemini-2.5-pro", "dmr/ai/qwen3"}},
+		},
+	}
+
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewNoEnvProvider()))
+
+	got := cfg.Models["smart"]
+	assert.Equal(t, "dmr", got.Provider)
+	assert.Equal(t, "ai/qwen3", got.Model)
+}
+
+func TestResolveFirstAvailableModels_RejectsRoutingTargetFirstAvailableSelector(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Agents: []latest.AgentConfig{{Name: "agent", Model: "smart"}},
+		Models: map[string]latest.ModelConfig{
+			"nested": {FirstAvailable: []string{"anthropic/claude-sonnet-4-6"}},
+			"router": {
+				Provider: "openai",
+				Model:    "gpt-5",
+				Routing: []latest.RoutingRule{
+					{Model: "nested", Examples: []string{"reasoning"}},
+				},
+			},
+			"smart": {FirstAvailable: []string{"router", "dmr/ai/qwen3"}},
+		},
+	}
+
+	err := ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewMapEnvProvider(map[string]string{
+		"OPENAI_API_KEY": "test-key",
+	}))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "routing target 'nested' is a first_available selector")
+}
+
+func TestResolveFirstAvailableModels_SelectsUnauthenticatedCustomProvider(t *testing.T) {
+	t.Parallel()
+
+	cfg := &latest.Config{
+		Agents: []latest.AgentConfig{{Name: "agent", Model: "smart"}},
+		Providers: map[string]latest.ProviderConfig{
+			"local_openai": {BaseURL: "http://localhost:1234/v1"},
+		},
+		Models: map[string]latest.ModelConfig{
+			"smart": {FirstAvailable: []string{"local_openai/qwen3", "dmr/ai/qwen3"}},
+		},
+	}
+
+	require.NoError(t, ResolveFirstAvailableModels(t.Context(), cfg, "", environment.NewNoEnvProvider()))
+
+	got := cfg.Models["smart"]
+	assert.Equal(t, "local_openai", got.Provider)
+	assert.Equal(t, "qwen3", got.Model)
+}

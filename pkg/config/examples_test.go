@@ -60,6 +60,11 @@ func TestParseExamples(t *testing.T) {
 			}
 
 			for _, model := range cfg.Models {
+				// Skip first_available selectors - their provider/model is
+				// resolved at load time from the environment's credentials.
+				if model.IsFirstAvailable() {
+					continue
+				}
 				require.NotEmpty(t, model.Provider)
 				require.NotEmpty(t, model.Model)
 				// Skip providers that don't have entries in models.dev

@@ -25,6 +25,9 @@ func (t *Config) Validate() error {
 		}
 	}
 	for name, m := range t.Models {
+		if err := m.validateFirstAvailable(); err != nil {
+			return fmt.Errorf("models.%s: %w", name, err)
+		}
 		if err := m.Auth.Validate(EffectiveProviderType(m, t.Providers)); err != nil {
 			return fmt.Errorf("models.%s: %w", name, err)
 		}
@@ -53,6 +56,66 @@ func (t *Config) Validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateFirstAvailable validates a model's first_available selector. The
+// selector is mutually exclusive with other model configuration fields, and
+// every candidate reference must be non-empty.
+func (m *ModelConfig) validateFirstAvailable() error {
+	if m.FirstAvailable == nil {
+		return nil
+	}
+	if len(m.FirstAvailable) == 0 {
+		return errors.New("first_available must contain at least one candidate")
+	}
+	if m.Provider != "" || m.Model != "" {
+		return errors.New("first_available cannot be combined with provider/model")
+	}
+	if m.Temperature != nil {
+		return errors.New("first_available cannot be combined with temperature")
+	}
+	if m.MaxTokens != nil {
+		return errors.New("first_available cannot be combined with max_tokens")
+	}
+	if m.TopP != nil {
+		return errors.New("first_available cannot be combined with top_p")
+	}
+	if m.FrequencyPenalty != nil {
+		return errors.New("first_available cannot be combined with frequency_penalty")
+	}
+	if m.PresencePenalty != nil {
+		return errors.New("first_available cannot be combined with presence_penalty")
+	}
+	if m.BaseURL != "" {
+		return errors.New("first_available cannot be combined with base_url")
+	}
+	if m.TokenKey != "" {
+		return errors.New("first_available cannot be combined with token_key")
+	}
+	if len(m.ProviderOpts) > 0 {
+		return errors.New("first_available cannot be combined with provider_opts")
+	}
+	if m.TrackUsage != nil {
+		return errors.New("first_available cannot be combined with track_usage")
+	}
+	if m.ThinkingBudget != nil {
+		return errors.New("first_available cannot be combined with thinking_budget")
+	}
+	if m.TaskBudget != nil {
+		return errors.New("first_available cannot be combined with task_budget")
+	}
+	if m.Auth != nil {
+		return errors.New("first_available cannot be combined with auth")
+	}
+	if len(m.Routing) > 0 {
+		return errors.New("first_available cannot be combined with routing")
+	}
+	for i, ref := range m.FirstAvailable {
+		if strings.TrimSpace(ref) == "" {
+			return fmt.Errorf("first_available[%d] must not be empty", i)
+		}
+	}
 	return nil
 }
 

@@ -43,6 +43,31 @@ agents:
 
 Named models let you configure temperature, token limits, thinking budgets, and other parameters. They're also reusable across multiple agents.
 
+## First Available Models
+
+A named model can also select the first usable model from a priority list. This
+is useful for shared configs that should prefer paid cloud models when their API
+keys are present, but still work with a local fallback:
+
+```yaml
+models:
+  smart:
+    first_available:
+      - anthropic/claude-sonnet-4-5
+      - openai/gpt-5
+      - dmr/ai/qwen3
+
+agents:
+  root:
+    model: smart
+    instruction: You are a helpful assistant.
+```
+
+At load time, docker-agent selects the first candidate whose credentials are
+configured. You only need credentials for one candidate. See
+[Model Configuration]({{ '/configuration/models/#first-available-models' | relative_url }})
+for details.
+
 ## Supported Providers
 
 | Provider            | Key              | Example Models                       | API Key Env Var                     |

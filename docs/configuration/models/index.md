@@ -14,7 +14,9 @@ _Complete reference for defining models with providers, parameters, and reasonin
 ```yaml
 models:
   model_name:
-    provider: string # Required. One of: openai, anthropic, google, amazon-bedrock,
+    first_available: [list] # Optional: candidate model refs, tried in order by available credentials.
+                            # Mutually exclusive with other model settings.
+    provider: string # Required unless using first_available. One of: openai, anthropic, google, amazon-bedrock,
                      # dmr, mistral, xai, nebius, minimax, requesty, azure, ollama,
                      # github-copilot, or a named provider defined under the top-level
                      # `providers:` section.
@@ -39,8 +41,9 @@ models:
 
 | Property              | Type       | Required | Description                                                                           |
 | --------------------- | ---------- | -------- | ------------------------------------------------------------------------------------- |
-| `provider`            | string     | ✓        | Provider: `openai`, `anthropic`, `google`, `amazon-bedrock`, `dmr`, `mistral`, `xai`, `nebius`, `minimax`, `requesty`, `azure`, `ollama`, `github-copilot`, or any [named provider]({{ '/providers/custom/' | relative_url }}). |
-| `model`               | string     | ✓        | Model name (e.g., `gpt-4o`, `claude-sonnet-4-5`, `gemini-2.5-flash`)                  |
+| `first_available`     | array      | ✗        | Candidate model references tried in order; selects the first whose credentials are configured. Mutually exclusive with other model settings. |
+| `provider`            | string     | ✓/✗      | Required for regular model definitions; omitted for `first_available` selectors. Provider: `openai`, `anthropic`, `google`, `amazon-bedrock`, `dmr`, `mistral`, `xai`, `nebius`, `minimax`, `requesty`, `azure`, `ollama`, `github-copilot`, or any [named provider]({{ '/providers/custom/' | relative_url }}). |
+| `model`               | string     | ✓/✗      | Required for regular model definitions; omitted for `first_available` selectors. Model name (e.g., `gpt-4o`, `claude-sonnet-4-5`, `gemini-2.5-flash`) |
 | `temperature`         | float      | ✗        | Sampling randomness. Range is provider-dependent — typically `0.0–2.0` (Anthropic caps at `1.0`). `0.0` is deterministic. |
 | `max_tokens`          | int        | ✗        | Maximum response length in tokens                                                     |
 | `top_p`               | float      | ✗        | Nucleus sampling threshold (`0.0–1.0`)                                                |
@@ -54,6 +57,52 @@ models:
 | `track_usage`         | boolean    | ✗        | Track and report token usage for this model                                           |
 | `routing`             | array      | ✗        | Rule-based routing to different models. See [Model Routing]({{ '/configuration/routing/' | relative_url }}). |
 | `provider_opts`       | object     | ✗        | Provider-specific options (see provider pages)                                        |
+
+## First Available Models
+
+Use `first_available` when the same agent should work with whichever provider credentials are available in the current environment. docker-agent checks the candidates in order at load time and replaces the selector with the first candidate whose required environment variables are configured.
+
+```yaml
+models:
+  smart:
+    first_available:
+      - anthropic/claude-sonnet-4-5
+      - openai/gpt-5
+      - google/gemini-2.5-flash
+      - dmr/ai/qwen3 # local fallback; no API key required
+
+agents:
+  root:
+    model: smart
+    instruction: You are a helpful assistant.
+```
+
+Candidates can be inline `provider/model` references or names from the same `models:` section. Local providers such as `dmr` and `ollama` do not require credentials, so they are useful as final fallbacks.
+
+If none of the candidates has credentials configured, docker-agent reports the missing environment variables grouped by candidate. You only need to configure one group of credentials, not every provider in the list.
+
+A `first_available` model is only a selector. It cannot be combined with `provider`, `model`, `routing`, `token_key`, budgets, sampling options, or other model settings. Put those settings on named candidate models instead:
+
+```yaml
+models:
+  claude:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    max_tokens: 64000
+
+  gpt:
+    provider: openai
+    model: gpt-5
+    thinking_budget: low
+
+  smart:
+    first_available:
+      - claude
+      - gpt
+      - dmr/ai/qwen3
+```
+
+See [`examples/first_available.yaml`](https://github.com/docker/docker-agent/blob/main/examples/first_available.yaml) for a complete example.
 
 ## Thinking Budget
 

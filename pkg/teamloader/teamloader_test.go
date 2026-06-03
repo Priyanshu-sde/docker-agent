@@ -131,7 +131,7 @@ func gatherExampleEnvVars(t *testing.T, examples []string) map[string]bool {
 		cfg, err := config.Load(t.Context(), agentSource)
 		require.NoError(t, err)
 
-		for _, env := range config.GatherEnvVarsForModels(cfg) {
+		for _, env := range config.GatherEnvVarsForModels(t.Context(), cfg, environment.NewOsEnvProvider()) {
 			envs[env] = true
 		}
 		toolEnvs, _ := config.GatherEnvVarsForTools(t.Context(), cfg)

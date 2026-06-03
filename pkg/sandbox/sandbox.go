@@ -350,7 +350,7 @@ func gatherAgentEnvVars(ctx context.Context, agentRef string, env environment.Pr
 	}
 
 	var names []string
-	names = append(names, config.GatherEnvVarsForModels(cfg)...)
+	names = append(names, config.GatherEnvVarsForModels(ctx, cfg, env)...)
 
 	toolNames, err := config.GatherEnvVarsForTools(ctx, cfg)
 	if err != nil {

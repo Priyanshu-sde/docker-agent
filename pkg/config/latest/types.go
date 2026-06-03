@@ -813,6 +813,18 @@ type ModelConfig struct {
 	// - The provider/model fields define the fallback model
 	// - Each routing rule maps to a different model based on examples
 	Routing []RoutingRule `json:"routing,omitempty"`
+	// FirstAvailable lists candidate model references, in priority order.
+	// At load time docker-agent selects the first candidate whose credentials
+	// are configured. Candidates may be named models or inline "provider/model"
+	// specs. Local providers (dmr, ollama) need no credentials and make reliable
+	// final fallbacks. When set, other model configuration fields must be empty.
+	FirstAvailable []string `json:"first_available,omitempty"`
+}
+
+// IsFirstAvailable reports whether this model is a first-available selector
+// (i.e. it picks the first candidate with configured credentials).
+func (m *ModelConfig) IsFirstAvailable() bool {
+	return m != nil && m.FirstAvailable != nil
 }
 
 // Clone returns a deep copy of the ModelConfig.
@@ -895,7 +907,8 @@ func (f *FlexibleModelConfig) isShorthandOnly() bool {
 		f.TrackUsage == nil &&
 		f.ThinkingBudget == nil &&
 		f.TaskBudget == nil &&
-		len(f.Routing) == 0
+		len(f.Routing) == 0 &&
+		f.FirstAvailable == nil
 }
 
 // RoutingRule defines a single routing rule for model selection.
