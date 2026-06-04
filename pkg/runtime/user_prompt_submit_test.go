@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/agent"
+	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/hooks"
 	"github.com/docker/docker-agent/pkg/session"
@@ -58,6 +59,68 @@ func TestUserPromptSubmitSkippedForSubSessions(t *testing.T) {
 			"their kick-off message is synthesised by the runtime, not authored by a human")
 }
 
+// TestUserSteeringMessagesSubmitFiresOnDrain pins the contract that
+// user_steering_messages_submit fires when the runtime drains the
+// steering queue, and that the hook receives the drained messages via
+// Input.SteeringMessages. Enqueuing before RunStream exercises the
+// idle/first-turn drain site, which is the one user_prompt_submit does
+// NOT cover.
+func TestUserSteeringMessagesSubmitFiresOnDrain(t *testing.T) {
+	t.Parallel()
+
+	const counterName = "test-user-steering-submit-counter"
+	var calls atomic.Int32
+	var seen atomic.Value
+
+	stream := newStreamBuilder().
+		AddContent("ok").
+		AddStopWithUsage(3, 2).
+		Build()
+	prov := &mockProvider{id: "test/mock-model", stream: stream}
+
+	root := agent.New("root", "test agent",
+		agent.WithModel(prov),
+		agent.WithHooks(&latest.HooksConfig{
+			UserSteeringMessagesSubmit: []latest.HookDefinition{
+				{Type: "builtin", Command: counterName},
+			},
+		}),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := NewLocalRuntime(tm,
+		WithSessionCompaction(false),
+		WithModelStore(mockModelStore{}),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, rt.hooksRegistry.RegisterBuiltin(
+		counterName,
+		func(_ context.Context, in *hooks.Input, _ []string) (*hooks.Output, error) {
+			calls.Add(1)
+			seen.Store(append([]string(nil), in.SteeringMessages...))
+			return nil, nil
+		},
+	))
+
+	// Enqueue before RunStream so the messages are drained at the
+	// idle/first-turn drain site at the top of the run loop.
+	require.NoError(t, rt.Steer(QueuedMessage{Content: "steer one"}))
+	require.NoError(t, rt.Steer(QueuedMessage{Content: "steer two"}))
+
+	sess := session.New()
+	sess.Title = "Unit Test"
+
+	for range rt.RunStream(t.Context(), sess) {
+	}
+
+	assert.Equal(t, int32(1), calls.Load(),
+		"user_steering_messages_submit must fire once for the drained batch")
+	got, _ := seen.Load().([]string)
+	assert.Equal(t, []string{"steer one", "steer two"}, got,
+		"hook must receive the drained messages via Input.SteeringMessages, in order")
+}
+
 // setupUserPromptSubmitCounter wires up a single-turn mock runtime with
 // a builtin user_prompt_submit hook that atomically increments the
 // returned counter on every dispatch. Both tests above share this
@@ -103,4 +166,72 @@ func setupUserPromptSubmitCounter(t *testing.T, opts ...session.Opt) (*atomic.In
 	sess.Title = "Unit Test"
 
 	return &calls, rt, sess
+}
+
+// TestUserFollowupSubmitFiresOnDequeue pins the contract that
+// user_followup_submit fires when the runtime dequeues a follow-up
+// message at the end of a turn, and that the hook receives the
+// follow-up text via Input.Prompt. A follow-up enqueued before
+// RunStream is dequeued when the first turn stops, starting a fresh
+// turn — the path user_prompt_submit never covers.
+func TestUserFollowupSubmitFiresOnDequeue(t *testing.T) {
+	t.Parallel()
+
+	const counterName = "test-user-followup-submit-counter"
+	var calls atomic.Int32
+	var seen atomic.Value
+
+	// Two turns: the first stops, the runtime dequeues the follow-up and
+	// runs a second turn which also stops (queue now empty).
+	newStopStream := func() *mockStream {
+		return newStreamBuilder().
+			AddContent("ok").
+			AddStopWithUsage(3, 2).
+			Build()
+	}
+	prov := &queueProvider{
+		id:      "test/mock-model",
+		streams: []chat.MessageStream{newStopStream(), newStopStream()},
+	}
+
+	root := agent.New("root", "test agent",
+		agent.WithModel(prov),
+		agent.WithHooks(&latest.HooksConfig{
+			UserFollowupSubmit: []latest.HookDefinition{
+				{Type: "builtin", Command: counterName},
+			},
+		}),
+	)
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := NewLocalRuntime(tm,
+		WithSessionCompaction(false),
+		WithModelStore(mockModelStore{}),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, rt.hooksRegistry.RegisterBuiltin(
+		counterName,
+		func(_ context.Context, in *hooks.Input, _ []string) (*hooks.Output, error) {
+			calls.Add(1)
+			seen.Store(in.Prompt)
+			return nil, nil
+		},
+	))
+
+	// Enqueue before RunStream so the follow-up is dequeued when the
+	// first turn stops.
+	require.NoError(t, rt.FollowUp(QueuedMessage{Content: "please also do this"}))
+
+	sess := session.New(session.WithUserMessage("hi"))
+	sess.Title = "Unit Test"
+
+	for range rt.RunStream(t.Context(), sess) {
+	}
+
+	assert.Equal(t, int32(1), calls.Load(),
+		"user_followup_submit must fire once for the dequeued follow-up")
+	got, _ := seen.Load().(string)
+	assert.Equal(t, "please also do this", got,
+		"hook must receive the follow-up text via Input.Prompt")
 }

@@ -3204,10 +3204,10 @@ func TestDrainAndEmitSteered_MultipleMessages(t *testing.T) {
 	sess := session.New()
 	events := make(chan Event, 16)
 
-	drained, _ := rt.drainAndEmitSteered(t.Context(), sess, NewChannelSink(events))
+	sr := rt.drainAndEmitSteered(t.Context(), sess, root, NewChannelSink(events))
 	close(events)
 
-	assert.True(t, drained, "should report messages were drained")
+	assert.True(t, sr.drained, "should report messages were drained")
 
 	// Three separate session messages must have been added.
 	var userMsgs []string
@@ -3268,10 +3268,10 @@ func TestDrainAndEmitSteered_MultiContent(t *testing.T) {
 	sess := session.New()
 	events := make(chan Event, 16)
 
-	drained, _ := rt.drainAndEmitSteered(t.Context(), sess, NewChannelSink(events))
+	sr := rt.drainAndEmitSteered(t.Context(), sess, root, NewChannelSink(events))
 	close(events)
 
-	assert.True(t, drained)
+	assert.True(t, sr.drained)
 
 	// Two session messages.
 	var items []session.Item

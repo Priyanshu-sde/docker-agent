@@ -70,21 +70,50 @@ func (r *LocalRuntime) appendSteerAndEmit(sess *session.Session, sm QueuedMessag
 // point that doesn't require restructuring. TUI consumers may see a trailing
 // newline on non-last steered messages in multi-drain batches.
 //
-// Returns (true, messageCountBefore) if any messages were drained and emitted;
-// (false, 0) otherwise.
-func (r *LocalRuntime) drainAndEmitSteered(ctx context.Context, sess *session.Session, events EventSink) (bool, int) {
+// After appending the drained messages it fires the
+// user_steering_messages_submit hook (the steering-queue analogue of
+// user_prompt_submit), passing the drained message text. The hook may
+// block the run (steerResult.stop) or contribute a transient system
+// message (steerResult.contextMsgs) that the caller threads into the
+// steered turn only — never persisted, exactly like user_prompt_submit.
+//
+// Returns drained=true with messageCountBefore set when any messages
+// were drained and emitted; otherwise drained=false.
+func (r *LocalRuntime) drainAndEmitSteered(ctx context.Context, sess *session.Session, a *agent.Agent, events EventSink) steerResult {
 	steered := r.steerQueue.Drain(ctx)
 	if len(steered) == 0 {
-		return false, 0
+		return steerResult{}
 	}
 	messageCountBefore := len(sess.GetAllMessages())
+	contents := make([]string, 0, len(steered))
 	for i, sm := range steered {
+		contents = append(contents, sm.Content)
 		if i < len(steered)-1 {
 			sm = appendNewlineToQueuedMessage(sm)
 		}
 		r.appendSteerAndEmit(sess, sm, events)
 	}
-	return true, messageCountBefore
+	stop, stopMsg, ctxMsgs := r.executeUserSteeringMessagesSubmitHooks(ctx, sess, a, contents, events)
+	return steerResult{
+		drained:            true,
+		messageCountBefore: messageCountBefore,
+		stop:               stop,
+		stopMsg:            stopMsg,
+		contextMsgs:        ctxMsgs,
+	}
+}
+
+// steerResult is the outcome of a drainAndEmitSteered call: whether any
+// messages were drained, the pre-drain message count (for
+// compactIfNeeded), and the user_steering_messages_submit hook verdict
+// (a terminating stop and/or a transient context message to thread into
+// the steered turn).
+type steerResult struct {
+	drained            bool
+	messageCountBefore int
+	stop               bool
+	stopMsg            string
+	contextMsgs        []chat.Message
 }
 
 // appendNewlineToQueuedMessage returns sm with "\n" appended to its text
@@ -382,8 +411,15 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 
 		// Drain steer messages queued while idle or before the first model call
 		// (covers idle-window and first-turn-miss races).
-		if drained, messageCountBeforeSteer := r.drainAndEmitSteered(ctx, sess, sink); drained {
-			r.compactIfNeeded(ctx, sess, a, contextLimit, messageCountBeforeSteer, sink)
+		if sr := r.drainAndEmitSteered(ctx, sess, a, sink); sr.drained {
+			if sr.stop {
+				slog.WarnContext(ctx, "user_steering_messages_submit hook signalled run termination",
+					"agent", a.Name(), "session_id", sess.ID, "reason", sr.stopMsg)
+				r.emitHookDrivenShutdown(ctx, a, sess, sr.stopMsg, sink)
+				return
+			}
+			ls.userPromptMsgs = sr.contextMsgs
+			r.compactIfNeeded(ctx, sess, a, contextLimit, sr.messageCountBefore, sink)
 		}
 
 		// Everything from turn_start onwards is wrapped in a closure so a
@@ -647,7 +683,15 @@ func (r *LocalRuntime) runTurn(
 	ls.toolModelOverride = toolexec.ResolveModelOverride(res.Calls, agentTools)
 
 	// Drain steer messages that arrived during tool calls.
-	if drained, _ := r.drainAndEmitSteered(ctx, sess, events); drained {
+	if sr := r.drainAndEmitSteered(ctx, sess, a, events); sr.drained {
+		if sr.stop {
+			slog.WarnContext(ctx, "user_steering_messages_submit hook signalled run termination",
+				"agent", a.Name(), "session_id", sess.ID, "reason", sr.stopMsg)
+			r.emitHookDrivenShutdown(ctx, a, sess, sr.stopMsg, events)
+			endReason = turnEndReasonHookBlocked
+			return turnExit
+		}
+		ls.userPromptMsgs = sr.contextMsgs
 		r.compactIfNeeded(ctx, sess, a, contextLimit, messageCountBeforeTools, events)
 		endReason = turnEndReasonSteered
 		return turnContinue
@@ -658,7 +702,15 @@ func (r *LocalRuntime) runTurn(
 		r.executeStopHooks(ctx, sess, a, res.Content, events)
 
 		// Re-check steer queue: closes the race between the mid-loop drain and this stop.
-		if drained, _ := r.drainAndEmitSteered(ctx, sess, events); drained {
+		if sr := r.drainAndEmitSteered(ctx, sess, a, events); sr.drained {
+			if sr.stop {
+				slog.WarnContext(ctx, "user_steering_messages_submit hook signalled run termination",
+					"agent", a.Name(), "session_id", sess.ID, "reason", sr.stopMsg)
+				r.emitHookDrivenShutdown(ctx, a, sess, sr.stopMsg, events)
+				endReason = turnEndReasonHookBlocked
+				return turnExit
+			}
+			ls.userPromptMsgs = sr.contextMsgs
 			r.compactIfNeeded(ctx, sess, a, contextLimit, messageCountBeforeTools, events)
 			endReason = turnEndReasonSteered
 			return turnContinue
@@ -674,6 +726,15 @@ func (r *LocalRuntime) runTurn(
 			userMsg := session.UserMessage(followUp.Content, followUp.MultiContent...)
 			sess.AddMessage(userMsg)
 			events.Emit(UserMessage(followUp.Content, sess.ID, followUp.MultiContent, len(sess.Messages)-1))
+			stop, msg, ctxMsgs := r.executeUserFollowupSubmitHooks(ctx, sess, a, followUp.Content, events)
+			if stop {
+				slog.WarnContext(ctx, "user_followup_submit hook signalled run termination",
+					"agent", a.Name(), "session_id", sess.ID, "reason", msg)
+				r.emitHookDrivenShutdown(ctx, a, sess, msg, events)
+				endReason = turnEndReasonHookBlocked
+				return turnExit
+			}
+			ls.userPromptMsgs = ctxMsgs
 			r.compactIfNeeded(ctx, sess, a, contextLimit, messageCountBeforeTools, events)
 			endReason = turnEndReasonContinue
 			return turnContinue // re-enter the loop for a new turn
