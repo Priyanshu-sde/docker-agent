@@ -1250,17 +1250,29 @@ func normalizeMessageContent(messages []chat.Message) []chat.Message {
 	return out
 }
 
-// sanitizeToolCalls ensures every tool call in assistant messages has a
-// corresponding tool-result message. It walks the message list tracking
-// pending tool calls; when a tool-result message arrives its ID is marked
-// fulfilled. When the next assistant or user message is encountered (or the
-// end of the list is reached), any still-pending tool calls receive synthetic
-// error results injected just before that boundary. This guarantees the
-// provider always sees a valid request/response pair for every tool call.
+// sanitizeToolCalls ensures the tool_use/tool_result blocks sent to the
+// provider are always balanced, in both directions:
+//
+//   - Every tool call in an assistant message gets a corresponding tool-result
+//     message. It walks the message list tracking pending tool calls; when a
+//     tool-result message arrives its ID is marked fulfilled. When the next
+//     assistant or user message is encountered (or the end of the list is
+//     reached), any still-pending tool calls receive synthetic error results
+//     injected just before that boundary.
+//   - Every tool-result message has a matching tool_use in the preceding
+//     assistant message. Orphaned tool results — a tool-result whose
+//     ToolCallID was never issued by the preceding assistant message — are
+//     dropped. This happens when compaction's kept-tail boundary lands between
+//     an assistant tool_use and its result, leaving the result at the head of
+//     the resumed history with no matching tool_use. Providers such as AWS
+//     Bedrock reject the request outright in that case ("The number of
+//     toolResult blocks ... exceeds the number of toolUse blocks of previous
+//     turn"), so we must strip these before the request goes out.
 func sanitizeToolCalls(messages []chat.Message) []chat.Message {
 	var (
 		out              []chat.Message
 		pendingToolCalls []tools.ToolCall
+		pendingIDs       = make(map[string]bool)
 		resultIDs        = make(map[string]bool)
 	)
 
@@ -1276,20 +1288,30 @@ func sanitizeToolCalls(messages []chat.Message) []chat.Message {
 			}
 		}
 		pendingToolCalls = nil
+		pendingIDs = make(map[string]bool)
 		resultIDs = make(map[string]bool)
 	}
 
 	for _, msg := range messages {
 		switch {
 		case msg.Role == chat.MessageRoleTool:
-			if msg.ToolCallID != "" {
-				resultIDs[msg.ToolCallID] = true
+			// Drop orphaned tool results: a tool_result with no matching
+			// tool_use in the preceding assistant message violates the
+			// provider contract.
+			if msg.ToolCallID == "" || !pendingIDs[msg.ToolCallID] {
+				continue
 			}
+			resultIDs[msg.ToolCallID] = true
 
 		case msg.Role == chat.MessageRoleAssistant && len(msg.ToolCalls) > 0:
 			flushPending()
 			out = append(out, msg)
 			pendingToolCalls = msg.ToolCalls
+			for _, tc := range msg.ToolCalls {
+				if tc.ID != "" {
+					pendingIDs[tc.ID] = true
+				}
+			}
 			continue
 
 		case msg.Role == chat.MessageRoleUser || msg.Role == chat.MessageRoleAssistant:
