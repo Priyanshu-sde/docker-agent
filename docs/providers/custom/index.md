@@ -97,7 +97,7 @@ agents:
 | Property              | Type       | Description                                                                           | Default                  |
 | --------------------- | ---------- | ------------------------------------------------------------------------------------- | ------------------------ |
 | `provider`            | string     | Underlying provider type: `openai`, `anthropic`, `google`, `amazon-bedrock`, `dmr`, etc. | `openai`                 |
-| `api_type`            | string     | API schema: `openai_chatcompletions` or `openai_responses`. Only for OpenAI-compatible providers. | `openai_chatcompletions` |
+| `api_type`            | string     | API schema: `openai_chatcompletions` or `openai_responses`. Only for OpenAI-compatible providers. When omitted, the API type is selected automatically based on the model name: newer models (gpt-4.1, o-series, gpt-5, Codex) default to `openai_responses`; all others default to `openai_chatcompletions`. | `auto (model-dependent)` |
 | `base_url`            | string     | Base URL for the API endpoint. Required for OpenAI-compatible providers, optional for native providers. | —                        |
 | `token_key`           | string     | Environment variable name containing the API token.                                   | —                        |
 | `unload_api`          | string     | Optional path (or absolute URL) to the provider's model-unload endpoint. Used by the [`unload`]({{ '/configuration/hooks/#available-built-ins' | relative_url }}) built-in hook to release model resources between agent switches. Relative paths resolve against `base_url`'s scheme + host; absolute URLs are used verbatim. Today only Docker Model Runner ships a provider that calls this endpoint; cloud providers don't implement the underlying interface and the hook silently skips them. | —                        |
@@ -157,6 +157,8 @@ Only applicable for OpenAI-compatible providers (when `provider` is `openai` or 
 
 - **`openai_chatcompletions`** — Standard OpenAI Chat Completions API. Works with most OpenAI-compatible endpoints.
 - **`openai_responses`** — OpenAI Responses API. For newer models that require the Responses API format.
+
+> If `api_type` is not set, docker-agent automatically selects the API type based on the model name. You only need to set `api_type` explicitly to override the detected default.
 
 ## Examples
 
