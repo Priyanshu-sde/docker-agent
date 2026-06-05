@@ -88,6 +88,8 @@ models:
     thinking_budget: adaptive/medium   # adaptive/low | adaptive/medium | adaptive/high | adaptive/xhigh | adaptive/max
 ```
 
+> `max` is only valid inside the `adaptive/` prefix — `thinking_budget: max` (bare) is not accepted by OpenAI.
+
 See the [Thinking / Reasoning guide]({{ '/guides/thinking/' | relative_url }}) for a cross-provider overview.
 
 <div class="callout callout-tip" markdown="1">

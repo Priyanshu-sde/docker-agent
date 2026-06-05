@@ -24,7 +24,7 @@ docker-agent exposes this through a single `thinking_budget` field on any named 
 
 | Provider       | Format     | Values                                                       | Default      |
 | -------------- | ---------- | ------------------------------------------------------------ | ------------ |
-| OpenAI         | string     | `minimal`, `low`, `medium`, `high`, `xhigh`, `none`, `adaptive/<level>` | `medium`     |
+| OpenAI         | string     | `minimal`, `low`, `medium`, `high`, `xhigh`, `none`, `adaptive/<level>` (`max` only via `adaptive/max`) | `medium`     |
 | Anthropic      | int or str | 1024–32768 tokens, or `adaptive`, `low`–`max`, `none`        | off          |
 | Gemini 2.5     | int        | `0` (off), `-1` (dynamic), or token count (max 24576 / 32768) | `-1` (dynamic)|
 | Gemini 3       | string     | `minimal`, `low`, `medium`, `high`                           | model-dependent |
@@ -71,6 +71,8 @@ models:
     model: gpt-5-mini
     thinking_budget: adaptive/medium  # adaptive/low | adaptive/medium | adaptive/high | adaptive/xhigh | adaptive/max
 ```
+
+> `max` is only valid inside the `adaptive/` prefix — `thinking_budget: max` (bare) is not accepted by OpenAI.
 
 ## Anthropic
 
