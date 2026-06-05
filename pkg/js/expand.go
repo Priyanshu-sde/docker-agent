@@ -128,6 +128,7 @@ func (exp *Expander) ExpandCommands(ctx context.Context, cmds types.Commands) ty
 		expanded[k] = types.Command{
 			Description: runExpansion(vm, cmd.Description),
 			Instruction: runExpansion(vm, cmd.Instruction),
+			Agent:       cmd.Agent,
 		}
 	}
 	return expanded

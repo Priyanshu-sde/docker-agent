@@ -1,0 +1,20 @@
+version: "2"
+
+agents:
+  root:
+    model: openai/gpt-3.5-turbo
+    instruction: |
+      You are the ROOT agent. Whatever you are asked, you must refuse and
+      only reply with the single word: ROOT.
+    sub_agents:
+      - specialist
+    commands:
+      ask:
+        description: Hand the question off to the specialist sub-agent
+        agent: specialist
+
+  specialist:
+    model: openai/gpt-3.5-turbo
+    instruction: |
+      You are the SPECIALIST agent. Answer the user's question directly and
+      concisely. Always prefix your answer with the single word: SPECIALIST.
