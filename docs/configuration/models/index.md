@@ -66,9 +66,9 @@ Use `first_available` when the same agent should work with whichever provider cr
 models:
   smart:
     first_available:
-      - anthropic/claude-sonnet-4-5
+      - anthropic/claude-sonnet-4-6
       - openai/gpt-5
-      - google/gemini-2.5-flash
+      - google/gemini-3.5-flash
       - dmr/ai/qwen3 # local fallback; no API key required
 
 agents:
@@ -87,7 +87,7 @@ A `first_available` model is only a selector. It cannot be combined with `provid
 models:
   claude:
     provider: anthropic
-    model: claude-sonnet-4-5
+    model: claude-sonnet-4-6
     max_tokens: 64000
 
   gpt:

@@ -83,7 +83,7 @@ The simplest possible configuration — a single agent with an inline model:
 ```yaml
 agents:
   root:
-    model: openai/gpt-5-mini
+    model: openai/gpt-5
     description: A helpful assistant
     instruction: You are a helpful assistant.
 ```
@@ -92,7 +92,7 @@ The same config in HCL:
 
 ```hcl
 agent "root" {
-  model       = "openai/gpt-5-mini"
+  model       = "openai/gpt-5"
   description = "A helpful assistant"
   instruction = "You are a helpful assistant."
 }
@@ -106,7 +106,7 @@ Models can be referenced inline or defined in the `models` section:
   <div class="card" style="cursor:default;">
     <h3>Inline</h3>
     <p>Quick and simple. Use <code>provider/model</code> syntax directly.</p>
-    <pre style="margin-top:12px"><code class="language-yaml">model: openai/gpt-5-mini</code></pre>
+    <pre style="margin-top:12px"><code class="language-yaml">model: openai/gpt-5</code></pre>
   </div>
   <div class="card" style="cursor:default;">
     <h3>Named</h3>
@@ -311,7 +311,7 @@ version: 8
 
 agents:
   root:
-    model: openai/gpt-5-mini
+    model: openai/gpt-5
     # ...
 ```
 
@@ -357,7 +357,7 @@ mcps:
 
 agents:
   root:
-    model: openai/gpt-5-mini
+    model: openai/gpt-5
     toolsets:
       - type: mcp
         ref: github        # reuse the definition above
@@ -383,13 +383,13 @@ skills:
 
 agents:
   root:
-    model: openai/gpt-5-mini
+    model: openai/gpt-5
     use_commands: [ci]        # reuse the "ci" command group
     use_skills: [base]        # reuse the "base" skill group
     commands:
       lint: "Run the linter"  # inline command, merged in (wins on conflict)
   reviewer:
-    model: openai/gpt-5-mini
+    model: openai/gpt-5
     use_commands: [ci]        # same group, reused without duplication
 ```
 
