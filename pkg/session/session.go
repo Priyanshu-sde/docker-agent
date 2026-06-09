@@ -541,6 +541,24 @@ func (s *Session) GetAllMessages() []Message {
 	return messages
 }
 
+// OwnMessages extracts this session's direct messages, excluding system
+// messages and WITHOUT recursing into sub-sessions. This is the set of
+// messages that actually enters this session's prompt (GetMessages skips
+// sub-session items), so token accounting that drives compaction must
+// use it: counting sub-session content would attribute phantom tokens
+// to the parent and compact a conversation that isn't actually large.
+func (s *Session) OwnMessages() []Message {
+	items := s.snapshotItems()
+
+	var messages []Message
+	for _, item := range items {
+		if item.IsMessage() && item.Message.Message.Role != chat.MessageRoleSystem {
+			messages = append(messages, *item.Message)
+		}
+	}
+	return messages
+}
+
 func (s *Session) GetLastAssistantMessageContent() string {
 	return s.getLastMessageContentByRole(chat.MessageRoleAssistant)
 }

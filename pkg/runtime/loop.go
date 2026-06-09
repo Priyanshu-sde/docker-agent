@@ -84,7 +84,7 @@ func (r *LocalRuntime) drainAndEmitSteered(ctx context.Context, sess *session.Se
 	if len(steered) == 0 {
 		return steerResult{}
 	}
-	messageCountBefore := len(sess.GetAllMessages())
+	messageCountBefore := len(sess.OwnMessages())
 	contents := make([]string, 0, len(steered))
 	for i, sm := range steered {
 		contents = append(contents, sm.Content)
@@ -627,7 +627,7 @@ func (r *LocalRuntime) runTurn(
 
 	// Record the message count before tool calls so we can
 	// measure how much content was added by tool results.
-	messageCountBeforeTools := len(sess.GetAllMessages())
+	messageCountBeforeTools := len(sess.OwnMessages())
 
 	stopRun, stopMsg := r.processToolCalls(ctx, sess, res.Calls, agentTools, events)
 
@@ -851,7 +851,12 @@ func (r *LocalRuntime) compactIfNeeded(
 		return
 	}
 
-	newMessages := sess.GetAllMessages()[messageCountBefore:]
+	// Estimate only over the session's own new messages: sub-session
+	// content recorded during tool calls (transfer_task and friends)
+	// never enters this session's prompt, so counting it here would
+	// attribute phantom tokens to a small parent conversation and
+	// trigger a compaction that wipes it (see issue #2871).
+	newMessages := sess.OwnMessages()[messageCountBefore:]
 	var addedTokens int64
 	for _, msg := range newMessages {
 		addedTokens += compaction.EstimateMessageTokens(&msg.Message)
