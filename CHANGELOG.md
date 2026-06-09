@@ -3,6 +3,70 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.74.0] - 2026-06-09
+
+This release introduces self-update functionality, session read-only mode, and 1Password CLI integration, along with model selection improvements and various bug fixes.
+
+## What's New
+
+- Adds opt-in self-update functionality via `DOCKER_AGENT_AUTO_UPDATE` environment variable with interactive confirmation
+- Adds `--session-read-only` flag to view sessions without sending messages in TUI mode
+- Adds 1Password CLI integration for secret resolution using `op://` references
+- Adds `first_available` model selection for automatic fallback across multiple model candidates
+- Adds `user_steering_messages_submit` and `user_followup_submit` hooks for queued user messages
+
+## Improvements
+
+- Updates default agent to use `first_available` model selection with multi-provider fallbacks
+- Updates default model versions: OpenAI from `gpt-5-mini` to `gpt-5`, Google from `gemini-2.5-flash` to `gemini-3.5-flash`
+- Updates coder agent to use `first_available` model selection instead of hardcoded Anthropic models
+
+## Bug Fixes
+
+- Fixes tool call being dropped when finish_reason shares the same chunk in streaming responses
+- Fixes orphaned tool results on session resume that caused validation errors on AWS Bedrock
+- Fixes agent field not being preserved during command expansion, causing incorrect routing to root agent
+- Fixes binary files being processed in content search operations
+- Fixes self-update validation to prevent arbitrary file deletion and detect help flags properly
+- Fixes IPv6 6to4, NAT64, site-local and CGNAT ranges not being blocked in SSRF protection
+
+## Technical Changes
+
+- Hardens self-update download and re-exec process against tampering with digest and checksum verification
+- Uses SSRF-safe HTTP client for MCP OAuth metadata fetches
+- Hardens 1Password provider against silent pass-through and PATH hijacking
+- Fixes custom-base-image evaluation template to include docker-agent binary and entrypoint
+- Removes broken MCP servers from configuration
+
+### Pull Requests
+
+- [#2990](https://github.com/docker/docker-agent/pull/2990) - docs: update CHANGELOG.md for v1.73.0
+- [#2991](https://github.com/docker/docker-agent/pull/2991) - feat: add first_available model selection
+- [#2992](https://github.com/docker/docker-agent/pull/2992) - fix: don't drop tool call when finish_reason shares the chunk
+- [#2993](https://github.com/docker/docker-agent/pull/2993) - feat: add opt-in self-update
+- [#2995](https://github.com/docker/docker-agent/pull/2995) - chore: bump go dependencies (acp-go-sdk, goja)
+- [#2996](https://github.com/docker/docker-agent/pull/2996) - refactor(coder): use first_available model selection with multi-provider fallbacks
+- [#2997](https://github.com/docker/docker-agent/pull/2997) - feat: update default agent to use first_available model selection
+- [#2999](https://github.com/docker/docker-agent/pull/2999) - docs: update agent config reference, custom provider api_type, and slash command behavior
+- [#3000](https://github.com/docker/docker-agent/pull/3000) - feat: add user_steering_messages_submit and user_followup_submit hooks
+- [#3001](https://github.com/docker/docker-agent/pull/3001) - fix: drop orphaned tool results on session resume
+- [#3003](https://github.com/docker/docker-agent/pull/3003) - docs: update default model examples to gpt-5 and gemini-3.5-flash
+- [#3004](https://github.com/docker/docker-agent/pull/3004) - docs: add thinking/reasoning guide and expand provider thinking docs
+- [#3005](https://github.com/docker/docker-agent/pull/3005) - chore: bump go dependencies
+- [#3006](https://github.com/docker/docker-agent/pull/3006) - fix: skip binary files in content search
+- [#3007](https://github.com/docker/docker-agent/pull/3007) - fix: preserve agent field during command expansion
+- [#3012](https://github.com/docker/docker-agent/pull/3012) - docs: sync config examples with updated default models (gpt-5, gemini-3.5-flash)
+- [#3025](https://github.com/docker/docker-agent/pull/3025) - docs: update remaining gpt-5-mini → gpt-5 examples across docs
+- [#3026](https://github.com/docker/docker-agent/pull/3026) - feat: add --session-read-only flag to view sessions without sending messages
+- [#3028](https://github.com/docker/docker-agent/pull/3028) - docs: document --session-read-only flag for TUI read-only mode
+- [#3029](https://github.com/docker/docker-agent/pull/3029) - fix(evals): copy docker-agent binary + entrypoint in custom-base-image template
+- [#3031](https://github.com/docker/docker-agent/pull/3031) - fix: block IPv6 6to4, NAT64, site-local and CGNAT ranges in IsPublicIP
+- [#3032](https://github.com/docker/docker-agent/pull/3032) - Remove broken MCP servers
+- [#3033](https://github.com/docker/docker-agent/pull/3033) - chore: bump go dependencies
+- [#3035](https://github.com/docker/docker-agent/pull/3035) - fix: use SSRF-safe HTTP client for MCP OAuth authorization server metadata fetch
+- [#3036](https://github.com/docker/docker-agent/pull/3036) - feat: add 1Password CLI integration for secret resolution
+
+
 ## [v1.73.0] - 2026-06-03
 
 This release improves MCP catalog server management, fixes streaming issues with AI providers, and adds memory protection for file search operations.
@@ -3297,3 +3361,5 @@ This release improves the terminal user interface with better error handling and
 [v1.72.0]: https://github.com/docker/docker-agent/releases/tag/v1.72.0
 
 [v1.73.0]: https://github.com/docker/docker-agent/releases/tag/v1.73.0
+
+[v1.74.0]: https://github.com/docker/docker-agent/releases/tag/v1.74.0
