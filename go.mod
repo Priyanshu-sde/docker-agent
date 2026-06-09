@@ -21,7 +21,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/credentials v1.19.23
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.53.5
 	github.com/aws/aws-sdk-go-v2/service/sts v1.43.3
-	github.com/aws/smithy-go v1.27.1
+	github.com/aws/smithy-go v1.27.2
 	github.com/aymanbagabas/go-udiff v0.4.1
 	github.com/blevesearch/bleve/v2 v2.6.0
 	github.com/bmatcuk/doublestar/v4 v4.10.0
