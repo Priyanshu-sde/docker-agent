@@ -680,7 +680,11 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 	// the requested models instead of the agent's defaults.
 	applyStoredOverrides(ctx, sess.ID, run, sess.AgentModelOverrides)
 
-	titleGen := sessiontitle.New(agt.Model(ctx), agt.FallbackModels()...)
+	titleModels := agt.TitleModels(ctx)
+	var titleGen *sessiontitle.Generator
+	if len(titleModels) > 0 {
+		titleGen = sessiontitle.New(titleModels[0], titleModels[1:]...)
+	}
 
 	slog.DebugContext(ctx, "Runtime created for session", "session_id", sess.ID)
 

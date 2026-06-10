@@ -872,11 +872,11 @@ func (r *LocalRuntime) TitleGenerator() *sessiontitle.Generator {
 	// Title-gen setup happens before any session ctx exists; the resulting
 	// generator carries its own ctx when actually invoked. context.TODO is
 	// the right marker here.
-	model := a.Model(context.TODO())
-	if model == nil {
+	models := a.TitleModels(context.TODO())
+	if len(models) == 0 {
 		return nil
 	}
-	return sessiontitle.New(model, a.FallbackModels()...)
+	return sessiontitle.New(models[0], models[1:]...)
 }
 
 // getAgentModelID returns the model ID for an agent. The zero ID is

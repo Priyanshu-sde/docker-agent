@@ -1527,6 +1527,14 @@
               "dmr/ai/qwen3"
             ]
           ]
+        },
+        "title_model": {
+          "type": "string",
+          "description": "Model used to generate session titles when an agent runs with this model. Lets a heavyweight primary model delegate the cheap title-generation call to a smaller/faster model. Value can be a model name from the models section or an inline 'provider/model' spec. When omitted, title generation reuses the agent's own model.",
+          "examples": [
+            "openai/gpt-4o-mini",
+            "fast"
+          ]
         }
       },
       "additionalProperties": false

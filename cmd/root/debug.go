@@ -215,13 +215,13 @@ func (f *debugFlags) runDebugTitleCommand(cmd *cobra.Command, args []string) (co
 		return err
 	}
 
-	model := agent.Model(ctx)
-	if model == nil {
+	// Use the same title generation code path as the TUI (see runTUI in new.go),
+	// including any dedicated title_model configured for the agent's model.
+	models := agent.TitleModels(ctx)
+	if len(models) == 0 {
 		return fmt.Errorf("agent %q has no model configured", agent.Name())
 	}
-
-	// Use the same title generation code path as the TUI (see runTUI in new.go)
-	gen := sessiontitle.New(model, agent.FallbackModels()...)
+	gen := sessiontitle.New(models[0], models[1:]...)
 
 	title, err := gen.Generate(ctx, "debug", []string{args[1]})
 	if err != nil {

@@ -258,6 +258,11 @@ func TestValidateFirstAvailable(t *testing.T) {
 			wantErr: "cannot be combined with routing",
 		},
 		{
+			name:    "combined with title_model",
+			model:   latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}, TitleModel: "openai/gpt-4o-mini"},
+			wantErr: "cannot be combined with title_model",
+		},
+		{
 			name:    "combined with token key",
 			model:   latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}, TokenKey: "CUSTOM_API_KEY"},
 			wantErr: "cannot be combined with token_key",

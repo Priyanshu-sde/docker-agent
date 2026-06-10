@@ -111,6 +111,9 @@ func (m *ModelConfig) validateFirstAvailable() error {
 	if len(m.Routing) > 0 {
 		return errors.New("first_available cannot be combined with routing")
 	}
+	if m.TitleModel != "" {
+		return errors.New("first_available cannot be combined with title_model")
+	}
 	for i, ref := range m.FirstAvailable {
 		if strings.TrimSpace(ref) == "" {
 			return fmt.Errorf("first_available[%d] must not be empty", i)

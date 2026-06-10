@@ -227,6 +227,15 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 					agent.WithFallbackCooldown(agentConfig.GetFallbackCooldown()),
 				)
 			}
+
+			// A model may delegate session-title generation to another model.
+			titleModel, err := getTitleModelForAgent(ctx, cfg, &agentConfig, runConfig)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get title model: %w", err)
+			}
+			if titleModel != nil {
+				opts = append(opts, agent.WithTitleModel(titleModel))
+			}
 		}
 
 		agentTools, warnings := getToolsForAgent(ctx, &agentConfig, parentDir, runConfig, loadOpts.toolsetRegistry, configName, expander)
@@ -423,6 +432,62 @@ func getFallbackModelsForAgent(ctx context.Context, cfg *latest.Config, a *lates
 	}
 
 	return fallbackModels, nil
+}
+
+// getTitleModelForAgent resolves the dedicated title-generation model for an
+// agent, if any. It returns the model named by the `title_model` field of the
+// first of the agent's configured models that sets it, or nil when none do.
+func getTitleModelForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, runConfig *config.RuntimeConfig) (provider.Provider, error) {
+	var titleRef string
+	for name := range strings.SplitSeq(a.Model, ",") {
+		if modelCfg, ok := cfg.Models[name]; ok && modelCfg.TitleModel != "" {
+			titleRef = modelCfg.TitleModel
+			break
+		}
+	}
+	if titleRef == "" {
+		return nil, nil
+	}
+
+	modelsStore, modelsStoreErr := runConfig.ModelsDevStore()
+
+	modelCfg, exists := cfg.Models[titleRef]
+	if !exists {
+		parsed, err := latest.ParseModelRef(titleRef)
+		if err != nil {
+			return nil, fmt.Errorf("title model '%s' not found in configuration and is not a valid provider/model format", titleRef)
+		}
+		modelCfg = parsed
+	}
+	modelCfg.Name = titleRef
+
+	maxTokens := &defaultMaxTokens
+	if modelCfg.MaxTokens != nil {
+		maxTokens = modelCfg.MaxTokens
+	} else if modelsStoreErr == nil {
+		m, err := modelsStore.GetModel(ctx, modelsdev.NewID(modelCfg.Provider, modelCfg.Model))
+		if err == nil {
+			maxTokens = &m.Limit.Output
+		}
+	}
+
+	opts := []options.Opt{
+		options.WithGateway(runConfig.ModelsGateway),
+		options.WithStructuredOutput(a.StructuredOutput),
+		options.WithProviders(cfg.Providers),
+	}
+	if maxTokens != nil {
+		opts = append(opts, options.WithMaxTokens(*maxTokens))
+	}
+	if modelsStoreErr == nil {
+		opts = append(opts, options.WithModelsDevStore(modelsStore))
+	}
+
+	model, err := provider.NewWithModels(ctx, &modelCfg, cfg.Models, runConfig.EnvProvider(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create title model '%s': %w", titleRef, err)
+	}
+	return model, nil
 }
 
 // getToolsForAgent returns the tool definitions for an agent based on its

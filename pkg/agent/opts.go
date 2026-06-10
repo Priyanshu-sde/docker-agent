@@ -83,6 +83,14 @@ func WithFallbackCooldown(cooldown time.Duration) Opt {
 	}
 }
 
+// WithTitleModel sets a dedicated model for session-title generation, letting
+// a heavyweight primary model delegate the cheap title call to a smaller one.
+func WithTitleModel(model provider.Provider) Opt {
+	return func(a *Agent) {
+		a.titleModel = model
+	}
+}
+
 func WithSubAgents(subAgents ...*Agent) Opt {
 	return func(a *Agent) {
 		a.subAgents = subAgents

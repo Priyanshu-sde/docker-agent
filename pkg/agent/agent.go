@@ -27,6 +27,7 @@ type Agent struct {
 	fallbackModels          []provider.Provider                 // Fallback models to try if primary fails
 	fallbackRetries         int                                 // Number of retries per fallback model with exponential backoff
 	fallbackCooldown        time.Duration                       // Duration to stick with fallback after non-retryable error
+	titleModel              provider.Provider                   // Optional dedicated model for session-title generation
 	modelOverrides          atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
 	subAgents               []*Agent
 	handoffs                []*Agent
@@ -265,6 +266,29 @@ func (a *Agent) FallbackRetries() int {
 // model before retrying the primary. Returns 0 if not configured.
 func (a *Agent) FallbackCooldown() time.Duration {
 	return a.fallbackCooldown
+}
+
+// TitleModel returns the dedicated model configured for session-title
+// generation, or nil when none was configured (in which case title
+// generation reuses the agent's own model).
+func (a *Agent) TitleModel() provider.Provider {
+	return a.titleModel
+}
+
+// TitleModels returns the ordered list of providers to use for session-title
+// generation. The dedicated title model (when configured) comes first,
+// followed by the agent's current model and its fallbacks so title
+// generation still succeeds if the dedicated model is unavailable. The
+// result never contains nil entries.
+func (a *Agent) TitleModels(ctx context.Context) []provider.Provider {
+	var models []provider.Provider
+	if a.titleModel != nil {
+		models = append(models, a.titleModel)
+	}
+	if m := a.Model(ctx); m != nil {
+		models = append(models, m)
+	}
+	return append(models, a.fallbackModels...)
 }
 
 // Commands returns the named commands configured for this agent.

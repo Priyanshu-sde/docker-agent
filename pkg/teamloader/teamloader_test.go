@@ -202,6 +202,87 @@ func TestOverrideModel(t *testing.T) {
 	}
 }
 
+func TestTitleModelResolution(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+
+	t.Run("named title model", func(t *testing.T) {
+		data := []byte(`models:
+  primary:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    title_model: fast
+  fast:
+    provider: openai
+    model: gpt-4o-mini
+agents:
+  root:
+    model: primary
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("title.yaml", data), &config.RuntimeConfig{})
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		require.NotNil(t, root.TitleModel())
+		assert.Equal(t, "openai/gpt-4o-mini", root.TitleModel().ID().String())
+
+		// The dedicated title model comes first, the agent's own model follows
+		// as a fallback so title generation still works if it is unavailable.
+		models := root.TitleModels(t.Context())
+		require.Len(t, models, 2)
+		assert.Equal(t, "openai/gpt-4o-mini", models[0].ID().String())
+		assert.Equal(t, "anthropic/claude-sonnet-4-5", models[1].ID().String())
+	})
+
+	t.Run("inline title model", func(t *testing.T) {
+		data := []byte(`models:
+  primary:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    title_model: openai/gpt-4o-mini
+agents:
+  root:
+    model: primary
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("title.yaml", data), &config.RuntimeConfig{})
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		require.NotNil(t, root.TitleModel())
+		assert.Equal(t, "openai/gpt-4o-mini", root.TitleModel().ID().String())
+	})
+
+	t.Run("no title model", func(t *testing.T) {
+		data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("title.yaml", data), &config.RuntimeConfig{})
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		assert.Nil(t, root.TitleModel())
+
+		// Without a dedicated title model, generation falls back to the
+		// agent's own model.
+		models := root.TitleModels(t.Context())
+		require.Len(t, models, 1)
+		assert.Equal(t, "openai/gpt-4o", models[0].ID().String())
+	})
+}
+
 func TestLoadHarnessAgentWithoutModel(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "dummy")
 

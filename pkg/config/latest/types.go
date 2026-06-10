@@ -819,6 +819,12 @@ type ModelConfig struct {
 	// specs. Local providers (dmr, ollama) need no credentials and make reliable
 	// final fallbacks. When set, other model configuration fields must be empty.
 	FirstAvailable []string `json:"first_available,omitempty"`
+	// TitleModel names the model used to generate session titles when an agent
+	// runs with this model. It lets a heavyweight primary model delegate the
+	// cheap title-generation call to a smaller/faster model. The value can be a
+	// model name from the models section or an inline "provider/model" spec.
+	// When empty, title generation reuses the agent's own model.
+	TitleModel string `json:"title_model,omitempty"`
 }
 
 // IsFirstAvailable reports whether this model is a first-available selector
@@ -908,7 +914,8 @@ func (f *FlexibleModelConfig) isShorthandOnly() bool {
 		f.ThinkingBudget == nil &&
 		f.TaskBudget == nil &&
 		len(f.Routing) == 0 &&
-		f.FirstAvailable == nil
+		f.FirstAvailable == nil &&
+		f.TitleModel == ""
 }
 
 // RoutingRule defines a single routing rule for model selection.
