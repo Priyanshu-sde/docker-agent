@@ -882,6 +882,7 @@ func (p *chatPage) processMessage(msg msgtypes.SendMsg) tea.Cmd {
 	}
 
 	p.streamDepth = 0
+	p.sidebar.ResetStreamTracking()
 
 	var ctx context.Context
 	ctx, p.msgCancel = context.WithCancel(context.Background())

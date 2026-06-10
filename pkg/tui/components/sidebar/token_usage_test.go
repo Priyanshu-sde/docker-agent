@@ -101,6 +101,32 @@ func TestActiveSessionTokens_StableDuringSubAgent(t *testing.T) {
 	}
 }
 
+// TestActiveSessionTokens_RecoversFromImbalancedStreams verifies that a new
+// top-level run starting with a reset is not pinned to a leaked sub-session
+// from a previous run whose stream events were left unbalanced.
+func TestActiveSessionTokens_RecoversFromImbalancedStreams(t *testing.T) {
+	t.Parallel()
+
+	m := newTestSidebar()
+
+	// Turn 1: a sub-agent stream is left unbalanced (no matching stop).
+	m.startStream("session-root", "root")
+	m.recordUsageTokens("session-root", "root", 20000, 10000) // 30000
+	m.startStream("session-child", "developer")
+	m.recordUsageTokens("session-child", "developer", 8000, 2000) // 10000
+
+	// Turn 2: a new top-level run resets tracking, runs, and completes.
+	m.ResetStreamTracking()
+	m.startStream("session-root", "root")
+	m.recordUsageTokens("session-root", "root", 25000, 10000) // 35000
+	m.stopStream()
+
+	// Idle after the turn: must show the main session, not the leaked child.
+	tokens, found := m.activeSessionTokens()
+	assert.True(t, found)
+	assert.Equal(t, int64(35000), tokens)
+}
+
 func TestTokenUsageSummary_SingleSession(t *testing.T) {
 	t.Parallel()
 

@@ -58,6 +58,10 @@ type Model interface {
 	SetQueuedMessages(messages ...string)
 	GetSize() (width, height int)
 	LoadFromSession(sess *session.Session)
+	// ResetStreamTracking clears the active-stream stack so a new top-level run
+	// starts from a clean slate, even if a previous run's stream events were
+	// left unbalanced (e.g. cancelled without a StreamCancelledMsg).
+	ResetStreamTracking()
 	// HandleClick checks if click is on the star or title and returns true if handled
 	HandleClick(x, y int) bool
 	// HandleClickType returns the type of click (star, title, agent, or none).
@@ -455,8 +459,10 @@ func (m *model) LoadFromSession(sess *session.Session) {
 		}
 	}
 
-	// The restored session is the main session until a stream starts.
+	// The restored session is the main session until a stream starts. A freshly
+	// loaded session has no in-flight streams, so clear any stale stack entries.
 	m.rootSessionID = sess.ID
+	m.sessionStack = nil
 
 	// Load session title
 	if sess.Title != "" {
@@ -475,6 +481,20 @@ func (m *model) LoadFromSession(sess *session.Session) {
 	// Session has content if it has messages or token usage
 	m.sessionHasContent = len(sess.Messages) > 0 || sess.InputTokens > 0 || sess.OutputTokens > 0
 
+	m.invalidateCache()
+}
+
+// ResetStreamTracking clears the active-stream stack. It is called when a new
+// top-level run begins so leaked entries from a previous run that ended without
+// a balanced StreamStoppedEvent (e.g. a context cancel without a
+// StreamCancelledMsg) cannot pile up and pin the panel to a stale sub-session.
+// rootSessionID is preserved so the idle display stays valid until the next
+// stream starts.
+func (m *model) ResetStreamTracking() {
+	if len(m.sessionStack) == 0 {
+		return
+	}
+	m.sessionStack = nil
 	m.invalidateCache()
 }
 
