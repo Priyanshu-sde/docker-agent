@@ -92,6 +92,8 @@ models:
 
 If `context_size` is omitted, Model Runner uses its default. `max_tokens` is **not** used as the context window.
 
+docker-agent's auto-compaction scales its summary and keep-tail token budgets proportionally to `context_size`. This ensures compaction works correctly even for small context windows — for example, an 8k-token local model will not have its session history wiped during compaction.
+
 ## Thinking / reasoning budget
 
 When using the **llama.cpp** backend, `thinking_budget` is sent as structured `llamacpp.reasoning-budget` on `_configure` (maps to `--reasoning-budget`). String efforts use the same token mapping as other providers; `adaptive` maps to unlimited (`-1`).
