@@ -11,6 +11,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
+	"github.com/docker/docker-agent/pkg/model/provider/options"
 )
 
 func TestAnthropicThinkingDisplay(t *testing.T) {
@@ -466,6 +467,55 @@ func TestCoerceAdaptiveThinking(t *testing.T) {
 		t.Run("opus-4-7 "+name+" passes through", func(t *testing.T) {
 			c := clientWithModel("claude-opus-4-7", in, nil)
 			assert.Same(t, in, c.coerceAdaptiveThinking())
+		})
+	}
+}
+
+func TestFloorMaxTokensForNoThinking(t *testing.T) {
+	buildOpts := func(opts ...options.Opt) options.ModelOptions {
+		var mo options.ModelOptions
+		for _, opt := range opts {
+			opt(&mo)
+		}
+		return mo
+	}
+
+	tests := []struct {
+		name      string
+		opts      options.ModelOptions
+		maxTokens int64
+		want      int64
+	}{
+		{
+			name:      "no-thinking tiny cap is raised to floor",
+			opts:      buildOpts(options.WithNoThinking(), options.WithMaxTokens(20)),
+			maxTokens: 20,
+			want:      noThinkingMinOutputTokens,
+		},
+		{
+			name:      "no-thinking cap already above floor is unchanged",
+			opts:      buildOpts(options.WithNoThinking()),
+			maxTokens: 8192,
+			want:      8192,
+		},
+		{
+			name:      "no-thinking cap equal to floor is unchanged",
+			opts:      buildOpts(options.WithNoThinking()),
+			maxTokens: noThinkingMinOutputTokens,
+			want:      noThinkingMinOutputTokens,
+		},
+		{
+			name:      "thinking enabled leaves tiny cap untouched",
+			opts:      buildOpts(options.WithMaxTokens(20)),
+			maxTokens: 20,
+			want:      20,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := &Client{Config: base.Config{ModelOptions: tt.opts}}
+			assert.Equal(t, tt.want, c.floorMaxTokensForNoThinking(tt.maxTokens))
 		})
 	}
 }

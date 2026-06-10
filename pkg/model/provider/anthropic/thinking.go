@@ -19,6 +19,26 @@ const (
 	thinkingDisplayDisplay    = "display"
 )
 
+// noThinkingMinOutputTokens is the minimum output-token budget enforced when
+// thinking is disabled but the caller imposed a tiny max_tokens cap. Anthropic
+// adaptive-thinking models (e.g. Claude Opus 4.6+) always reason internally,
+// and those hidden thinking tokens count against max_tokens. A small cap (title
+// generation uses 20) can be entirely consumed by reasoning, leaving no visible
+// output and producing an empty title. This mirrors the OpenAI provider's floor
+// for reasoning models.
+const noThinkingMinOutputTokens int64 = 256
+
+// floorMaxTokensForNoThinking raises a tiny max_tokens cap to
+// noThinkingMinOutputTokens when the caller disabled thinking (e.g. title or
+// summary generation). The floor is scoped to the NoThinking path so it never
+// overrides an explicit user-set cap during normal completions.
+func (c *Client) floorMaxTokensForNoThinking(maxTokens int64) int64 {
+	if c.ModelOptions.NoThinking() && maxTokens < noThinkingMinOutputTokens {
+		return noThinkingMinOutputTokens
+	}
+	return maxTokens
+}
+
 // adjustMaxTokensForThinking checks if max_tokens needs adjustment for thinking_budget.
 // Anthropic's max_tokens represents the combined budget for thinking + output tokens.
 // Returns the adjusted maxTokens value and an error if user-set max_tokens is too low.

@@ -202,6 +202,10 @@ func (c *Client) CreateChatCompletionStream(
 	if err != nil {
 		return nil, err
 	}
+	// Leave headroom for visible output when thinking is disabled with a tiny
+	// cap (e.g. title generation): adaptive-thinking models still reason and
+	// would otherwise consume the whole budget, returning empty text.
+	maxTokens = c.floorMaxTokensForNoThinking(maxTokens)
 
 	client, err := c.clientFn(ctx)
 	if err != nil {
