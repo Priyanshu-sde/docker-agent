@@ -102,6 +102,7 @@ A complete, runnable configuration lives in [`examples/mcp_catalog.yaml`](https:
 ## Notes and Limitations
 
 - **Streamable-http only.** The catalog deliberately excludes servers that require a local subprocess or the MCP gateway — declare those with [`type: mcp`]({{ '/configuration/tools/#mcp-tools' | relative_url }}) instead.
+- **Catalog membership changes between releases.** The set of available servers is updated with each docker-agent release as integrations are added or removed. Servers present in one release may not appear in the next.
 - **Blocking enable.** DNS, TCP, MCP handshake and any OAuth flow happen synchronously inside `enable_remote_mcp_server` so the agent gets a deterministic result in the same turn. On startup, however, the runtime probes tools non-interactively (`mcp.WithoutInteractivePrompts`); OAuth-pending servers fail fast there and are silently deferred to the next interactive turn — including the sidebar-only tool-count pass, where a dialog would be impossible.
 - **No prompt discovery.** MCP prompt lookups (`/prompts`) walk YAML-declared `mcp` toolsets directly; prompts exposed by servers activated through the catalog are not surfaced. Tools — the primary interface — work fine.
 - **Frozen at build time.** The list of servers is embedded in the binary. New entries land with each docker-agent release.
