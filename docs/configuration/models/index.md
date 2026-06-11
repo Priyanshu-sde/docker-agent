@@ -57,6 +57,27 @@ models:
 | `track_usage`         | boolean    | ✗        | Track and report token usage for this model                                           |
 | `routing`             | array      | ✗        | Rule-based routing to different models. See [Model Routing]({{ '/configuration/routing/' | relative_url }}). |
 | `provider_opts`       | object     | ✗        | Provider-specific options (see provider pages)                                        |
+| `title_model`         | string     | ✗        | Model used for session-title generation. Can be a named model from the `models:` section or an inline `provider/model` string. When omitted, the agent's primary model generates titles. Cannot be combined with `first_available`. |
+
+## Delegating Session-Title Generation
+
+The `title_model` field lets a heavyweight primary model hand off the cheap
+title-generation call to a smaller, faster model:
+
+```yaml
+model: anthropic/claude-opus-4-5
+title_model: anthropic/claude-haiku-4-5
+```
+
+The value can be a named entry from the `models` stanza or an inline
+`provider/model` string. When omitted, the agent's primary model generates
+titles.
+
+<div class="callout callout-warning" markdown="1">
+<div class="callout-title">Constraint
+</div>
+  <p><code>title_model</code> cannot be combined with <code>first_available</code> model selection — the combination is rejected at validation time.</p>
+</div>
 
 ## First Available Models
 
