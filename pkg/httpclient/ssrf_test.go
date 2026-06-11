@@ -177,6 +177,47 @@ func TestHTTPSOnlyRedirects(t *testing.T) {
 	}
 }
 
+func TestLocalhostOnlyRedirects(t *testing.T) {
+	t.Parallel()
+
+	mustParse := func(s string) *url.URL {
+		u, err := url.Parse(s)
+		require.NoError(t, err)
+		return u
+	}
+
+	tests := []struct {
+		name    string
+		target  string
+		via     int
+		wantErr string
+	}{
+		{"localhost http allowed", "http://localhost/agent.yaml", 1, ""},
+		{"localhost http with port allowed", "http://localhost:8080/agent.yaml", 1, ""},
+		{"non-localhost rejected", "http://example.com/agent.yaml", 1, "non-localhost"},
+		{"https localhost rejected", "https://localhost/agent.yaml", 1, "non-localhost"},
+		{"metadata endpoint rejected", "http://169.254.169.254/latest/meta-data/", 1, "non-localhost"},
+		{"private IP rejected", "http://10.0.0.1/agent.yaml", 1, "non-localhost"},
+		{"loopback IP rejected", "http://127.0.0.1/agent.yaml", 1, "non-localhost"},
+		{"redirect loop bounded", "http://localhost/agent.yaml", 10, "10 redirects"},
+	}
+	check := LocalhostOnlyRedirects(10)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			req := &http.Request{URL: mustParse(tt.target)}
+			via := make([]*http.Request, tt.via)
+			err := check(req, via)
+			if tt.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tt.wantErr)
+		})
+	}
+}
+
 func TestNewSSRFSafeTransport_RefusesPrivateIP(t *testing.T) {
 	t.Parallel()
 

@@ -356,6 +356,28 @@ func TestURLSource_Read_RejectsNonHTTPSchemesOnLocalhost(t *testing.T) {
 	}
 }
 
+func TestURLSource_Read_LocalhostRejectsNonLocalhostRedirect(t *testing.T) {
+	t.Parallel()
+
+	// A localhost server that redirects to an external URL.
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://169.254.169.254/latest/meta-data/", http.StatusFound)
+	}))
+	t.Cleanup(server.Close)
+
+	localhostURL := strings.Replace(server.URL, "127.0.0.1", "localhost", 1)
+
+	// Clear cache so we exercise the network path.
+	urlCacheDir := getURLCacheDir()
+	urlHash := hashURL(localhostURL)
+	_ = os.Remove(filepath.Join(urlCacheDir, urlHash))
+	_ = os.Remove(filepath.Join(urlCacheDir, urlHash+".etag"))
+
+	_, err := NewURLSource(localhostURL, nil).Read(t.Context())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "non-localhost")
+}
+
 func TestURLSource_Read_RejectsLocalAddresses(t *testing.T) {
 	t.Parallel()
 

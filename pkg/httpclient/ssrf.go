@@ -242,3 +242,20 @@ func HTTPSOnlyRedirects(maxHops int) func(*http.Request, []*http.Request) error 
 		return nil
 	}
 }
+
+// LocalhostOnlyRedirects returns an http.Client.CheckRedirect that limits
+// the redirect chain to maxHops AND requires every redirect target to be
+// an http://localhost URL. This prevents a localhost service from redirecting
+// to internal network addresses (e.g. cloud metadata endpoints), which
+// would bypass SSRF protection.
+func LocalhostOnlyRedirects(maxHops int) func(*http.Request, []*http.Request) error {
+	return func(req *http.Request, via []*http.Request) error {
+		if len(via) >= maxHops {
+			return fmt.Errorf("stopped after %d redirects", maxHops)
+		}
+		if req.URL.Scheme != "http" || req.URL.Hostname() != "localhost" {
+			return fmt.Errorf("refusing redirect to non-localhost URL %q", req.URL.Redacted())
+		}
+		return nil
+	}
+}

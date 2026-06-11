@@ -258,7 +258,7 @@ func (a urlSource) Read(ctx context.Context) ([]byte, error) {
 		if isLocalhostHTTP(a.url) {
 			client = &http.Client{
 				Timeout:       60 * time.Second,
-				CheckRedirect: httpclient.BoundedRedirects(10),
+				CheckRedirect: httpclient.LocalhostOnlyRedirects(10),
 			}
 		} else {
 			client = &http.Client{
