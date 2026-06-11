@@ -244,7 +244,7 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 	}
 
 	// Emit team information
-	sink.Emit(TeamInfo(r.agentDetailsFromTeam(), a.Name()))
+	sink.Emit(TeamInfo(r.agentDetailsFromTeam(ctx), a.Name()))
 
 	r.emitAgentWarnings(a, sink)
 	r.configureToolsetHandlers(a, sink)

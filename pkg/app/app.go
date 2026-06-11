@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/cli"
 	"github.com/docker/docker-agent/pkg/config/types"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/hooks/builtins"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
@@ -765,13 +766,22 @@ func (a *App) NewSession() {
 // through the events channel so the sidebar updates.
 func (a *App) reEmitStartupInfo(ctx context.Context) {
 	a.runtime.ResetStartupInfo()
+	a.pumpToEvents(ctx, func(sink runtime.EventSink) {
+		a.runtime.EmitStartupInfo(ctx, a.session, sink)
+	})
+}
+
+// pumpToEvents runs emit (which produces events into the supplied sink) in a
+// background goroutine and forwards everything it emits to the app's events
+// channel, without blocking the caller.
+func (a *App) pumpToEvents(ctx context.Context, emit func(runtime.EventSink)) {
 	go func() {
-		startupEvents := make(chan runtime.Event, 10)
+		ch := make(chan runtime.Event, 10)
 		go func() {
-			defer close(startupEvents)
-			a.runtime.EmitStartupInfo(ctx, a.session, runtime.NewChannelSink(startupEvents))
+			defer close(ch)
+			emit(runtime.NewChannelSink(ch))
 		}()
-		for event := range startupEvents {
+		for event := range ch {
 			select {
 			case a.events <- event:
 			case <-ctx.Done():
@@ -881,6 +891,32 @@ func (a *App) SetCurrentAgentModel(ctx context.Context, modelRef string) error {
 	a.reEmitStartupInfo(ctx)
 
 	return nil
+}
+
+// CycleAgentThinkingLevel advances the current agent's thinking-effort level
+// to the next value in its provider's cycle and returns the newly selected
+// level. The change applies to the running session only (it is not persisted
+// as a model override). Returns an error wrapping [runtime.ErrUnsupported]
+// when the runtime or model cannot cycle thinking levels.
+func (a *App) CycleAgentThinkingLevel(ctx context.Context) (effort.Level, error) {
+	agentName := a.runtime.CurrentAgentName()
+	level, err := a.runtime.CycleAgentThinkingLevel(ctx, agentName)
+	if err != nil {
+		return "", err
+	}
+	// Refresh only the agent/team info so the sidebar reflects the updated
+	// thinking level. We intentionally avoid reEmitStartupInfo here: it would
+	// re-run tool discovery and make the sidebar's tool count flicker.
+	a.refreshAgentInfo(ctx)
+	return level, nil
+}
+
+// refreshAgentInfo pushes fresh agent and team info through the events channel
+// without re-running the heavier startup steps (tool discovery, token usage).
+func (a *App) refreshAgentInfo(ctx context.Context) {
+	a.pumpToEvents(ctx, func(sink runtime.EventSink) {
+		a.runtime.EmitAgentInfo(ctx, sink)
+	})
 }
 
 // AvailableModels returns the list of models available for selection.

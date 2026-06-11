@@ -554,11 +554,15 @@ func AgentInfo(agentName, model, description, welcomeMessage string) Event {
 
 // AgentDetails contains information about an agent for display in the sidebar
 type AgentDetails struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	Provider    string         `json:"provider"`
-	Model       string         `json:"model"`
-	Commands    types.Commands `json:"commands,omitempty"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Provider    string `json:"provider"`
+	Model       string `json:"model"`
+	// Thinking is a short label describing the model's current thinking-effort
+	// level (e.g. "high", "off"). Empty when the model has no selectable
+	// thinking configuration.
+	Thinking string         `json:"thinking,omitempty"`
+	Commands types.Commands `json:"commands,omitempty"`
 }
 
 // TeamInfoEvent is sent when team information is available

@@ -10,6 +10,7 @@ import (
 	"gotest.tools/v3/assert"
 
 	"github.com/docker/docker-agent/pkg/config/types"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
@@ -60,6 +61,7 @@ func (m *mockRuntime) CurrentAgentTools(context.Context) ([]tools.Tool, error)  
 func (m *mockRuntime) CurrentAgentToolsetStatuses() []tools.ToolsetStatus                   { return nil }
 func (m *mockRuntime) RestartToolset(context.Context, string) error                         { return nil }
 func (m *mockRuntime) EmitStartupInfo(context.Context, *session.Session, runtime.EventSink) {}
+func (m *mockRuntime) EmitAgentInfo(context.Context, runtime.EventSink)                     {}
 func (m *mockRuntime) ResetStartupInfo()                                                    {}
 func (m *mockRuntime) Run(context.Context, *session.Session) ([]session.Message, error) {
 	return nil, nil
@@ -87,14 +89,17 @@ func (m *mockRuntime) CurrentMCPPrompts(context.Context) map[string]mcptools.Pro
 func (m *mockRuntime) ExecuteMCPPrompt(context.Context, string, map[string]string) (string, error) {
 	return "", nil
 }
-func (m *mockRuntime) UpdateSessionTitle(context.Context, *session.Session, string) error    { return nil }
-func (m *mockRuntime) TitleGenerator() *sessiontitle.Generator                               { return nil }
-func (m *mockRuntime) Close() error                                                          { return nil }
-func (m *mockRuntime) Steer(runtime.QueuedMessage) error                                     { return nil }
-func (m *mockRuntime) FollowUp(runtime.QueuedMessage) error                                  { return nil }
-func (m *mockRuntime) QueueStatus() runtime.QueueStatus                                      { return runtime.QueueStatus{} }
-func (m *mockRuntime) TogglePause(context.Context) (bool, error)                             { return false, nil }
-func (m *mockRuntime) SetAgentModel(context.Context, string, string) error                   { return nil }
+func (m *mockRuntime) UpdateSessionTitle(context.Context, *session.Session, string) error { return nil }
+func (m *mockRuntime) TitleGenerator() *sessiontitle.Generator                            { return nil }
+func (m *mockRuntime) Close() error                                                       { return nil }
+func (m *mockRuntime) Steer(runtime.QueuedMessage) error                                  { return nil }
+func (m *mockRuntime) FollowUp(runtime.QueuedMessage) error                               { return nil }
+func (m *mockRuntime) QueueStatus() runtime.QueueStatus                                   { return runtime.QueueStatus{} }
+func (m *mockRuntime) TogglePause(context.Context) (bool, error)                          { return false, nil }
+func (m *mockRuntime) SetAgentModel(context.Context, string, string) error                { return nil }
+func (m *mockRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
+	return "", runtime.ErrUnsupported
+}
 func (m *mockRuntime) AvailableModels(context.Context) []runtime.ModelChoice                 { return nil }
 func (m *mockRuntime) SupportsModelSwitching() bool                                          { return false }
 func (m *mockRuntime) OnToolsChanged(func(runtime.Event))                                    {}

@@ -185,6 +185,82 @@ func TestIsValidAdaptive(t *testing.T) {
 	}
 }
 
+func TestThinkingCycle(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		provider string
+		want     []Level
+	}{
+		{"openai", []Level{None, Minimal, Low, Medium, High, XHigh}},
+		{"openai_responses", []Level{None, Minimal, Low, Medium, High, XHigh}},
+		{"azure", []Level{None, Minimal, Low, Medium, High, XHigh}},
+		{"anthropic", []Level{None, Low, Medium, High, XHigh, Max}},
+		{"amazon-bedrock", []Level{None, Low, Medium, High, XHigh, Max}},
+		{"google", []Level{None, Minimal, Low, Medium, High}},
+		{"gemini", []Level{None, Minimal, Low, Medium, High}},
+		{"vertexai", []Level{None, Minimal, Low, Medium, High}},
+		{"dmr", []Level{None, Low, Medium, High}},
+		{"unknown", []Level{None, Low, Medium, High}},
+		{"  OpenAI  ", []Level{None, Minimal, Low, Medium, High, XHigh}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.provider, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, ThinkingCycle(tt.provider))
+		})
+	}
+}
+
+func TestNextThinkingLevel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		provider string
+		current  Level
+		want     Level
+	}{
+		{"openai none to minimal", "openai", None, Minimal},
+		{"openai high to xhigh", "openai", High, XHigh},
+		{"openai xhigh wraps to none", "openai", XHigh, None},
+		{"openai unknown level resets to first", "openai", Max, None},
+		{"anthropic none to low", "anthropic", None, Low},
+		{"anthropic high to xhigh", "anthropic", High, XHigh},
+		{"anthropic xhigh to max", "anthropic", XHigh, Max},
+		{"anthropic max wraps to none", "anthropic", Max, None},
+		{"anthropic minimal not in cycle resets to none", "anthropic", Minimal, None},
+		{"default medium to high", "dmr", Medium, High},
+		{"default high wraps to none", "dmr", High, None},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			assert.Equal(t, tt.want, NextThinkingLevel(tt.provider, tt.current))
+		})
+	}
+}
+
+// TestNextThinkingLevel_FullCycle walks every provider cycle end-to-end and
+// asserts that repeatedly advancing returns to the starting level.
+func TestNextThinkingLevel_FullCycle(t *testing.T) {
+	t.Parallel()
+
+	for _, provider := range []string{"openai", "anthropic", "google", "dmr"} {
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+			cycle := ThinkingCycle(provider)
+			cur := cycle[0]
+			for range cycle {
+				cur = NextThinkingLevel(provider, cur)
+			}
+			assert.Equal(t, cycle[0], cur, "advancing len(cycle) times returns to start")
+		})
+	}
+}
+
 func TestString(t *testing.T) {
 	t.Parallel()
 

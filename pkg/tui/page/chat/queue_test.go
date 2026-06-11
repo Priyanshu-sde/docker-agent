@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/app"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
@@ -54,7 +55,8 @@ func (queueTestRuntime) CurrentAgentToolsetStatuses() []tools.ToolsetStatus     
 func (queueTestRuntime) RestartToolset(context.Context, string) error            { return nil }
 func (queueTestRuntime) EmitStartupInfo(context.Context, *session.Session, runtime.EventSink) {
 }
-func (queueTestRuntime) ResetStartupInfo() {}
+func (queueTestRuntime) EmitAgentInfo(context.Context, runtime.EventSink) {}
+func (queueTestRuntime) ResetStartupInfo()                                {}
 func (queueTestRuntime) RunStream(context.Context, *session.Session) <-chan runtime.Event {
 	ch := make(chan runtime.Event)
 	close(ch)
@@ -91,10 +93,13 @@ func (queueTestRuntime) ExecuteMCPPrompt(context.Context, string, map[string]str
 func (queueTestRuntime) UpdateSessionTitle(context.Context, *session.Session, string) error {
 	return nil
 }
-func (queueTestRuntime) TitleGenerator() *sessiontitle.Generator               { return nil }
-func (queueTestRuntime) Steer(runtime.QueuedMessage) error                     { return nil }
-func (queueTestRuntime) FollowUp(runtime.QueuedMessage) error                  { return nil }
-func (queueTestRuntime) SetAgentModel(context.Context, string, string) error   { return nil }
+func (queueTestRuntime) TitleGenerator() *sessiontitle.Generator             { return nil }
+func (queueTestRuntime) Steer(runtime.QueuedMessage) error                   { return nil }
+func (queueTestRuntime) FollowUp(runtime.QueuedMessage) error                { return nil }
+func (queueTestRuntime) SetAgentModel(context.Context, string, string) error { return nil }
+func (queueTestRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
+	return "", runtime.ErrUnsupported
+}
 func (queueTestRuntime) AvailableModels(context.Context) []runtime.ModelChoice { return nil }
 func (queueTestRuntime) SupportsModelSwitching() bool                          { return false }
 func (queueTestRuntime) OnToolsChanged(func(runtime.Event))                    {}

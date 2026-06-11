@@ -1266,12 +1266,18 @@ func (m *model) renderAgentEntry(content *strings.Builder, agent runtime.AgentDe
 		content.WriteString(toolcommon.TruncateText(desc, maxWidth))
 	}
 
-	content.WriteString("\n")
-	content.WriteString(styles.MutedStyle.Render("├ "))
-	content.WriteString(toolcommon.TruncateText("Provider: "+agent.Provider, maxWidth))
+	// Collapse provider, model, and thinking into a single line:
+	// "<provider>/<model> • <thinking>".
+	modelLine := agent.Model
+	if agent.Provider != "" {
+		modelLine = agent.Provider + "/" + agent.Model
+	}
+	if agent.Thinking != "" {
+		modelLine += " • " + agent.Thinking
+	}
 	content.WriteString("\n")
 	content.WriteString(styles.MutedStyle.Render("└ "))
-	content.WriteString(toolcommon.TruncateText("Model: "+agent.Model, maxWidth))
+	content.WriteString(toolcommon.TruncateText(modelLine, maxWidth))
 }
 
 // isVisuallyBlank returns true if a rendered line contains no visible content.

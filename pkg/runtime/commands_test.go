@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/docker/docker-agent/pkg/config/types"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -38,6 +39,7 @@ func (m *mockRuntime) SetCurrentAgent(string) error {
 	return nil
 }
 func (m *mockRuntime) EmitStartupInfo(context.Context, *session.Session, EventSink) {}
+func (m *mockRuntime) EmitAgentInfo(context.Context, EventSink)                     {}
 func (m *mockRuntime) ResetStartupInfo()                                            {}
 func (m *mockRuntime) RunStream(context.Context, *session.Session) <-chan Event {
 	return nil
@@ -80,9 +82,12 @@ func (m *mockRuntime) FollowUp(QueuedMessage) error                        { ret
 func (m *mockRuntime) QueueStatus() QueueStatus                            { return QueueStatus{} }
 func (m *mockRuntime) TogglePause(context.Context) (bool, error)           { return false, nil }
 func (m *mockRuntime) SetAgentModel(context.Context, string, string) error { return nil }
-func (m *mockRuntime) AvailableModels(context.Context) []ModelChoice       { return nil }
-func (m *mockRuntime) SupportsModelSwitching() bool                        { return false }
-func (m *mockRuntime) OnToolsChanged(func(Event))                          {}
+func (m *mockRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
+	return "", ErrUnsupported
+}
+func (m *mockRuntime) AvailableModels(context.Context) []ModelChoice { return nil }
+func (m *mockRuntime) SupportsModelSwitching() bool                  { return false }
+func (m *mockRuntime) OnToolsChanged(func(Event))                    {}
 
 func (m *mockRuntime) RegenerateTitle(context.Context, *session.Session, chan Event) {
 }

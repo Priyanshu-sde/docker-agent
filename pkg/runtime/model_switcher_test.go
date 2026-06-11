@@ -2,14 +2,21 @@ package runtime
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/docker/docker-agent/pkg/agent"
+	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/modelsdev"
+	"github.com/docker/docker-agent/pkg/team"
+	"github.com/docker/docker-agent/pkg/tools"
 )
 
 // mockCatalogStore implements ModelStore for testing
@@ -21,6 +28,176 @@ type mockCatalogStore struct {
 
 func (m *mockCatalogStore) GetDatabase(_ context.Context) (*modelsdev.Database, error) {
 	return m.db, nil
+}
+
+// configProvider is a provider.Provider whose BaseConfig is fully controlled
+// by the test, used to drive thinking-level cycling without a real client.
+type configProvider struct {
+	base.Config
+}
+
+func (configProvider) CreateChatCompletionStream(context.Context, []chat.Message, []tools.Tool) (chat.MessageStream, error) {
+	return nil, errors.New("not implemented")
+}
+
+func newConfigProvider(cfg latest.ModelConfig) *configProvider {
+	return &configProvider{Config: base.Config{ModelConfig: cfg}}
+}
+
+func TestCurrentThinkingLevel(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		budget *latest.ThinkingBudget
+		want   effort.Level
+	}{
+		{"nil budget", nil, effort.None},
+		{"disabled none", &latest.ThinkingBudget{Effort: "none"}, effort.None},
+		{"disabled zero tokens", &latest.ThinkingBudget{Tokens: 0}, effort.None},
+		{"effort high", &latest.ThinkingBudget{Effort: "high"}, effort.High},
+		{"effort medium", &latest.ThinkingBudget{Effort: "medium"}, effort.Medium},
+		{"token budget treated as none", &latest.ThinkingBudget{Tokens: 4096}, effort.None},
+		{"adaptive treated as none", &latest.ThinkingBudget{Effort: "adaptive"}, effort.None},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := &latest.ModelConfig{ThinkingBudget: tt.budget}
+			assert.Equal(t, tt.want, currentThinkingLevel(cfg))
+		})
+	}
+}
+
+func TestModelSupportsThinking(t *testing.T) {
+	t.Parallel()
+
+	r := &LocalRuntime{} // nil modelsStore: rely on name heuristics only.
+
+	tests := []struct {
+		name string
+		cfg  latest.ModelConfig
+		want bool
+	}{
+		{"openai reasoning gpt-5", latest.ModelConfig{Provider: "openai", Model: "gpt-5"}, true},
+		{"openai o3", latest.ModelConfig{Provider: "openai", Model: "o3"}, true},
+		{"openai non-reasoning gpt-4o", latest.ModelConfig{Provider: "openai", Model: "gpt-4o"}, false},
+		{"openai gpt-5-chat is non-reasoning", latest.ModelConfig{Provider: "openai", Model: "gpt-5-chat"}, false},
+		{"anthropic claude", latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5"}, true},
+		{"bedrock claude", latest.ModelConfig{Provider: "amazon-bedrock", Model: "us.anthropic.claude-sonnet-4-5"}, true},
+		{"gemini 3", latest.ModelConfig{Provider: "google", Model: "gemini-3-pro"}, true},
+		{"gemini 2.5", latest.ModelConfig{Provider: "google", Model: "gemini-2.5-pro"}, true},
+		{"gemini 2.0 no thinking", latest.ModelConfig{Provider: "google", Model: "gemini-2.0-flash"}, false},
+		{"explicit thinking budget overrides heuristic", latest.ModelConfig{Provider: "dmr", Model: "deepseek-r1", ThinkingBudget: &latest.ThinkingBudget{Effort: "medium"}}, true},
+		{"disabled thinking budget does not count", latest.ModelConfig{Provider: "dmr", Model: "llama3", ThinkingBudget: &latest.ThinkingBudget{Effort: "none"}}, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfg := tt.cfg
+			assert.Equal(t, tt.want, r.modelSupportsThinking(t.Context(), &cfg))
+		})
+	}
+}
+
+func TestCycleAgentThinkingLevel_Errors(t *testing.T) {
+	t.Parallel()
+
+	t.Run("nil modelSwitcherCfg is unsupported", func(t *testing.T) {
+		t.Parallel()
+		root := agent.New("root", "test")
+		r := &LocalRuntime{team: team.New(team.WithAgents(root))}
+
+		_, err := r.CycleAgentThinkingLevel(t.Context(), "root")
+		require.ErrorIs(t, err, ErrUnsupported)
+	})
+
+	t.Run("agent not found", func(t *testing.T) {
+		t.Parallel()
+		root := agent.New("root", "test")
+		r := &LocalRuntime{
+			team:             team.New(team.WithAgents(root)),
+			modelSwitcherCfg: &ModelSwitcherConfig{},
+		}
+
+		_, err := r.CycleAgentThinkingLevel(t.Context(), "missing")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "agent not found")
+	})
+
+	t.Run("non-reasoning model is unsupported", func(t *testing.T) {
+		t.Parallel()
+		model := newConfigProvider(latest.ModelConfig{Provider: "openai", Model: "gpt-4o"})
+		root := agent.New("root", "test", agent.WithModel(model))
+		r := &LocalRuntime{
+			team:             team.New(team.WithAgents(root)),
+			modelSwitcherCfg: &ModelSwitcherConfig{},
+		}
+
+		_, err := r.CycleAgentThinkingLevel(t.Context(), "root")
+		require.ErrorIs(t, err, ErrUnsupported)
+		assert.False(t, root.HasModelOverride(), "no override should be set when cycling is unsupported")
+	})
+}
+
+func TestAgentThinkingLabel(t *testing.T) {
+	t.Parallel()
+
+	r := &LocalRuntime{} // nil modelsStore: name heuristics only.
+
+	tests := []struct {
+		name string
+		cfg  latest.ModelConfig
+		want string
+	}{
+		{"reasoning model, no budget shows off", latest.ModelConfig{Provider: "openai", Model: "gpt-5"}, "off"},
+		{"reasoning model with effort", latest.ModelConfig{Provider: "openai", Model: "gpt-5", ThinkingBudget: &latest.ThinkingBudget{Effort: "high"}}, "high"},
+		{"reasoning model disabled shows off", latest.ModelConfig{Provider: "openai", Model: "gpt-5", ThinkingBudget: &latest.ThinkingBudget{Effort: "none"}}, "off"},
+		{"adaptive budget shows on", latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-7", ThinkingBudget: &latest.ThinkingBudget{Effort: "adaptive"}}, "on"},
+		{"token budget shows on", latest.ModelConfig{Provider: "anthropic", Model: "claude-sonnet-4-5", ThinkingBudget: &latest.ThinkingBudget{Tokens: 4096}}, "on"},
+		{"non-reasoning model hides line", latest.ModelConfig{Provider: "openai", Model: "gpt-4o"}, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			a := agent.New("root", "test", agent.WithModel(newConfigProvider(tt.cfg)))
+			assert.Equal(t, tt.want, r.agentThinkingLabel(t.Context(), a))
+		})
+	}
+}
+
+func TestCycleAgentThinkingLevel_AdvancesAndOverrides(t *testing.T) {
+	t.Parallel()
+
+	model := newConfigProvider(latest.ModelConfig{Provider: "openai", Model: "gpt-5"})
+	root := agent.New("root", "test", agent.WithModel(model))
+	r := &LocalRuntime{
+		team: team.New(team.WithAgents(root)),
+		modelSwitcherCfg: &ModelSwitcherConfig{
+			EnvProvider: environment.NewMapEnvProvider(map[string]string{"OPENAI_API_KEY": "sk-test"}),
+		},
+	}
+
+	// gpt-5 has no thinking budget configured → current is None, so the first
+	// cycle step lands on Minimal (the OpenAI cycle is none→minimal→…).
+	level, err := r.CycleAgentThinkingLevel(t.Context(), "root")
+	require.NoError(t, err)
+	assert.Equal(t, effort.Minimal, level)
+	require.True(t, root.HasModelOverride(), "cycling must install a runtime override")
+
+	override := root.Model(t.Context())
+	require.NotNil(t, override)
+	budget := override.BaseConfig().ModelConfig.ThinkingBudget
+	require.NotNil(t, budget)
+	assert.Equal(t, "minimal", budget.Effort)
+
+	// Next step: minimal → low.
+	level, err = r.CycleAgentThinkingLevel(t.Context(), "root")
+	require.NoError(t, err)
+	assert.Equal(t, effort.Low, level)
 }
 
 func TestIsInlineAlloySpec(t *testing.T) {

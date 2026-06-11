@@ -1774,6 +1774,10 @@ func (m *appModel) AllBindings() []key.Binding {
 			key.WithKeys("ctrl+z"),
 			key.WithHelp("Ctrl+z", "suspend"),
 		),
+		key.NewBinding(
+			key.WithKeys("shift+tab"),
+			key.WithHelp("Shift+Tab", "cycle thinking level"),
+		),
 	)
 
 	// leanMode already returned above, so only hideSidebar matters here.
@@ -1976,6 +1980,10 @@ func (m *appModel) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.forwardChat(msg)
+
+	// Shift+Tab cycles the current model's thinking-effort level
+	case key.Matches(msg, key.NewBinding(key.WithKeys("shift+tab"))):
+		return m.handleCycleThinkingLevel()
 
 	// Focus switching: Tab key toggles between content and editor
 	case key.Matches(msg, key.NewBinding(key.WithKeys("tab"))):

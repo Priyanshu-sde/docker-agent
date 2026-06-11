@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/types"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/hooks"
 	"github.com/docker/docker-agent/pkg/hooks/builtins"
 	"github.com/docker/docker-agent/pkg/httpclient"
@@ -60,6 +61,12 @@ type Runtime interface {
 	// When sess is non-nil and contains token data, a TokenUsageEvent is also emitted
 	// so the UI can display context usage percentage on session restore.
 	EmitStartupInfo(ctx context.Context, sess *session.Session, events EventSink)
+	// EmitAgentInfo emits up-to-date agent and team info (model, thinking
+	// level, description) without re-running heavier startup work such as
+	// tool discovery. Used to refresh the UI after a lightweight change like
+	// cycling the thinking level, avoiding the tool-count flicker that
+	// re-emitting full startup info would cause.
+	EmitAgentInfo(ctx context.Context, events EventSink)
 	// ResetStartupInfo resets the startup info emission flag, allowing re-emission
 	ResetStartupInfo()
 	// RunStream starts the agent's interaction loop and returns a channel of events
@@ -122,6 +129,14 @@ type Runtime interface {
 	// Returns [ErrUnsupported] for runtimes that don't expose model
 	// switching (e.g. remote runtimes, where the server owns the choice).
 	SetAgentModel(ctx context.Context, agentName, modelRef string) error
+
+	// CycleAgentThinkingLevel advances the named agent's thinking-effort
+	// level to the next value in its provider's cycle (wrapping around),
+	// applies it as a runtime model override, and returns the newly
+	// selected level. Returns [ErrUnsupported] for runtimes that can't
+	// switch models (e.g. remote runtimes) or for models that don't
+	// support thinking-effort selection.
+	CycleAgentThinkingLevel(ctx context.Context, agentName string) (effort.Level, error)
 
 	// AvailableModels returns the models the user can pick from in the
 	// /model picker. Returns nil for runtimes that don't expose model
@@ -908,18 +923,19 @@ func (r *LocalRuntime) getEffectiveModelID(a *agent.Agent) modelsdev.ID {
 // agentDetailsFromTeam converts team agent info to AgentDetails for events.
 // It accounts for active fallback cooldowns, returning the effective model
 // instead of the configured model when a fallback is in effect.
-func (r *LocalRuntime) agentDetailsFromTeam() []AgentDetails {
+func (r *LocalRuntime) agentDetailsFromTeam(ctx context.Context) []AgentDetails {
 	agentsInfo := r.team.AgentsInfo()
 	details := make([]AgentDetails, len(agentsInfo))
 	for i, info := range agentsInfo {
 		providerName := info.Provider
 		modelName := info.Model
+		var thinking string
 
-		// Check if this agent has an active fallback cooldown
-		cooldownState := r.fallback.cooldowns.Get(info.Name)
-		if cooldownState != nil {
-			// Get the agent to access fallback models
-			if a, err := r.team.Agent(info.Name); err == nil && a != nil {
+		// Get the agent to access fallbacks and the effective thinking level.
+		if a, err := r.team.Agent(info.Name); err == nil && a != nil {
+			// Check if this agent has an active fallback cooldown
+			cooldownState := r.fallback.cooldowns.Get(info.Name)
+			if cooldownState != nil {
 				fallbacks := a.FallbackModels()
 				if cooldownState.fallbackIndex >= 0 && cooldownState.fallbackIndex < len(fallbacks) {
 					fb := fallbacks[cooldownState.fallbackIndex].ID()
@@ -927,6 +943,7 @@ func (r *LocalRuntime) agentDetailsFromTeam() []AgentDetails {
 					modelName = fb.Model
 				}
 			}
+			thinking = r.agentThinkingLabel(ctx, a)
 		}
 
 		details[i] = AgentDetails{
@@ -934,10 +951,35 @@ func (r *LocalRuntime) agentDetailsFromTeam() []AgentDetails {
 			Description: info.Description,
 			Provider:    providerName,
 			Model:       modelName,
+			Thinking:    thinking,
 			Commands:    info.Commands,
 		}
 	}
 	return details
+}
+
+// agentThinkingLabel returns a short, user-facing label for the effective
+// thinking-effort level of the agent's current model: the effort level (e.g.
+// "high"), "off" when thinking is disabled on a reasoning-capable model, or
+// "" when the model has no selectable thinking configuration to display.
+func (r *LocalRuntime) agentThinkingLabel(ctx context.Context, a *agent.Agent) string {
+	models := a.EffectiveModels()
+	if len(models) == 0 {
+		return ""
+	}
+	cfg := models[0].BaseConfig().ModelConfig
+	// Only models that can actually reason get a thinking line.
+	if !r.modelSupportsThinking(ctx, &cfg) {
+		return ""
+	}
+	budget := cfg.ThinkingBudget
+	if budget == nil || budget.IsDisabled() {
+		return "off"
+	}
+	if l, ok := budget.EffortLevel(); ok {
+		return l.String()
+	}
+	return "on" // token-based or adaptive budget
 }
 
 // SessionStore returns the session store for browsing/loading past sessions.
@@ -1022,6 +1064,37 @@ func (r *LocalRuntime) emitToolsChanged() {
 	r.onToolsChanged(ToolsetInfo(len(agentTools), false, r.CurrentAgentName()))
 }
 
+// emitAgentAndTeamInfo sends the AgentInfo and TeamInfo events that drive the
+// sidebar's agent/model/thinking display. It returns false when sending was
+// aborted (e.g. the context was cancelled). Shared by EmitStartupInfo and
+// EmitAgentInfo so both render identical model labels.
+func (r *LocalRuntime) emitAgentAndTeamInfo(ctx context.Context, a *agent.Agent, send func(Event) bool) bool {
+	modelLabel := r.getEffectiveModelID(a).String()
+	if a.HasHarness() {
+		modelLabel = agentModelLabel(a)
+	}
+	if !send(AgentInfo(a.Name(), modelLabel, a.Description(), a.WelcomeMessage())) {
+		return false
+	}
+	return send(TeamInfo(r.agentDetailsFromTeam(ctx), r.CurrentAgentName()))
+}
+
+// EmitAgentInfo implements [Runtime.EmitAgentInfo]: it refreshes the agent and
+// team display without touching toolset discovery.
+func (r *LocalRuntime) EmitAgentInfo(ctx context.Context, events EventSink) {
+	a := r.CurrentAgent()
+	if a == nil {
+		return
+	}
+	r.emitAgentAndTeamInfo(ctx, a, func(event Event) bool {
+		if ctx.Err() != nil {
+			return false
+		}
+		events.Emit(event)
+		return true
+	})
+}
+
 // EmitStartupInfo emits initial agent, team, and toolset information for immediate sidebar display.
 // When sess is non-nil and contains token data, a TokenUsageEvent is also emitted so that the
 // sidebar can display context usage percentage on session restore.
@@ -1043,17 +1116,10 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, sess *session.Sessio
 		return true
 	}
 
-	// Emit agent and team information immediately for fast sidebar display
-	// Use getEffectiveModelID to account for active fallback cooldowns
+	// Emit agent and team information immediately for fast sidebar display.
+	// Use getEffectiveModelID to account for active fallback cooldowns.
 	modelID := r.getEffectiveModelID(a)
-	modelLabel := modelID.String()
-	if a.HasHarness() {
-		modelLabel = agentModelLabel(a)
-	}
-	if !send(AgentInfo(a.Name(), modelLabel, a.Description(), a.WelcomeMessage())) {
-		return
-	}
-	if !send(TeamInfo(r.agentDetailsFromTeam(), r.CurrentAgentName())) {
+	if !r.emitAgentAndTeamInfo(ctx, a, send) {
 		return
 	}
 

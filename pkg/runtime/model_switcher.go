@@ -10,9 +10,11 @@ import (
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -174,6 +176,89 @@ func (r *LocalRuntime) SetAgentModel(ctx context.Context, agentName, modelRef st
 // will return real data instead of the no-config empty path.
 func (r *LocalRuntime) SupportsModelSwitching() bool {
 	return r.modelSwitcherCfg != nil
+}
+
+// CycleAgentThinkingLevel implements [Runtime.CycleAgentThinkingLevel] for
+// LocalRuntime. It reads the agent's current effective model, advances the
+// thinking-effort level by one step in that provider's cycle, re-creates the
+// provider(s) with the new level, and installs them as a runtime override.
+func (r *LocalRuntime) CycleAgentThinkingLevel(ctx context.Context, agentName string) (effort.Level, error) {
+	if r.modelSwitcherCfg == nil {
+		return "", ErrUnsupported
+	}
+
+	a, err := r.team.Agent(agentName)
+	if err != nil {
+		return "", fmt.Errorf("agent not found: %w", err)
+	}
+
+	models := a.EffectiveModels()
+	if len(models) == 0 {
+		return "", errors.New("agent has no model configured")
+	}
+
+	baseCfg := models[0].BaseConfig().ModelConfig
+	if !r.modelSupportsThinking(ctx, &baseCfg) {
+		return "", fmt.Errorf("model %q does not support thinking levels: %w", baseCfg.DisplayOrModel(), ErrUnsupported)
+	}
+
+	next := effort.NextThinkingLevel(baseCfg.Provider, currentThinkingLevel(&baseCfg))
+
+	// Re-create each effective provider (alloy models can have several) with
+	// the new thinking level so the override preserves the existing pool.
+	newProviders := make([]provider.Provider, 0, len(models))
+	for _, m := range models {
+		mc := m.BaseConfig().ModelConfig
+		cfg := mc.Clone()
+		cfg.ThinkingBudget = &latest.ThinkingBudget{Effort: string(next)}
+		prov, err := r.createProviderFromConfig(ctx, cfg)
+		if err != nil {
+			return "", fmt.Errorf("failed to apply thinking level: %w", err)
+		}
+		newProviders = append(newProviders, prov)
+	}
+
+	a.SetModelOverride(newProviders...)
+	slog.InfoContext(ctx, "Cycled agent thinking level", "agent", agentName, "level", next)
+	return next, nil
+}
+
+// modelSupportsThinking reports whether cfg names a model that accepts a
+// user-selectable thinking-effort level. It first trusts an explicit,
+// enabled thinking_budget (covers reasoning models the heuristics below
+// don't recognise), then falls back to per-provider model heuristics.
+func (r *LocalRuntime) modelSupportsThinking(ctx context.Context, cfg *latest.ModelConfig) bool {
+	if cfg.ThinkingBudget != nil && !cfg.ThinkingBudget.IsDisabled() {
+		return true
+	}
+	if modelinfo.UsesReasoningEffort(cfg.Model) || modelinfo.UsesThinkingLevel(cfg.Model) {
+		return true
+	}
+	model := strings.ToLower(cfg.Model)
+	if strings.HasPrefix(model, "gemini-2.5") {
+		return true
+	}
+	// Claude family (Anthropic / Bedrock / Vertex) supports adaptive thinking.
+	if modelinfo.IsBedrockClaudeID(cfg.Model) || strings.HasPrefix(model, "claude-") {
+		return true
+	}
+	if r.modelsStore != nil {
+		if m, err := r.modelsStore.GetModel(ctx, modelsdev.NewID(cfg.Provider, cfg.Model)); err == nil && m != nil {
+			return modelinfo.IsClaudeFamily(m.Family)
+		}
+	}
+	return false
+}
+
+// currentThinkingLevel maps a model config's thinking_budget onto an
+// [effort.Level]. A nil, disabled, token-based, or adaptive budget is
+// reported as [effort.None] so the first cycle step lands on a concrete
+// effort level.
+func currentThinkingLevel(cfg *latest.ModelConfig) effort.Level {
+	if l, ok := cfg.ThinkingBudget.EffortLevel(); ok {
+		return l
+	}
+	return effort.None
 }
 
 // setAgentModelInternal applies modelRef as the agent's model override and

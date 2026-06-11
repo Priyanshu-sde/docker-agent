@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -250,6 +251,16 @@ func (a *Agent) RestoreModelOverride(prev, current ModelOverrideSnapshot) {
 // This is useful for listing available models in the TUI picker.
 func (a *Agent) ConfiguredModels() []provider.Provider {
 	return a.models
+}
+
+// EffectiveModels returns the providers currently in effect for this agent:
+// the runtime override(s) when set, otherwise the configured models. The
+// returned slice is a copy and safe for the caller to retain or mutate.
+func (a *Agent) EffectiveModels() []provider.Provider {
+	if overrides := a.modelOverrides.Load(); overrides != nil && len(*overrides) > 0 {
+		return slices.Clone(*overrides)
+	}
+	return slices.Clone(a.models)
 }
 
 // FallbackModels returns the fallback models to try if the primary model fails.

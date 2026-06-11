@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/hooks"
 	"github.com/docker/docker-agent/pkg/hooks/builtins"
 	"github.com/docker/docker-agent/pkg/runtime"
@@ -42,7 +43,8 @@ func (m *mockRuntime) RestartToolset(context.Context, string) error       { retu
 
 func (m *mockRuntime) EmitStartupInfo(ctx context.Context, sess *session.Session, events runtime.EventSink) {
 }
-func (m *mockRuntime) ResetStartupInfo() {}
+func (m *mockRuntime) EmitAgentInfo(context.Context, runtime.EventSink) {}
+func (m *mockRuntime) ResetStartupInfo()                                {}
 func (m *mockRuntime) RunStream(ctx context.Context, sess *session.Session) <-chan runtime.Event {
 	ch := make(chan runtime.Event)
 	close(ch)
@@ -89,6 +91,10 @@ func (m *mockRuntime) QueueStatus() runtime.QueueStatus          { return runtim
 func (m *mockRuntime) TogglePause(context.Context) (bool, error) { return false, nil }
 func (m *mockRuntime) SetAgentModel(context.Context, string, string) error {
 	return nil
+}
+
+func (m *mockRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
+	return "", runtime.ErrUnsupported
 }
 func (m *mockRuntime) AvailableModels(context.Context) []runtime.ModelChoice { return nil }
 func (m *mockRuntime) SupportsModelSwitching() bool                          { return false }

@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker-agent/pkg/app"
 	"github.com/docker/docker-agent/pkg/browser"
 	"github.com/docker/docker-agent/pkg/evaluation"
+	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/shellpath"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -511,6 +512,22 @@ func (m *appModel) handleOpenModelPicker() (tea.Model, tea.Cmd) {
 	return m, core.CmdHandler(dialog.OpenDialogMsg{
 		Model: dialog.NewModelPickerDialog(models),
 	})
+}
+
+// handleCycleThinkingLevel advances the current agent's thinking-effort level
+// (shift+tab). On success the new level is reflected in the sidebar via the
+// re-emitted agent info; only failures surface a notification.
+func (m *appModel) handleCycleThinkingLevel() (tea.Model, tea.Cmd) {
+	if !m.application.SupportsModelSwitching() {
+		return m, notification.InfoCmd("Thinking levels can't be changed with remote runtimes")
+	}
+	if _, err := m.application.CycleAgentThinkingLevel(context.Background()); err != nil {
+		if errors.Is(err, runtime.ErrUnsupported) {
+			return m, notification.InfoCmd("Current model does not support thinking levels")
+		}
+		return m, notification.ErrorCmd(fmt.Sprintf("Failed to change thinking level: %v", err))
+	}
+	return m, nil
 }
 
 func (m *appModel) handleChangeModel(modelRef string) (tea.Model, tea.Cmd) {

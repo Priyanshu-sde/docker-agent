@@ -75,6 +75,66 @@ func ValidNames() string {
 }
 
 // ---------------------------------------------------------------------------
+// Thinking-level cycling (TUI shift+tab)
+// ---------------------------------------------------------------------------
+
+// thinkingCycles maps a normalised provider bucket to the ordered list of
+// thinking-effort levels the TUI cycles through with shift+tab. Each cycle
+// starts with None (thinking off) and otherwise spans the full range of
+// effort levels the provider's API accepts (see the per-provider mapping
+// helpers below). Not every model supports the highest tiers (xhigh, max);
+// cycling onto an unsupported tier is recoverable by cycling again.
+var thinkingCycles = map[string][]Level{
+	"openai":    {None, Minimal, Low, Medium, High, XHigh},
+	"anthropic": {None, Low, Medium, High, XHigh, Max},
+	"google":    {None, Minimal, Low, Medium, High},
+}
+
+// defaultThinkingCycle is used for providers without a dedicated cycle.
+var defaultThinkingCycle = []Level{None, Low, Medium, High}
+
+// ThinkingCycle returns the ordered list of selectable thinking-effort
+// levels for the given provider type. The provider type is matched
+// case-insensitively and tolerant of aliases (e.g. "amazon-bedrock" maps
+// onto the underlying Anthropic family).
+func ThinkingCycle(providerType string) []Level {
+	if c, ok := thinkingCycles[providerBucket(providerType)]; ok {
+		return c
+	}
+	return defaultThinkingCycle
+}
+
+// NextThinkingLevel returns the level following current in the provider's
+// thinking cycle, wrapping back to the first level. When current is not in
+// the cycle the first level is returned.
+func NextThinkingLevel(providerType string, current Level) Level {
+	cycle := ThinkingCycle(providerType)
+	for i, l := range cycle {
+		if l == current {
+			return cycle[(i+1)%len(cycle)]
+		}
+	}
+	return cycle[0]
+}
+
+// providerBucket normalises a provider type to one of the buckets used by
+// thinkingCycles. Returns the lowercased provider type unchanged when no
+// alias matches (callers fall back to the default cycle).
+func providerBucket(providerType string) string {
+	p := strings.ToLower(strings.TrimSpace(providerType))
+	switch {
+	case strings.Contains(p, "anthropic"), strings.Contains(p, "claude"), strings.Contains(p, "bedrock"):
+		return "anthropic"
+	case strings.Contains(p, "google"), strings.Contains(p, "gemini"), strings.Contains(p, "vertex"):
+		return "google"
+	case strings.Contains(p, "openai"), strings.Contains(p, "azure"):
+		return "openai"
+	default:
+		return p
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Provider-specific mappings
 // ---------------------------------------------------------------------------
 

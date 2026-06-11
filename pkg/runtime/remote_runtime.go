@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker-agent/pkg/api"
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/sessiontitle"
 	"github.com/docker/docker-agent/pkg/team"
@@ -187,6 +188,13 @@ func (r *RemoteRuntime) EmitStartupInfo(ctx context.Context, _ *session.Session,
 	}
 
 	events.Emit(ToolsetInfo(toolCount, false, agentName))
+}
+
+// EmitAgentInfo emits agent and team info without re-fetching tool counts.
+func (r *RemoteRuntime) EmitAgentInfo(ctx context.Context, events EventSink) {
+	agentName, cfg := r.resolvedAgent(ctx)
+	events.Emit(AgentInfo(agentName, cfg.Model, cfg.Description, cfg.WelcomeMessage))
+	events.Emit(TeamInfo(r.agentDetailsFromConfig(ctx), agentName))
 }
 
 func (r *RemoteRuntime) agentDetailsFromConfig(ctx context.Context) []AgentDetails {
@@ -590,6 +598,12 @@ func (r *RemoteRuntime) SetAgentModel(_ context.Context, _, modelRef string) err
 	r.pendingModelOverride = modelRef
 	r.pendingMu.Unlock()
 	return nil
+}
+
+// CycleAgentThinkingLevel is unsupported on remote runtimes; the server owns
+// model configuration including thinking-effort selection.
+func (r *RemoteRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
+	return "", ErrUnsupported
 }
 
 // SupportsModelSwitching returns true for remote runtimes (model switching is handled server-side).

@@ -186,6 +186,7 @@ Customize session titles to make them more meaningful and easier to find. By def
 | Ctrl+R     | Reverse history search (search previous inputs) |
 | Ctrl+G     | Cancel reverse history search                   |
 | Ctrl+S     | Cycle to next agent in the team                 |
+| Shift+Tab  | Cycle the current model's thinking-effort level |
 | Ctrl+1 – 9 | Switch directly to agent _N_ in the team list   |
 | Ctrl+T     | Open a new tab (additional agent session)       |
 | Ctrl+W     | Close the current tab                           |
