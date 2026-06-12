@@ -330,8 +330,16 @@ func (s *VectorStore) Initialize(ctx context.Context, docPaths []string, chunkin
 
 			// Index the file
 			if err := s.indexFile(gctx, status.path); err != nil {
+				// Permanent model errors (invalid model, auth failure, rate limit)
+				// abort the whole run: every remaining file would trigger the
+				// same failing requests. Returning the error cancels gctx, which
+				// stops the other indexing goroutines.
+				if isIndexingAborted(err) || gctx.Err() != nil {
+					slog.ErrorContext(ctx, "Aborting indexing", "path", status.path, "error", err)
+					return err
+				}
 				slog.ErrorContext(ctx, "Failed to index file", "path", status.path, "error", err)
-				// Don't return error - continue indexing other files
+				// Transient/local failure - continue indexing other files
 				return nil
 			}
 
@@ -356,6 +364,7 @@ func (s *VectorStore) Initialize(ctx context.Context, docPaths []string, chunkin
 
 	// Wait for all files to be indexed
 	if err := g.Wait(); err != nil {
+		s.emitEvent(types.Event{Type: types.EventTypeError, Error: err})
 		return err
 	}
 
@@ -429,6 +438,9 @@ func (s *VectorStore) CheckAndReindexChangedFiles(ctx context.Context, docPaths 
 		if needsIndexing {
 			slog.InfoContext(ctx, "File changed, re-indexing", "path", filePath)
 			if err := s.indexFile(ctx, filePath); err != nil {
+				if isIndexingAborted(err) {
+					return fmt.Errorf("failed to re-index file %s: %w", filePath, err)
+				}
 				slog.ErrorContext(ctx, "Failed to re-index file", "path", filePath, "error", err)
 			}
 		}
@@ -597,7 +609,7 @@ func (s *VectorStore) indexFile(ctx context.Context, filePath string) error {
 
 	embeddings, err := s.embedder.EmbedBatch(ctx, chunkContents)
 	if err != nil {
-		return fmt.Errorf("failed to generate embeddings: %w", err)
+		return fmt.Errorf("failed to generate embeddings: %w", classifyModelCallError(err))
 	}
 
 	if len(embeddings) != len(validChunks) {
@@ -675,6 +687,15 @@ func (s *VectorStore) buildEmbeddingInputs(ctx context.Context, filePath string,
 				}
 
 				text, berr := s.embeddingInputBuilder.BuildEmbeddingInput(gctx, filePath, ch)
+				if berr != nil {
+					// Permanent model errors abort the run instead of silently
+					// falling back: every remaining chunk would issue the same
+					// failing LLM request. Returning cancels gctx, stopping
+					// the other chunk builds.
+					if cerr := classifyModelCallError(berr); isIndexingAborted(cerr) {
+						return fmt.Errorf("failed to build embedding input for chunk %d of %s: %w", ch.Index, filePath, cerr)
+					}
+				}
 				if berr != nil || strings.TrimSpace(text) == "" {
 					slog.WarnContext(ctx, "Embedding input builder failed; falling back to raw chunk content",
 						"strategy", s.name,
@@ -701,6 +722,11 @@ func (s *VectorStore) buildEmbeddingInputs(ctx context.Context, filePath string,
 			}
 
 			text, berr := s.embeddingInputBuilder.BuildEmbeddingInput(ctx, filePath, ch)
+			if berr != nil {
+				if cerr := classifyModelCallError(berr); isIndexingAborted(cerr) {
+					return nil, fmt.Errorf("failed to build embedding input for chunk %d of %s: %w", ch.Index, filePath, cerr)
+				}
+			}
 			if berr != nil || strings.TrimSpace(text) == "" {
 				slog.WarnContext(ctx, "Embedding input builder failed; falling back to raw chunk content",
 					"strategy", s.name,
@@ -915,6 +941,10 @@ func (s *VectorStore) watchLoop(ctx context.Context, docPaths []string) {
 						Message: "Failed to re-index: " + filepath.Base(file),
 						Error:   err,
 					})
+					if isIndexingAborted(err) {
+						slog.ErrorContext(ctx, "Stopping re-indexing due to non-retryable model error", "strategy", s.name, "error", err)
+						break
+					}
 				}
 			}
 
