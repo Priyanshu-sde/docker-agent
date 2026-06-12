@@ -115,8 +115,6 @@ func WithModelsDevStore(store *modelsdev.Store) Opt {
 //   - Gemini clients using the Vertex AI backend (project/location config or
 //     GOOGLE_GENAI_USE_VERTEXAI) rely on the genai SDK's default HTTP client;
 //     the wrapper is not applied and a warning is logged.
-//   - The Bedrock provider uses the AWS SDK's own HTTP client; the wrapper is
-//     not applied and a warning is logged.
 //
 // The wrapper function must return a non-nil RoundTripper; returning nil is a
 // no-op (a warning is logged and the original transport is kept).
