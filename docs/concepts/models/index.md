@@ -108,13 +108,13 @@ See the [Model Providers]({{ '/providers/overview/' | relative_url }}) section f
 
 Control how much the model "thinks" before responding:
 
-| Provider   | Format     | Values                                       | Default                          |
-| ---------- | ---------- | -------------------------------------------- | -------------------------------- |
-| OpenAI     | string     | `minimal`, `low`, `medium`, `high`, `xhigh`  | `medium` (always-reasoning models only) |
-| Anthropic  | int        | 1024–32768 tokens                            | off                              |
-| Gemini 2.5 | int        | 0 (off), -1 (dynamic), or token count        | -1 (dynamic)                     |
-| Gemini 3   | string     | `minimal`, `low`, `medium`, `high`           | varies                           |
-| All        | string/int | `none` or `0` to disable                     | —                                |
+| Provider   | Format     | Values                                                              | Default                          |
+| ---------- | ---------- | ------------------------------------------------------------------- | -------------------------------- |
+| OpenAI     | string     | `minimal`, `low`, `medium`, `high`, `xhigh`                         | `medium` (always-reasoning models only) |
+| Anthropic  | int or str | 1024–32768 tokens, or `adaptive`, `adaptive/<effort>`, effort level | off                              |
+| Gemini 2.5 | int        | 0 (off), -1 (dynamic), or token count                               | -1 (dynamic)                     |
+| Gemini 3   | string     | `minimal`, `low`, `medium`, `high`                                  | varies                           |
+| All        | string/int | `none` or `0` to disable                                            | —                                |
 
 ```yaml
 models:

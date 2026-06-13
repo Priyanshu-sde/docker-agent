@@ -141,12 +141,18 @@ func TestRejectsTokenThinking(t *testing.T) {
 		{"  claude-opus-4-6  ", true}, // trims whitespace
 		{"claude-opus-4-5", false},
 		{"claude-opus-4-5-20251015", false},
-		{"claude-opus-4-8", false},
+		{"claude-opus-4-8", true},
+		{"claude-opus-4-8-20260601", true},
+		{"anthropic.claude-opus-4-8-20260601-v1:0", true},           // Bedrock ID
+		{"global.anthropic.claude-opus-4-8-20260601-v1:0", true},    // Bedrock inference profile
+		{"us.anthropic.claude-opus-4-6-v1:0", true},                 // regional profile
+		{"global.anthropic.claude-sonnet-4-5-20250929-v1:0", false}, // Bedrock Sonnet still token-based
 		{"claude-sonnet-4-7", false},
 		{"claude-sonnet-4-5", false},
 		{"claude-haiku-4-5", false},
 		{"claude-opus-4-60", false}, // must not match
 		{"claude-opus-4-70", false},
+		{"claude-opus-4-80", false},
 		{"", false},
 	}
 	for _, tc := range cases {

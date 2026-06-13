@@ -104,7 +104,9 @@ models:
 
 ## Thinking Budget
 
-Anthropic uses integer token budgets (1024–32768). Thinking is off unless you set `thinking_budget`; when set, interleaved thinking is auto-enabled:
+Anthropic accepts either an integer token budget or a string effort value. Thinking is off unless you set `thinking_budget`; when set, interleaved thinking is auto-enabled.
+
+**Token budget** (1024–32768; works on all extended-thinking Claude models):
 
 ```yaml
 models:
@@ -113,6 +115,23 @@ models:
     model: claude-sonnet-4-5
     thinking_budget: 16384 # must be < max_tokens
 ```
+
+**Adaptive / effort-based** (Claude Opus 4.6+ only — every string value is sent as adaptive thinking via `output_config.effort`):
+
+```yaml
+models:
+  opus-adaptive:
+    provider: anthropic
+    model: claude-opus-4-6
+    thinking_budget: adaptive # model decides effort (defaults to high)
+
+  opus-effort:
+    provider: anthropic
+    model: claude-opus-4-6
+    thinking_budget: high # low | medium | high | xhigh | max (same as adaptive/<effort>)
+```
+
+On models that reject token-based thinking (Opus 4.6, 4.7, 4.8), an integer budget is automatically coerced to `adaptive` with a logged warning. See the [Thinking / Reasoning guide]({{ '/guides/thinking/' | relative_url }}) for the full cross-provider reference.
 
 ## Interleaved Thinking
 

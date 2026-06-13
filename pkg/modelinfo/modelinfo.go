@@ -87,14 +87,19 @@ func AlwaysReasons(modelID string) bool {
 // `thinking.type=enabled` (token-based extended thinking) and instead requires
 // `thinking.type=adaptive`.
 //
-// Currently Claude Opus 4.6 and 4.7 (and dated variants like
-// claude-opus-4-7-20251101). For these models the agent transparently
-// switches a token-based budget to adaptive thinking.
+// Currently Claude Opus 4.6, 4.7 and 4.8 (and dated variants like
+// claude-opus-4-7-20251101). Bedrock-style identifiers such as
+// "global.anthropic.claude-opus-4-8" are recognised too.
+// For these models the agent transparently switches a token-based budget to
+// adaptive thinking.
 //
 // See https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking
 func RejectsTokenThinking(modelID string) bool {
 	m := normalize(modelID)
-	for _, prefix := range []string{"claude-opus-4-6", "claude-opus-4-7"} {
+	if bare, ok := bedrockClaudeModelName(m); ok {
+		m = bare
+	}
+	for _, prefix := range []string{"claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8"} {
 		if m == prefix || strings.HasPrefix(m, prefix+"-") {
 			return true
 		}
@@ -136,15 +141,26 @@ func UsesThinkingLevel(modelID string) bool {
 // Prefer [IsClaude] for cross-provider checks: this helper exists so callers
 // in the Bedrock path can avoid touching the models.dev store.
 func IsBedrockClaudeID(modelID string) bool {
-	m := normalize(modelID)
-	if strings.HasPrefix(m, "anthropic.claude-") {
-		return true
+	_, ok := bedrockClaudeModelName(normalize(modelID))
+	return ok
+}
+
+// bedrockClaudeModelName returns the bare Claude model name for a Bedrock-style
+// identifier ("anthropic.claude-...", optionally preceded by a single regional
+// inference profile such as "global." or "us."). The input must already be
+// normalized. Returns ("", false) for non-Bedrock IDs; ARN-style identifiers
+// are not handled.
+func bedrockClaudeModelName(m string) (string, bool) {
+	if bare, ok := strings.CutPrefix(m, "anthropic."); ok && strings.HasPrefix(bare, "claude-") {
+		return bare, true
 	}
 	// Strip a single regional prefix (us., eu., apac., global., ...).
 	if i := strings.IndexByte(m, '.'); i > 0 {
-		return strings.HasPrefix(m[i+1:], "anthropic.claude-")
+		if bare, ok := strings.CutPrefix(m[i+1:], "anthropic."); ok && strings.HasPrefix(bare, "claude-") {
+			return bare, true
+		}
 	}
-	return false
+	return "", false
 }
 
 // IsClaude reports whether a model belongs to the Claude family, regardless

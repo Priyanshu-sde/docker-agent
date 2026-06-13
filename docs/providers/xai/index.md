@@ -69,15 +69,9 @@ Check the [xAI documentation](https://docs.x.ai/docs) for the latest available m
 
 ## Extended Thinking
 
-Grok models support thinking mode through the OpenAI-compatible API:
+docker-agent's `thinking_budget` field is **not applied** to xAI models: the underlying OpenAI-compatible client only sends `reasoning_effort` for OpenAI reasoning model names (o-series, gpt-5). Setting `thinking_budget` on a Grok model passes config validation but has no effect on the request.
 
-```yaml
-models:
-  grok:
-    provider: xai
-    model: grok-3
-    thinking_budget: high # minimal, low, medium, high, xhigh, max, none, or adaptive/<level>
-```
+Grok reasoning models (e.g. `grok-3-mini`) reason on their own without configuration. For non-reasoning models, use the [think tool]({{ '/tools/think/' | relative_url }}) instead.
 
 ## How It Works
 

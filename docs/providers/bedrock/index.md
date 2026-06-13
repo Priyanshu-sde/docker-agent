@@ -126,6 +126,22 @@ models:
 
 `thinking_budget` must be ≥ 1024 and less than `max_tokens`. Values outside this range are logged as a warning and ignored.
 
+### Adaptive thinking (Opus 4.6+)
+
+Newer Claude Opus models (4.6, 4.7, 4.8) **reject token-based thinking** — Bedrock returns a `ValidationException` asking for `thinking.type=adaptive`. For these models, use adaptive thinking:
+
+```yaml
+models:
+  bedrock-opus-adaptive:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-opus-4-8
+    thinking_budget: adaptive/high   # adaptive | adaptive/low | adaptive/medium | adaptive/high | adaptive/xhigh | adaptive/max
+    provider_opts:
+      region: us-east-1
+```
+
+docker-agent recognizes these models (including Bedrock-style IDs) and transparently coerces a configured token budget or effort level to adaptive thinking, logging a warning — so `thinking_budget: 32768` on Opus 4.8 won't fail, but `adaptive` or `adaptive/<effort>` is the recommended configuration. On older models that still use token-based thinking (e.g. Sonnet 4.5), `adaptive` is forwarded as-is and rejected by Bedrock — use a token count or effort level there instead.
+
 <div class="callout callout-info" markdown="1">
 <div class="callout-title">Temperature and top_p
 </div>

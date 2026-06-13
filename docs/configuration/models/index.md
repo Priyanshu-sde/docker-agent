@@ -138,12 +138,12 @@ models:
   gpt:
     provider: openai
     model: gpt-5
-    thinking_budget: low # minimal | low | medium | high | xhigh | max | adaptive/<level>
+    thinking_budget: low # minimal | low | medium | high | xhigh
 ```
 
 ### Anthropic
 
-Uses an integer token budget (1024–32768):
+Uses an integer token budget (1024–32768), or — on adaptive-capable models (Opus 4.6+) — `adaptive`, `adaptive/<effort>`, or a bare effort level:
 
 ```yaml
 models:
@@ -151,6 +151,11 @@ models:
     provider: anthropic
     model: claude-sonnet-4-5
     thinking_budget: 16384 # must be < max_tokens
+
+  opus:
+    provider: anthropic
+    model: claude-opus-4-6
+    thinking_budget: adaptive # or adaptive/<effort>, or low | medium | high | xhigh | max
 ```
 
 ### Google Gemini 2.5
@@ -161,7 +166,7 @@ Uses an integer token budget. `0` disables, `-1` lets the model decide:
 models:
   gemini:
     provider: google
-    model: gemini-3.5-flash
+    model: gemini-2.5-flash
     thinking_budget: -1 # dynamic (default)
 ```
 
@@ -174,7 +179,7 @@ models:
   gemini3:
     provider: google
     model: gemini-3-flash
-    thinking_budget: medium # minimal | low | medium | high | xhigh | max | adaptive/<level>
+    thinking_budget: medium # minimal | low | medium | high
 ```
 
 ### Disabling Thinking
@@ -184,6 +189,10 @@ Works for all providers:
 ```yaml
 thinking_budget: none # or 0
 ```
+
+Models that always reason (OpenAI o-series, gpt-5, Gemini 3) fall back to the API default and still reason internally.
+
+See the [Thinking / Reasoning guide]({{ '/guides/thinking/' | relative_url }}) for per-provider details, including AWS Bedrock and Docker Model Runner.
 
 ## Task Budget
 
@@ -369,7 +378,7 @@ providers:
     provider: anthropic
     token_key: MY_ANTHROPIC_KEY
     max_tokens: 16384
-    thinking_budget: high
+    thinking_budget: 8192
     temperature: 0.5
 
 models:
@@ -381,7 +390,7 @@ models:
   claude_fast:
     provider: my_anthropic
     model: claude-haiku-4-5
-    thinking_budget: low  # Overrides provider default
+    thinking_budget: 1024  # Overrides provider default
 ```
 
 See [Provider Definitions]({{ '/providers/custom/' | relative_url }}) for the full list of inheritable properties.

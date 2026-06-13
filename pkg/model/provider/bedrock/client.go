@@ -17,11 +17,13 @@ import (
 
 	"github.com/docker/docker-agent/pkg/chat"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider/base"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
 	"github.com/docker/docker-agent/pkg/model/provider/providerutil"
+	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/tools"
 )
@@ -323,6 +325,9 @@ func (c *Client) isThinkingEnabled() bool {
 	if c.ModelConfig.ThinkingBudget == nil {
 		return false
 	}
+	if _, ok := c.adaptiveThinkingEffort(); ok {
+		return true
+	}
 	tokens := c.ModelConfig.ThinkingBudget.Tokens
 	if t, ok := c.ModelConfig.ThinkingBudget.EffortTokens(); ok {
 		tokens = t
@@ -334,6 +339,36 @@ func (c *Client) isThinkingEnabled() bool {
 		return false
 	}
 	return true
+}
+
+// adaptiveThinkingEffort returns the `output_config.effort` value when the
+// request must use adaptive thinking (`thinking.type=adaptive`) instead of a
+// token budget. This happens when the user explicitly configured "adaptive"
+// (or "adaptive/<effort>"), or when the model rejects token-based thinking
+// (Claude Opus 4.6+) and the configured effort level or token budget is
+// transparently coerced.
+//
+// It has no side effects so it can be shared by isThinkingEnabled and
+// buildAdditionalModelRequestFields.
+func (c *Client) adaptiveThinkingEffort() (string, bool) {
+	budget := c.ModelConfig.ThinkingBudget
+	if budget == nil || budget.IsDisabled() {
+		return "", false
+	}
+	if e, ok := budget.AdaptiveEffort(); ok {
+		return e, true
+	}
+	if !modelinfo.RejectsTokenThinking(c.ModelConfig.Model) {
+		return "", false
+	}
+	if l, ok := budget.EffortLevel(); ok {
+		return effort.ForAnthropic(l)
+	}
+	if budget.Tokens > 0 {
+		// Coerced token budget: adaptive's default effort.
+		return "high", true
+	}
+	return "", false
 }
 
 func (c *Client) promptCachingEnabled() bool {
@@ -356,36 +391,57 @@ func (c *Client) buildAdditionalModelRequestFields() document.Interface {
 
 	// Configure thinking budget if present and valid
 	if budget := c.ModelConfig.ThinkingBudget; budget != nil {
-		tokens := budget.Tokens
-		if t, ok := budget.EffortTokens(); ok {
-			tokens = t
-		}
-
-		valid := tokens > 0
-		if valid && tokens < 1024 {
-			slog.Warn("Bedrock thinking_budget below minimum (1024), ignoring", "tokens", tokens)
-			valid = false
-		}
-		if valid && c.ModelConfig.MaxTokens != nil && tokens >= int(*c.ModelConfig.MaxTokens) {
-			slog.Warn("Bedrock thinking_budget must be less than max_tokens, ignoring",
-				"thinking_budget", tokens,
-				"max_tokens", *c.ModelConfig.MaxTokens)
-			valid = false
-		}
-
-		if valid {
-			slog.Debug("Bedrock request using thinking_budget", "budget_tokens", tokens)
-			fields["thinking"] = map[string]any{
-				"type":          "enabled",
-				"budget_tokens": tokens,
+		if effortStr, ok := c.adaptiveThinkingEffort(); ok {
+			switch {
+			case budget.Tokens > 0:
+				slog.Warn("Bedrock: model rejects token-based thinking budgets; switching to adaptive thinking",
+					"model", c.ModelConfig.Model,
+					"thinking_budget_tokens", budget.Tokens,
+					"effort", effortStr)
+			case !budget.IsAdaptive():
+				slog.Debug("Bedrock: model rejects token-based thinking; mapping effort level to adaptive thinking",
+					"model", c.ModelConfig.Model,
+					"thinking_budget", budget.Effort,
+					"effort", effortStr)
+			case !modelinfo.RejectsTokenThinking(c.ModelConfig.Model):
+				slog.Warn("Bedrock: adaptive thinking is only supported by Claude Opus 4.6+; the request may be rejected",
+					"model", c.ModelConfig.Model)
+			}
+			slog.Debug("Bedrock request using adaptive thinking", "effort", effortStr)
+			fields["thinking"] = map[string]any{"type": "adaptive"}
+			fields["output_config"] = map[string]any{"effort": effortStr}
+		} else {
+			tokens := budget.Tokens
+			if t, ok := budget.EffortTokens(); ok {
+				tokens = t
 			}
 
-			if c.interleavedThinkingEnabled() {
-				fields["anthropic_beta"] = []string{"interleaved-thinking-2025-05-14"}
-				slog.Debug("Bedrock request using interleaved thinking beta")
-			} else {
-				slog.Warn("Bedrock thinking_budget is set but interleaved_thinking is explicitly disabled; " +
-					"the anthropic_beta header will not be sent, which may cause the thinking budget to be ignored")
+			valid := tokens > 0
+			if valid && tokens < 1024 {
+				slog.Warn("Bedrock thinking_budget below minimum (1024), ignoring", "tokens", tokens)
+				valid = false
+			}
+			if valid && c.ModelConfig.MaxTokens != nil && tokens >= int(*c.ModelConfig.MaxTokens) {
+				slog.Warn("Bedrock thinking_budget must be less than max_tokens, ignoring",
+					"thinking_budget", tokens,
+					"max_tokens", *c.ModelConfig.MaxTokens)
+				valid = false
+			}
+
+			if valid {
+				slog.Debug("Bedrock request using thinking_budget", "budget_tokens", tokens)
+				fields["thinking"] = map[string]any{
+					"type":          "enabled",
+					"budget_tokens": tokens,
+				}
+
+				if c.interleavedThinkingEnabled() {
+					fields["anthropic_beta"] = []string{"interleaved-thinking-2025-05-14"}
+					slog.Debug("Bedrock request using interleaved thinking beta")
+				} else {
+					slog.Warn("Bedrock thinking_budget is set but interleaved_thinking is explicitly disabled; " +
+						"the anthropic_beta header will not be sent, which may cause the thinking budget to be ignored")
+				}
 			}
 		}
 	}

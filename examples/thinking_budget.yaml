@@ -17,7 +17,7 @@ models:
   gpt-5-mini-min:
     provider: openai
     model: gpt-5-mini
-    thinking_budget: minimal # <- openai supports "minimal", "low", "medium", "high"
+    thinking_budget: minimal # <- openai supports "minimal", "low", "medium", "high", "xhigh"
 
   gpt-5-mini-high:
     provider: openai
@@ -44,7 +44,7 @@ models:
   claude-opus-4-6-low:
     provider: anthropic
     model: claude-opus-4-6
-    thinking_budget: low # <- adaptive thinking with low effort: "low", "medium", "high", "max"
+    thinking_budget: low # <- adaptive thinking with low effort: "low", "medium", "high", "xhigh", "max" (same as adaptive/<effort>)
 
   claude-opus-4-7-summarized:
     provider: anthropic
@@ -72,3 +72,8 @@ models:
     provider: google
     model: gemini-2.5-flash
     thinking_budget: 24576 # <- google's maximum thinking budget for all models except Gemini 2.5 Pro (max 32768)
+
+  bedrock-opus-4-8-adaptive:
+    provider: amazon-bedrock
+    model: global.anthropic.claude-opus-4-8
+    thinking_budget: adaptive/high # <- Opus 4.6+ reject token budgets on Bedrock too; token values are auto-converted to adaptive

@@ -63,32 +63,20 @@ models:
 
 | Level     | Description                                              |
 | --------- | -------------------------------------------------------- |
-| `none`    | Disable thinking (a minimum output floor still applies). |
+| `none`    | Don't request extra reasoning (alias for `0`); the API's own default still applies. |
 | `minimal` | Fastest; lightest reasoning pass.                        |
 | `low`     | Quick reasoning for straightforward tasks.               |
 | `medium`  | Balanced default.                                        |
 | `high`    | More thorough; recommended for complex tasks.            |
 | `xhigh`   | Near-maximum effort; slower but most accurate.           |
 
+These are the **only** values OpenAI accepts — token counts, `max`, `adaptive`, and `adaptive/<effort>` are rejected with a configuration error at request time. Older models (o1, o3-mini) only accept `low`/`medium`/`high`.
+
 <div class="callout callout-warning" markdown="1">
 <div class="callout-title">Hidden reasoning tokens
 </div>
-  <p>OpenAI reasoning models always produce hidden reasoning tokens that count against <code>max_tokens</code> — even with <code>thinking_budget: none</code>. docker-agent automatically raises the output-token floor so reasoning cannot starve visible text output.</p>
+  <p>OpenAI reasoning models always produce hidden reasoning tokens that count against <code>max_tokens</code> — even with <code>thinking_budget: none</code>. docker-agent automatically raises the output-token floor for its internal low-effort calls so reasoning cannot starve visible text output.</p>
 </div>
-
-### Adaptive Thinking
-
-Use `adaptive/<level>` to let the model scale effort dynamically based on task complexity:
-
-```yaml
-models:
-  gpt-adaptive:
-    provider: openai
-    model: gpt-5-mini
-    thinking_budget: adaptive/medium   # adaptive/low | adaptive/medium | adaptive/high | adaptive/xhigh | adaptive/max
-```
-
-> `max` is only valid inside the `adaptive/` prefix — `thinking_budget: max` (bare) is not accepted by OpenAI.
 
 See the [Thinking / Reasoning guide]({{ '/guides/thinking/' | relative_url }}) for a cross-provider overview.
 

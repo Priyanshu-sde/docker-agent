@@ -53,18 +53,18 @@ providers:
     provider: anthropic
     token_key: MY_ANTHROPIC_KEY
     max_tokens: 16384
-    thinking_budget: high
+    thinking_budget: 8192
 
 models:
   claude_smart:
     provider: my_anthropic
     model: claude-sonnet-4-5
-    # Inherits max_tokens: 16384, thinking_budget: high
+    # Inherits max_tokens: 16384, thinking_budget: 8192
 
   claude_fast:
     provider: my_anthropic
     model: claude-haiku-4-5
-    thinking_budget: low  # Overrides provider default
+    thinking_budget: 1024  # Overrides provider default
 
 agents:
   root:

@@ -412,7 +412,7 @@ providers:
     provider: anthropic
     token_key: TEAM_ANTHROPIC_KEY
     max_tokens: 32768
-    thinking_budget: high
+    thinking_budget: 16384
 
 models:
   azure_gpt:
