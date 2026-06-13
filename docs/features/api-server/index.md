@@ -44,6 +44,9 @@ All endpoints are under the `/api` prefix.
 | `GET`    | `/api/sessions`                     | List all sessions                                       |
 | `POST`   | `/api/sessions`                     | Create a new session                                    |
 | `GET`    | `/api/sessions/:id`                 | Get a session by ID (messages, tokens, permissions)     |
+| `GET`    | `/api/sessions/:id/status`          | Lightweight runtime state (streaming, title, agent, tokens). Requires an attached runtime. |
+| `GET`    | `/api/sessions/:id/snapshot`        | Full state in one call (stored fields + runtime state + `last_event_seq`) for gapless resync — see [Reconnecting without gaps](#reconnecting-without-gaps). |
+| `GET`    | `/api/sessions/:id/events`          | Live session event stream (SSE) with sequence numbers and replay. Available for a run attached via [`--listen`](#listen). |
 | `DELETE` | `/api/sessions/:id`                 | Delete a session                                        |
 | `PATCH`  | `/api/sessions/:id/title`           | Update session title                                    |
 | `PATCH`  | `/api/sessions/:id/permissions`     | Update session permissions                              |
@@ -51,7 +54,7 @@ All endpoints are under the `/api` prefix.
 | `POST`   | `/api/sessions/:id/tools/toggle`    | Toggle auto-approve (YOLO) mode                         |
 | `POST`   | `/api/sessions/:id/elicitation`     | Respond to an MCP tool elicitation request              |
 | `POST`   | `/api/sessions/:id/steer`           | Inject messages into a running turn (pre-empts current) |
-| `POST`   | `/api/sessions/:id/followup`        | Enqueue messages to run after the current turn finishes |
+| `POST`   | `/api/sessions/:id/followup`        | Enqueue messages to run after the current turn finishes (supports an `Idempotency-Key` — see [Idempotent follow-ups](#idempotent-follow-ups)). |
 | `GET`    | `/api/sessions/:id/models`          | List available models for the session's current agent   |
 
 ### Agent Execution
@@ -200,6 +203,115 @@ By default, tool calls require approval. In the API workflow:
 3. Execution continues based on approval/denial
 
 Toggle auto-approve with `POST /api/sessions/:id/tools/toggle` for automated workflows.
+
+## Driving a running TUI with `--listen` {#listen}
+
+The same session API can be exposed by an **interactive run** so an external
+process can drive it — send follow-up prompts, observe progress, read the
+title — without scraping the terminal. Start a normal run and add `--listen`:
+
+```bash
+# Expose this run's control plane on a TCP port...
+$ docker agent run agent.yaml --listen 127.0.0.1:8080
+
+# ...or on a unix socket (no port to allocate; access is gated by file
+# permissions). npipe:// (Windows) and fd:// are also accepted.
+$ docker agent run agent.yaml --listen unix:///tmp/my-run.sock
+```
+
+The run keeps its interactive TUI; the control plane runs alongside it. A
+follow-up delivered over HTTP is processed exactly as if it had been typed
+into the TUI: it starts a turn even when the agent is idle, generates the
+session title on the first turn, and streams the resulting events to both the
+terminal and every connected API client.
+
+```bash
+# Send a follow-up to the attached run (SID is the --session id):
+$ curl -X POST http://127.0.0.1:8080/api/sessions/$SID/followup \
+    -H 'Content-Type: application/json' \
+    -d '{"messages":[{"content":"Now add tests"}]}'
+```
+
+<div class="callout callout-info" markdown="1">
+<div class="callout-title">Discovering a run
+</div>
+  <p>Each run started with <code>--listen</code> writes a discovery record to <code>&lt;data-dir&gt;/runs/&lt;pid&gt;.json</code> containing its address and session id, so a supervising process can find a live run by session id, pid, or address.</p>
+</div>
+
+## Session event stream and reconnection
+
+`GET /api/sessions/:id/events` is a **Server-Sent Events** stream of the
+session's runtime events — `stream_started`, `agent_choice`, `tool_call`,
+`session_title`, `token_usage`, `stream_stopped`, and so on. Unlike the
+per-request stream returned by the agent-execution endpoint, it is
+session-scoped and survives across turns, so a client can watch a session for
+its whole lifetime. It is available for a run attached via
+[`--listen`](#listen).
+
+Each event carries a monotonic **sequence number** in the SSE `id:` field, and
+the server buffers recent events. This makes the stream resumable:
+
+- **Resume after a drop** — reconnect with the standard `Last-Event-ID` header
+  (sent automatically by browser `EventSource` clients) or a `?since=<seq>`
+  query parameter. Buffered events newer than that point are replayed before
+  live tailing resumes, so nothing is missed.
+- **Gap signal** — if the resume point has already fallen out of the buffer, the
+  server sends a single `{"type":"gap"}` event (with no id) before the replay.
+  The client should re-fetch the snapshot to resync, then continue tailing.
+- **End of session** — when the session is ended server-side (for example via
+  `DELETE /api/sessions/:id`) the server sends a terminal
+  `{"type":"session_exited"}` event and closes the stream; a client that
+  receives it should stop. A stream that closes **without** `session_exited` is
+  a dropped connection — including the run process itself exiting — so reconnect
+  with the last id; if the run is gone the reconnection simply fails.
+
+### Reconnecting without gaps
+
+`GET /api/sessions/:id/snapshot` returns the session's full state in one
+response — stored fields (messages, tokens, permissions), live runtime state
+(`streaming`, current `agent`), and `last_event_seq`: the sequence number of
+the most recent event. Pair it with the event stream for an exact, gapless
+resync:
+
+```bash
+# 1. Read the full state and the stream position it corresponds to.
+$ SEQ=$(curl -s http://127.0.0.1:8080/api/sessions/$SID/snapshot | jq .last_event_seq)
+
+# 2. Tail everything that happens after that point (replaying anything that
+#    occurred between the two calls).
+$ curl -N "http://127.0.0.1:8080/api/sessions/$SID/events?since=$SEQ"
+```
+
+This snapshot-then-tail pattern lets a client (or a client that just
+restarted) rebuild a session's state and keep it correct without polling.
+
+### Waiting for readiness
+
+`GET /api/sessions/:id/status` reports a session's runtime state. Add
+`?wait=<duration>` (e.g. `?wait=10s`) to block until that specific session's
+runtime is attached and ready to accept follow-ups, then return its status, or
+`503` on timeout. This is session-scoped, unlike `GET /api/ready`, which fires
+as soon as any session is ready.
+
+## Idempotent follow-ups
+
+`POST /api/sessions/:id/followup` accepts an optional `Idempotency-Key`
+header, making the request safe to retry after a network timeout. A repeat
+with a key already seen for the session is acknowledged without delivering the
+follow-up again:
+
+```bash
+$ curl -X POST http://127.0.0.1:8080/api/sessions/$SID/followup \
+    -H 'Content-Type: application/json' \
+    -H 'Idempotency-Key: 7f3a-...' \
+    -d '{"messages":[{"content":"Ship it"}]}'
+# => {"status":"queued_streaming","duplicate":false}
+# A retry with the same key => {"status":"duplicate","duplicate":true}
+```
+
+The response `status` is `queued_streaming` (a turn is running or starting),
+`queued_idle` (delivered to an idle headless session, runs on the next turn),
+or `duplicate`.
 
 <div class="callout callout-info" markdown="1">
 <div class="callout-title">See also
