@@ -522,6 +522,12 @@ func (s *Server) steerSession(c echo.Context) error {
 // replayed before live tailing resumes. If the resume point has already been
 // evicted from the buffer, a {"type":"gap"} event is sent first so the client
 // knows to re-snapshot (GET /api/sessions/:id/snapshot) before continuing.
+//
+// End-of-session contract: when the session ends (the agent process exits or
+// the session is deleted) a terminal {"type":"session_exited"} event is sent
+// and the stream closes. A client that receives session_exited should stop. A
+// stream that closes WITHOUT a session_exited event indicates a transport
+// drop; the client should reconnect with its last id to replay and continue.
 func (s *Server) sessionEvents(c echo.Context) error {
 	if !s.sm.HasEventSource(c.Param("id")) {
 		return echo.NewHTTPError(http.StatusNotFound, "no event source for session")

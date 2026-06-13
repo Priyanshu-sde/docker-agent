@@ -179,15 +179,21 @@ func TestEventLog_RegistrationIsGapless(t *testing.T) {
 	}
 }
 
-func TestEventLog_CloseEndsStream(t *testing.T) {
+func TestEventLog_CloseEmitsTerminalEventThenEndsStream(t *testing.T) {
 	t.Parallel()
 	log := newEventLog(8)
 
 	ctx := t.Context()
+	var mu sync.Mutex
+	var got []seqEvent
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		log.stream(ctx, nil, func(uint64, any) {})
+		log.stream(ctx, nil, func(seq uint64, event any) {
+			mu.Lock()
+			got = append(got, seqEvent{seq: seq, event: event})
+			mu.Unlock()
+		})
 	}()
 
 	// Let the subscriber register.
@@ -197,7 +203,7 @@ func TestEventLog_CloseEndsStream(t *testing.T) {
 		return len(log.listeners) == 1
 	})
 
-	log.close()
+	log.close("agent exited")
 
 	select {
 	case <-done:
@@ -205,9 +211,37 @@ func TestEventLog_CloseEndsStream(t *testing.T) {
 		t.Fatal("stream did not end after close")
 	}
 
+	// The client must have received a terminal session_exited event before
+	// the stream ended.
+	mu.Lock()
+	defer mu.Unlock()
+	require.NotEmpty(t, got)
+	last := got[len(got)-1]
+	exited, ok := last.event.(sessionExitedEvent)
+	require.True(t, ok, "last event must be session_exited, got %T", last.event)
+	assert.Equal(t, "agent exited", exited.Reason)
+	assert.Equal(t, uint64(1), last.seq, "terminal event carries a sequence number")
+
 	// Appending after close is a no-op and does not panic.
 	log.append("ignored")
-	assert.Equal(t, uint64(0), log.lastSeq())
+	assert.Equal(t, uint64(1), log.lastSeq())
+}
+
+// TestEventLog_LateSubscriberSeesTerminalEvent verifies a client connecting
+// after the session already ended still replays the session_exited marker.
+func TestEventLog_LateSubscriberSeesTerminalEvent(t *testing.T) {
+	t.Parallel()
+	log := newEventLog(8)
+	log.append("a")
+	log.close("done")
+
+	stop, got := collect(t, log, nil)
+	defer stop()
+
+	waitFor(t, func() bool { return len(got()) == 2 })
+	evs := got()
+	_, ok := evs[len(evs)-1].event.(sessionExitedEvent)
+	assert.True(t, ok, "late subscriber must replay the terminal session_exited")
 }
 
 func TestEventLog_SlowSubscriberIsDropped(t *testing.T) {

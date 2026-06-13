@@ -137,7 +137,7 @@ func (sm *SessionManager) RegisterEventSource(sessionID string, src EventSource)
 	sm.eventLogs.Store(sessionID, &pumpedEventLog{log: log, cancel: cancel})
 
 	go func() {
-		defer log.close()
+		defer log.close("session ended")
 		src(pumpCtx, log.append)
 	}()
 }

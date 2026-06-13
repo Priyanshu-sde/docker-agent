@@ -25,6 +25,20 @@ type gapEvent struct {
 	Type string `json:"type"` // always "gap"
 }
 
+// sessionExitedEvent is the terminal event appended to the log when the
+// session's event source ends (the agent process exited or the session was
+// deleted). It is part of the sequenced stream — it has a sequence number and
+// is replayed — so a client can rely on it to tell apart two cases:
+//
+//   - it received session_exited: the session is gone for good; stop.
+//   - the SSE connection closed WITHOUT session_exited: a transport drop or a
+//     slow-client disconnect; reconnect with the last id (Last-Event-ID) to
+//     replay and continue.
+type sessionExitedEvent struct {
+	Type   string `json:"type"` // always "session_exited"
+	Reason string `json:"reason,omitempty"`
+}
+
 // eventLog buffers a session's events with monotonic sequence numbers and
 // fans them out to live subscribers. A late or reconnecting subscriber can
 // replay everything after a sequence number it already saw and then tail new
@@ -69,7 +83,12 @@ func (l *eventLog) append(event any) {
 	if l.closed {
 		return
 	}
+	l.appendLocked(event)
+}
 
+// appendLocked is append's body; the caller must hold l.mu and must have
+// checked that the log is not closed.
+func (l *eventLog) appendLocked(event any) {
 	l.seq++
 	ev := seqEvent{seq: l.seq, event: event}
 
@@ -91,14 +110,17 @@ func (l *eventLog) append(event any) {
 	}
 }
 
-// close marks the log closed and disconnects every live listener. Events
-// appended before close remain buffered for replay until the log is dropped.
-func (l *eventLog) close() {
+// close appends a terminal session_exited event (so connected and replaying
+// clients get a definitive end-of-session marker) and then disconnects every
+// live listener. Buffered events, including session_exited, remain available
+// for replay until the log is dropped. close is idempotent.
+func (l *eventLog) close(reason string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.closed {
 		return
 	}
+	l.appendLocked(sessionExitedEvent{Type: "session_exited", Reason: reason})
 	l.closed = true
 	for ln := range l.listeners {
 		close(ln.ch)

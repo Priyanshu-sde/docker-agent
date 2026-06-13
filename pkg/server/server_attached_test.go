@@ -527,3 +527,46 @@ func TestAttachedServer_SnapshotReturnsStateAndLastEventSeq(t *testing.T) {
 	assert.Equal(t, []string{"3"}, ids)
 	assert.Equal(t, []string{"three"}, types)
 }
+
+// TestAttachedServer_DeleteEmitsSessionExited verifies that deleting a session
+// delivers a terminal session_exited event to a connected /events client
+// before the stream closes.
+func TestAttachedServer_DeleteEmitsSessionExited(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	store := session.NewInMemorySessionStore()
+	sess := session.New()
+	require.NoError(t, store.AddSession(ctx, sess))
+
+	sm := NewSessionManager(ctx, config.Sources{}, store, 0, &config.RuntimeConfig{})
+	sm.AttachRuntime(sess.ID, &fakeRuntime{}, sess)
+	sm.RegisterEventSource(sess.ID, func(ctx context.Context, _ func(any)) {
+		<-ctx.Done()
+	})
+
+	srv := NewWithManager(sm, "")
+	ln, err := Listen(ctx, "127.0.0.1:0")
+	require.NoError(t, err)
+	go func() { _ = srv.Serve(ctx, ln) }()
+	addr := "http://" + ln.Addr().String()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, addr+"/api/sessions/"+sess.ID+"/events", http.NoBody)
+	require.NoError(t, err)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+
+	// Give the SSE handler a moment to register, then delete the session.
+	require.Eventually(t, func() bool {
+		return sm.HasEventSource(sess.ID)
+	}, 2*time.Second, time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
+	require.NoError(t, sm.DeleteSession(ctx, sess.ID))
+
+	// The client must receive a terminal session_exited event.
+	_, types := readSSE(t, resp.Body, 1)
+	assert.Equal(t, []string{"session_exited"}, types)
+}
