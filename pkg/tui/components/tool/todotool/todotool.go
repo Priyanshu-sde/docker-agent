@@ -13,7 +13,7 @@ func renderTodoIcon(status string) (string, lipgloss.Style) {
 	case "in-progress":
 		return "◔", styles.InProgressStyle
 	case "completed":
-		return "✓", styles.CompletedStyle.Strikethrough(true)
+		return "✓", styles.CompletedStyle
 	default:
 		return "?", styles.ToBeDoneStyle
 	}
