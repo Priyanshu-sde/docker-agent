@@ -104,6 +104,13 @@ func (r *LocalRuntime) dispatchHook(
 		return nil
 	}
 
+	// Auto-fill AgentName for events whose Input builder omits it (tool
+	// events via toolexec.NewHooksInput), mirroring Cwd auto-fill in
+	// Executor.Dispatch. Caller-set values win.
+	if input != nil && input.AgentName == "" {
+		input.AgentName = a.Name()
+	}
+
 	started := time.Now()
 	if events != nil {
 		events.Emit(HookStarted(event, input.SessionID, a.Name()))

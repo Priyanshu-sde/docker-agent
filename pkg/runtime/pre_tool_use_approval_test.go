@@ -260,3 +260,41 @@ func TestPreToolUseHook_PermissionsAllowShortCircuitsHook(t *testing.T) {
 	assert.True(t, *executed,
 		"deterministic Allow must short-circuit the hook (cost / latency win)")
 }
+
+// TestPreToolUseHook_ReceivesAgentName verifies dispatchHook auto-fills
+// Input.AgentName for tool events, whose toolexec.NewHooksInput builder
+// can't set it — matching every other event type.
+func TestPreToolUseHook_ReceivesAgentName(t *testing.T) {
+	t.Parallel()
+
+	executed := new(bool)
+	agentTools := recordingTool("the_tool", executed)
+	hookName := "test_agentname_" + t.Name()
+
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	root := agent.New("root", "instr",
+		agent.WithModel(prov),
+		agent.WithToolSets(newStubToolSet(nil, agentTools, nil)),
+		agent.WithHooks(preToolUseHooksConfig(hookName)),
+	)
+	rt, err := NewLocalRuntime(team.New(team.WithAgents(root)),
+		WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	var gotAgentName string
+	require.NoError(t, rt.hooksRegistry.RegisterBuiltin(hookName, func(_ context.Context, in *hooks.Input, _ []string) (*hooks.Output, error) {
+		if in != nil && in.HookEventName == hooks.EventPreToolUse {
+			gotAgentName = in.AgentName
+		}
+		return &hooks.Output{HookSpecificOutput: &hooks.HookSpecificOutput{
+			HookEventName:      hooks.EventPreToolUse,
+			PermissionDecision: hooks.DecisionAllow,
+		}}, nil
+	}))
+
+	sess := session.New(session.WithUserMessage("test"))
+	_ = runJudgedToolCall(t, rt, sess, agentTools)
+
+	assert.Equal(t, "root", gotAgentName,
+		"pre_tool_use hook Input must carry the dispatching agent's name")
+}
