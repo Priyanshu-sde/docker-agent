@@ -156,6 +156,7 @@ type model struct {
 	cachedWidth          int      // Width used for cached render
 	cachedNeedsScrollbar bool     // Whether scrollbar is needed for cached render
 	cacheDirty           bool     // True when cache needs rebuild
+	layoutDirty          bool     // True when a change may alter line count/scrollbar visibility (not just an animation frame)
 
 	// Agent click zones: maps content line index to agent name for click detection
 	agentClickZones map[int]string // content line -> agent name
@@ -189,6 +190,7 @@ func New(sessionState *service.SessionState) Model {
 		preferredWidth:   DefaultWidth,
 		titleInput:       ti,
 		cacheDirty:       true, // Initial render needed
+		layoutDirty:      true, // First render must probe scrollbar visibility
 	}
 	return m
 }
@@ -225,8 +227,20 @@ func (m *model) stopSpinner() {
 	m.spinner.Stop()
 }
 
-// invalidateCache marks the sidebar render cache as dirty so it will be rebuilt on the next View().
+// invalidateCache marks the sidebar render cache as dirty so it will be rebuilt
+// on the next View(). Use this for changes that may alter the rendered content
+// AND its line layout (todos, sizing, agents, theme, …): the next View()
+// re-probes scrollbar visibility via the two-pass render.
 func (m *model) invalidateCache() {
+	m.cacheDirty = true
+	m.layoutDirty = true
+}
+
+// invalidateAnimation marks the cache dirty for an animation-only change, i.e. a
+// spinner advancing one frame. Spinner glyphs are fixed (single-cell) width, so
+// the line count and scrollbar visibility cannot change; the next View() can
+// therefore skip the scrollbar-probe pass and render the sections only once.
+func (m *model) invalidateAnimation() {
 	m.cacheDirty = true
 }
 
@@ -828,9 +842,10 @@ func (m *model) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			needsInvalidate = true
 		}
 
-		// Invalidate cache when spinners update to show new animation frames
+		// Invalidate cache when spinners update to show new animation frames.
+		// This is animation-only (fixed-width glyph swap), so the cheaper path is used.
 		if needsInvalidate {
-			m.invalidateCache()
+			m.invalidateAnimation()
 		}
 
 		return m, tea.Batch(cmds...)
@@ -927,6 +942,19 @@ func (m *model) verticalView() string {
 		return m.renderFromCache()
 	}
 
+	// Animation-only fast path: when only a spinner frame changed, the line count
+	// and scrollbar visibility are unchanged, so reuse the cached scrollbar
+	// decision and render the sections a single time instead of the two-pass probe.
+	if !m.layoutDirty && len(m.cachedLines) > 0 && m.cachedWidth == contentWidthNoScroll {
+		width := contentWidthNoScroll
+		if m.cachedNeedsScrollbar {
+			width = m.contentWidth(true)
+		}
+		m.cachedLines = m.renderSections(width)
+		m.cacheDirty = false
+		return m.renderFromCache()
+	}
+
 	// Two-pass rendering: first check if scrollbar is needed
 	// Pass 1: render without scrollbar to count lines
 	lines := m.renderSections(contentWidthNoScroll)
@@ -944,6 +972,7 @@ func (m *model) verticalView() string {
 	m.cachedWidth = contentWidthNoScroll
 	m.cachedNeedsScrollbar = needsScrollbar
 	m.cacheDirty = false
+	m.layoutDirty = false
 
 	return m.renderFromCache()
 }
