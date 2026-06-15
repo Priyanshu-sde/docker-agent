@@ -227,6 +227,22 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 	// parent's channel.
 	prevElicitationCh := r.elicitation.swap(events)
 
+	// streamReason records the exit reason from the final turn so
+	// finalizeEventChannel can surface it in the StreamStoppedEvent.
+	// It is updated by each turn via runTurn (passed by pointer).
+	//
+	// Register the cleanup defer immediately after the swap so every exit
+	// path finalizes, including the early returns below (tool setup
+	// failure, a user_prompt_submit hook signalling termination). Without
+	// this, those early returns leak the events channel: observe's
+	// forwarder goroutine never exits, a `for range RunStream(...)`
+	// consumer hangs forever, and the elicitation bridge is left pointing
+	// at this dead stream's channel.
+	var streamReason string
+	defer func() {
+		r.finalizeEventChannel(ctx, sess, streamReason, prevElicitationCh, events)
+	}()
+
 	a := r.resolveSessionAgent(sess)
 
 	// session_start fires once per RunStream. Its AdditionalContext
@@ -280,14 +296,6 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 	}
 
 	sink.Emit(StreamStarted(sess.ID, a.Name()))
-
-	// streamReason records the exit reason from the final turn so
-	// finalizeEventChannel can surface it in the StreamStoppedEvent.
-	// It is updated by each turn via runTurn (passed by pointer).
-	var streamReason string
-	defer func() {
-		r.finalizeEventChannel(ctx, sess, streamReason, prevElicitationCh, events)
-	}()
 
 	if a.HasHarness() {
 		streamReason = r.runHarnessAgent(ctx, sess, a, slices.Concat(ls.sessionStartMsgs, ls.userPromptMsgs), sink)

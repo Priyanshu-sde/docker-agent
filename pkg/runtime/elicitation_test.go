@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -9,6 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/agent"
+	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/hooks"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/team"
 )
@@ -231,6 +234,72 @@ func TestLocalRuntime_FinalizeEventChannelDoesNotDeadlockWhenBufferFullAndConsum
 		}
 	}
 	assert.Zero(t, stopped, "StreamStopped should be dropped instead of blocking when the buffer is full")
+}
+
+// TestRunStreamClosesChannelAndRestoresElicitationOnEarlyReturn is the
+// regression test for issue #3073: runStreamLoop swapped this stream's
+// events channel into the elicitation bridge before registering the
+// finalize defer, so the early-return paths (tool setup failure, a
+// user_prompt_submit hook signalling termination) exited without closing
+// the events channel or restoring the bridge. A `for range RunStream(...)`
+// consumer then hung forever and the bridge kept pointing at the dead
+// stream's channel.
+//
+// We drive the reachable early return — a user_prompt_submit hook that
+// stops the run — and assert the consumer's range terminates and the
+// previously-swapped elicitation channel is restored.
+func TestRunStreamClosesChannelAndRestoresElicitationOnEarlyReturn(t *testing.T) {
+	t.Parallel()
+
+	const hookName = "test-stop-user-prompt-submit"
+	dontContinue := false
+
+	root := agent.New("root", "test agent",
+		agent.WithModel(&mockProvider{id: "test/mock-model"}),
+		agent.WithHooks(&latest.HooksConfig{
+			UserPromptSubmit: []latest.HookDefinition{
+				{Type: "builtin", Command: hookName},
+			},
+		}),
+	)
+	rt, err := NewLocalRuntime(team.New(team.WithAgents(root)),
+		WithSessionCompaction(false),
+		WithModelStore(mockModelStore{}),
+	)
+	require.NoError(t, err)
+
+	require.NoError(t, rt.hooksRegistry.RegisterBuiltin(
+		hookName,
+		func(_ context.Context, _ *hooks.Input, _ []string) (*hooks.Output, error) {
+			return &hooks.Output{Continue: &dontContinue, StopReason: "stop the run"}, nil
+		},
+	))
+
+	// Seed a sentinel "parent" elicitation channel. After the stream tears
+	// down, the bridge must be restored to this channel — not left pointing
+	// at the stream's own (now closed) events channel.
+	parent := make(chan Event, 1)
+	rt.elicitation.swap(parent)
+
+	sess := session.New(session.WithUserMessage("hi"))
+	sess.Title = "Unit Test"
+
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for range rt.RunStream(t.Context(), sess) { //nolint:revive // draining the stream is the point
+		}
+	}()
+
+	select {
+	case <-drained:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunStream consumer hung: events channel was never closed on the hook-driven early return")
+	}
+
+	restored := rt.elicitation.swap(nil)
+	assert.Equal(t, parent, restored,
+		"the previous elicitation channel must be restored on the early-return path")
 }
 
 func newElicitationTestRuntime(t *testing.T) *LocalRuntime {
