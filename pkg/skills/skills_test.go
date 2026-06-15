@@ -579,6 +579,95 @@ description: A skill from repo root
 	assert.True(t, found, "Expected to find repo-skill from .agents/skills at git root")
 }
 
+func TestLoad_AgentsSkillsFromNonGitGroupingParent(t *testing.T) {
+	// Reproduces #3056: several independent repos grouped under a non-git
+	// parent, with a shared skill at the grouping root's .agents/skills. It
+	// must be discoverable from inside any sub-repo, not just from the
+	// grouping root itself.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	// Grouping root (~/org) is NOT a git repo and holds a cross-repo skill.
+	groupingSkillDir := filepath.Join(home, "org", ".agents", "skills", "services")
+	require.NoError(t, os.MkdirAll(groupingSkillDir, 0o755))
+	groupingContent := `---
+name: services
+description: Cross-repo helper skill
+---
+
+# Services
+`
+	require.NoError(t, os.WriteFile(filepath.Join(groupingSkillDir, "SKILL.md"), []byte(groupingContent), 0o644))
+
+	// An independent sub-repo where work actually happens.
+	repo := filepath.Join(home, "org", "docker-agent")
+	workdir := filepath.Join(repo, "pkg", "skills")
+	require.NoError(t, os.MkdirAll(workdir, 0o755))
+	require.NoError(t, os.Mkdir(filepath.Join(repo, ".git"), 0o755))
+	t.Chdir(workdir)
+
+	skills := Load([]string{"local"})
+
+	found := false
+	for _, s := range skills {
+		if s.Name == "services" {
+			found = true
+			assert.Equal(t, "Cross-repo helper skill", s.Description)
+			assert.Equal(t, filepath.Join(groupingSkillDir, "SKILL.md"), s.FilePath)
+			break
+		}
+	}
+	assert.True(t, found, "grouping-level skill must be discoverable from inside a sub-repo")
+}
+
+func TestLoad_AgentsSkillsPrecedence_GroupingOverridesGlobal(t *testing.T) {
+	// Same skill name in ~/.agents/skills (global) and in a non-git grouping
+	// parent. From inside a sub-repo the grouping version is closer to cwd and
+	// must win over the global one.
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	globalSkillDir := filepath.Join(home, ".agents", "skills", "shared-skill")
+	require.NoError(t, os.MkdirAll(globalSkillDir, 0o755))
+	globalContent := `---
+name: shared-skill
+description: Global version
+---
+
+# Global
+`
+	require.NoError(t, os.WriteFile(filepath.Join(globalSkillDir, "SKILL.md"), []byte(globalContent), 0o644))
+
+	groupingSkillDir := filepath.Join(home, "org", ".agents", "skills", "shared-skill")
+	require.NoError(t, os.MkdirAll(groupingSkillDir, 0o755))
+	groupingContent := `---
+name: shared-skill
+description: Grouping version
+---
+
+# Grouping
+`
+	require.NoError(t, os.WriteFile(filepath.Join(groupingSkillDir, "SKILL.md"), []byte(groupingContent), 0o644))
+
+	repo := filepath.Join(home, "org", "repo")
+	require.NoError(t, os.MkdirAll(repo, 0o755))
+	require.NoError(t, os.Mkdir(filepath.Join(repo, ".git"), 0o755))
+	t.Chdir(repo)
+
+	skills := Load([]string{"local"})
+
+	found := false
+	for _, s := range skills {
+		if s.Name == "shared-skill" {
+			found = true
+			assert.Equal(t, "Grouping version", s.Description)
+			assert.Equal(t, filepath.Join(groupingSkillDir, "SKILL.md"), s.FilePath)
+			break
+		}
+	}
+	assert.True(t, found, "grouping-parent skill must override the global one")
+}
+
 func TestLoad_AgentsSkillsPrecedence_ProjectOverridesGlobal(t *testing.T) {
 	// Create a temp home directory with a global skill
 	tmpHome := t.TempDir()
@@ -808,5 +897,28 @@ func TestProjectSearchDirs(t *testing.T) {
 
 		require.Len(t, dirs, 1)
 		assert.Equal(t, tmpRepo, dirs[0])
+	})
+
+	t.Run("under home walks past git root up to but not including home", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+
+		// A sub-repo (its own .git) inside a non-git grouping parent.
+		repo := filepath.Join(home, "org", "repo")
+		require.NoError(t, os.MkdirAll(filepath.Join(repo, ".git"), 0o755))
+		nested := filepath.Join(repo, "pkg", "skills")
+		require.NoError(t, os.MkdirAll(nested, 0o755))
+
+		dirs := projectSearchDirs(nested)
+
+		// The git boundary is ignored: every dir from the child of $HOME
+		// down to cwd is included, so the grouping parent (org) is reachable.
+		assert.Equal(t, []string{
+			filepath.Join(home, "org"),
+			repo,
+			filepath.Join(repo, "pkg"),
+			nested,
+		}, dirs)
+		assert.NotContains(t, dirs, home, "$HOME itself must be excluded")
 	})
 }

@@ -60,7 +60,8 @@ func (s Skill) IsFork() bool {
 //
 // Project locations (under cwd, closest wins):
 //   - .claude/skills/ (flat, only at cwd)
-//   - .agents/skills/ (flat, scanned from git root to cwd)
+//   - .agents/skills/ (flat, scanned from each ancestor up to $HOME — or the
+//     enclosing git root outside $HOME — down to cwd)
 //
 // The returned slice is sorted by skill name for deterministic ordering.
 func Load(sources []string) []Skill {

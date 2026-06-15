@@ -43,7 +43,8 @@ type localSearchPath struct {
 //
 //  1. Global directories (under $HOME).
 //  2. .claude/skills under cwd (Claude project format, flat).
-//  3. .agents/skills from the git root down to cwd (closest wins).
+//  3. .agents/skills in each ancestor of cwd up to $HOME — or the enclosing
+//     git root when cwd is outside $HOME — down to cwd (closest wins).
 func localSearchPaths() []localSearchPath {
 	if kit := os.Getenv(KitDirEnv); kit != "" {
 		return []localSearchPath{{filepath.Join(kit, KitSkillsSubdir), true}}
@@ -101,42 +102,62 @@ func homeSkillSearchPaths(home string) []localSearchPath {
 	}
 }
 
-// projectSearchDirs returns directories from the enclosing git root down to
-// cwd (inclusive), ordered from root to cwd. If cwd is not inside a git
-// repository, it returns just cwd.
+// projectSearchDirs returns the directories to scan for repo-local
+// .agents/skills, ordered from the topmost ancestor down to cwd (inclusive).
+// Ordering matters: later (deeper) entries override skills from parents, so a
+// project subdirectory can shadow a skill defined higher up.
 //
-// The ordering matters: later (deeper) entries override skills from parents,
-// so a project subdirectory can shadow a skill defined at the repo root.
+// When cwd is inside $HOME the walk climbs all the way up to (but not
+// including) $HOME. This makes a .agents/skills placed in a non-git "grouping"
+// directory — e.g. ~/work/org holding several independent repos — reachable
+// from inside any sub-repo, instead of being hidden by the sub-repo's own
+// .git. $HOME itself is excluded because ~/.agents/skills is already scanned
+// as a global path.
+//
+// When cwd is outside $HOME (or is $HOME itself) the walk is anchored at the
+// enclosing git root, so discovery never climbs into system directories.
 func projectSearchDirs(cwd string) []string {
 	abs, err := filepath.Abs(cwd)
 	if err != nil {
 		return []string{cwd}
 	}
 
-	// Walk up from cwd, recording each dir, until we either hit a git
-	// marker or run out of parents. This collects findGitRoot's result
-	// and the dir list in a single traversal.
+	// Walk up to $HOME only when cwd is inside it (and not $HOME itself, which
+	// is already covered by the global ~/.agents/skills scan).
+	if home := paths.GetHomeDir(); home != "" && abs != home && pathx.IsWithin(abs, home) {
+		var dirs []string
+		for current := abs; current != home; {
+			dirs = append(dirs, current)
+			parent := filepath.Dir(current)
+			if parent == current {
+				break
+			}
+			current = parent
+		}
+		slices.Reverse(dirs)
+		return dirs
+	}
+
+	return gitAnchoredDirs(abs)
+}
+
+// gitAnchoredDirs returns the directories from the enclosing git root down to
+// abs (inclusive), ordered root-to-abs, or just abs when it is not inside a git
+// repository.
+func gitAnchoredDirs(abs string) []string {
 	var dirs []string
-	var gitRoot string
 	for current := abs; ; {
 		dirs = append(dirs, current)
 		if hasGitMarker(current) {
-			gitRoot = current
-			break
+			slices.Reverse(dirs)
+			return dirs
 		}
 		parent := filepath.Dir(current)
 		if parent == current {
-			break
+			return []string{abs}
 		}
 		current = parent
 	}
-
-	if gitRoot == "" {
-		return []string{abs}
-	}
-
-	slices.Reverse(dirs)
-	return dirs
 }
 
 // hasGitMarker reports whether dir contains a .git directory or .git file

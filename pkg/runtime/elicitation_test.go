@@ -287,7 +287,7 @@ func TestRunStreamClosesChannelAndRestoresElicitationOnEarlyReturn(t *testing.T)
 	drained := make(chan struct{})
 	go func() {
 		defer close(drained)
-		for range rt.RunStream(t.Context(), sess) { //nolint:revive // draining the stream is the point
+		for range rt.RunStream(t.Context(), sess) {
 		}
 	}()
 
