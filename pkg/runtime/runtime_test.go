@@ -1999,6 +1999,88 @@ func TestTransferTaskAllowsSubAgent(t *testing.T) {
 	assert.False(t, result.IsError, "transfer to valid sub-agent should succeed")
 }
 
+// TestTransferTaskPersistsSubSessionOnError covers the case where a sub-agent's
+// run loop emits an ErrorEvent — for example because the model stream failed,
+// the loop detector fired, or a hook blocked execution. Before the fix in
+// runForwarding, an ErrorEvent caused an early return that skipped both
+// parent.AddSubSession and the SubSessionCompletedEvent emission, so the
+// entire sub-session transcript was silently dropped — invisible to the user,
+// invisible to debug tooling that walks session_items.
+//
+// The fix persists unconditionally: capture the error, drain the channel,
+// AddSubSession + emit SubSessionCompleted, then return the error so the
+// parent's tool dispatcher still records an error tool result.
+func TestTransferTaskPersistsSubSessionOnError(t *testing.T) {
+	t.Parallel()
+	// Root has a librarian sub-agent whose model always fails to produce a
+	// stream. This mirrors the production failure mode where a sub-agent
+	// hits an irrecoverable error mid-stream.
+	parentProv := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	failingProv := &mockProviderWithError{id: "test/mock-model"}
+
+	librarian := agent.New("librarian", "Library agent", agent.WithModel(failingProv))
+	root := agent.New("root", "Root agent", agent.WithModel(parentProv))
+	agent.WithSubAgents(librarian)(root)
+
+	tm := team.New(team.WithAgents(root, librarian))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("Test"), session.WithToolsApproved(true))
+	sess.NonInteractive = true // mirror --exec mode
+	evts := make(chan Event, 128)
+
+	toolCall := tools.ToolCall{
+		ID:   "call_1",
+		Type: "function",
+		Function: tools.FunctionCall{
+			Name:      "transfer_task",
+			Arguments: `{"agent":"librarian","task":"find a book","expected_output":"book title"}`,
+		},
+	}
+
+	// runForwarding returns an error because the child emitted an ErrorEvent,
+	// but only *after* persisting the sub-session.
+	_, err = rt.handleTaskTransfer(t.Context(), sess, toolCall, NewChannelSink(evts))
+	require.Error(t, err, "transfer should surface the sub-session error to the caller")
+
+	// The parent session must now hold a sub-session item — without the fix
+	// this would be empty because AddSubSession was skipped on the error path.
+	var subSessionItems int
+	for _, item := range sess.Messages {
+		if item.SubSession != nil {
+			subSessionItems++
+		}
+	}
+	assert.Equal(t, 1, subSessionItems,
+		"parent session must record the sub-session even when the sub-agent errored — "+
+			"otherwise the entire transcript is lost and the failure is invisible to observers")
+
+	// Drain the event channel and assert both required events are present.
+	//
+	// ErrorEvent must reach the parent sink: runForwarding forwards it
+	// unconditionally so the TUI's streamDepth counter stays balanced and
+	// the user sees the error context.
+	//
+	// SubSessionCompletedEvent must fire: the persistence pipeline
+	// (PersistenceObserver) writes the sub-session to the store on this
+	// event; without it the store never learns the sub-session existed.
+	close(evts)
+	var sawSubSessionCompleted, sawErrorEvent bool
+	for ev := range evts {
+		switch ev.(type) {
+		case *SubSessionCompletedEvent:
+			sawSubSessionCompleted = true
+		case *ErrorEvent:
+			sawErrorEvent = true
+		}
+	}
+	assert.True(t, sawErrorEvent,
+		"ErrorEvent must be forwarded to the parent sink to keep TUI streamDepth balanced")
+	assert.True(t, sawSubSessionCompleted,
+		"SubSessionCompletedEvent must fire on the error path so observers persist the sub-session")
+}
+
 func TestYoloMode_OverridesPermissionsDeny(t *testing.T) {
 	// Test that --yolo flag takes precedence over deny permissions
 	permChecker := permissions.NewChecker(&latest.PermissionsConfig{

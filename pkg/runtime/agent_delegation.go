@@ -275,25 +275,38 @@ func (r *LocalRuntime) runForwarding(ctx context.Context, parent *session.Sessio
 	}()
 
 	childEvents := r.RunStream(ctx, s)
+	var subSessionErr error
 	for event := range childEvents {
 		evts.Emit(event)
-		if errEvent, ok := event.(*ErrorEvent); ok {
-			// Drain remaining events (including StreamStoppedEvent) so the
-			// TUI's streamDepth counter stays balanced.
-			for remaining := range childEvents {
-				evts.Emit(remaining)
-			}
-			err := fmt.Errorf("%s", errEvent.Error)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, "sub-session error")
-			return nil, err
+		if errEvent, ok := event.(*ErrorEvent); ok && subSessionErr == nil {
+			// Capture the first ErrorEvent but keep draining the channel so
+			// the sub-session's full transcript still streams through. The
+			// child's run loop may emit additional events (e.g. notifications,
+			// hook output) after the error before its channel closes; dropping
+			// them here would leave the TUI's streamDepth counter unbalanced
+			// and the user without context for what actually went wrong.
+			subSessionErr = fmt.Errorf("%s", errEvent.Error)
 		}
 	}
 
-	parent.ToolsApproved = s.ToolsApproved
+	// Persist the sub-session unconditionally — even on error, the partial
+	// transcript is the most valuable artifact for debugging. The persistence
+	// pipeline relies on SubSessionCompleted to write the sub-session's
+	// messages to the store; without this emission they are silently dropped.
 	parent.AddSubSession(s)
 	evts.Emit(SubSessionCompleted(parent.ID, s, callerAgent.Name()))
 
+	if subSessionErr != nil {
+		span.RecordError(subSessionErr)
+		span.SetStatus(codes.Error, "sub-session error")
+		return nil, subSessionErr
+	}
+
+	// Only propagate ToolsApproved on success. A failed sub-session must not
+	// silently escalate the parent's tool-approval gate: the user approved
+	// tools within a sub-session scope that ended in error, and that approval
+	// should not carry over to the parent's remaining turns.
+	parent.ToolsApproved = s.ToolsApproved
 	span.SetStatus(codes.Ok, "sub-session completed")
 	return tools.ResultSuccess(s.GetLastAssistantMessageContent()), nil
 }
