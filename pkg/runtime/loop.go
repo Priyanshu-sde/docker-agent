@@ -825,12 +825,19 @@ func (r *LocalRuntime) recordAssistantMessage(
 	}
 
 	// Calculate per-message cost when pricing information is available.
-	var messageCost float64
-	if res.Usage != nil && m != nil && m.Cost != nil {
-		messageCost = (float64(res.Usage.InputTokens)*m.Cost.Input +
-			float64(res.Usage.OutputTokens)*m.Cost.Output +
-			float64(res.Usage.CachedInputTokens)*m.Cost.CacheRead +
-			float64(res.Usage.CacheWriteTokens)*m.Cost.CacheWrite) / 1e6
+	// When the model is absent from the catalogue (or carries no price
+	// table) the cost is silently 0 even though tokens were spent; warn so
+	// the otherwise-invisible "uncatalogued model bills $0" leak is at least
+	// observable in logs and any spend guardrail built on top of it.
+	messageCost, priced := computeMessageCost(res.Usage, m)
+	if !priced && usageHasTokens(res.Usage) {
+		slog.Warn("Model is missing from the pricing catalogue; recording $0 cost despite token usage",
+			"agent", a.Name(),
+			"model", modelID,
+			"input_tokens", res.Usage.InputTokens,
+			"output_tokens", res.Usage.OutputTokens,
+			"cached_input_tokens", res.Usage.CachedInputTokens,
+			"cache_write_tokens", res.Usage.CacheWriteTokens)
 	}
 
 	messageModel := modelID
@@ -864,6 +871,35 @@ func (r *LocalRuntime) recordAssistantMessage(
 		FinishReason: res.FinishReason,
 	}
 	return msgUsage
+}
+
+// computeMessageCost returns the dollar cost of a single assistant message
+// and whether pricing information was actually available. priced is false
+// when usage is nil, the model is unknown to the catalogue, or it carries no
+// price table; callers use that signal to distinguish a genuine $0 turn from
+// an uncatalogued-model turn whose real cost is unknown. The arithmetic is
+// unchanged from the original inline computation.
+func computeMessageCost(usage *chat.Usage, m *modelsdev.Model) (cost float64, priced bool) {
+	if usage == nil || m == nil || m.Cost == nil {
+		return 0, false
+	}
+	cost = (float64(usage.InputTokens)*m.Cost.Input +
+		float64(usage.OutputTokens)*m.Cost.Output +
+		float64(usage.CachedInputTokens)*m.Cost.CacheRead +
+		float64(usage.CacheWriteTokens)*m.Cost.CacheWrite) / 1e6
+	return cost, true
+}
+
+// usageHasTokens reports whether any billable tokens were recorded for a turn.
+// Used to suppress the missing-price warning for empty/no-op turns.
+func usageHasTokens(usage *chat.Usage) bool {
+	if usage == nil {
+		return false
+	}
+	return usage.InputTokens > 0 ||
+		usage.OutputTokens > 0 ||
+		usage.CachedInputTokens > 0 ||
+		usage.CacheWriteTokens > 0
 }
 
 // compactIfNeeded estimates the token impact of tool results added since
