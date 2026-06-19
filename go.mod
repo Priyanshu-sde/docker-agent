@@ -14,7 +14,7 @@ require (
 	github.com/a2aproject/a2a-go v0.3.15
 	github.com/alecthomas/chroma/v2 v2.27.0
 	github.com/alpkeskin/gotoon v0.1.1
-	github.com/anthropics/anthropic-sdk-go v1.50.2
+	github.com/anthropics/anthropic-sdk-go v1.51.0
 	github.com/atotto/clipboard v0.1.4
 	github.com/aws/aws-sdk-go-v2 v1.42.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.25
@@ -30,17 +30,17 @@ require (
 	github.com/clipperhouse/uax29/v2 v2.7.0
 	github.com/coder/acp-go-sdk v0.13.5
 	github.com/docker/aijson v0.1.0
-	github.com/docker/cli v29.5.3+incompatible
+	github.com/docker/cli v29.6.0+incompatible
 	github.com/docker/go-units v0.5.0
 	github.com/docker/portcullis v0.0.0-20260610113232-24775d73cb04
-	github.com/dop251/goja v0.0.0-20260607120635-348e6bea910d
+	github.com/dop251/goja v0.0.0-20260618133527-c9b2ea77db59
 	github.com/expr-lang/expr v1.17.8
 	github.com/fatih/color v1.19.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-git/go-git/v5 v5.19.1
 	github.com/goccy/go-yaml v1.19.2
 	github.com/golang-jwt/jwt/v5 v5.3.1
-	github.com/google/go-containerregistry v0.21.6
+	github.com/google/go-containerregistry v0.21.7
 	github.com/google/jsonschema-go v0.4.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
@@ -53,7 +53,7 @@ require (
 	github.com/mattn/go-runewidth v0.0.24
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/natefinch/atomic v1.0.1
-	github.com/openai/openai-go/v3 v3.39.0
+	github.com/openai/openai-go/v3 v3.41.0
 	github.com/pb33f/libopenapi v0.38.1
 	github.com/rivo/uniseg v0.4.7
 	github.com/rumpl/harness v0.0.0-20260612213434-3f63cb8efc05
@@ -69,13 +69,13 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0
 	go.opentelemetry.io/otel/sdk v1.44.0
 	go.opentelemetry.io/otel/trace v1.44.0
-	golang.org/x/image v0.42.0
+	golang.org/x/image v0.43.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sync v0.21.0
 	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.44.0
 	google.golang.org/adk v1.2.0
-	google.golang.org/genai v1.60.0
+	google.golang.org/genai v1.61.0
 	gopkg.in/dnaeon/go-vcr.v4 v4.0.6
 	gotest.tools/v3 v3.5.2
 	modernc.org/sqlite v1.52.0
@@ -102,8 +102,8 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/standard-webhooks/standard-webhooks/libraries v0.0.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc v0.63.0 // indirect
-	golang.org/x/mod v0.36.0 // indirect
-	golang.org/x/tools v0.45.0 // indirect
+	golang.org/x/mod v0.37.0 // indirect
+	golang.org/x/tools v0.46.0 // indirect
 	google.golang.org/api v0.272.0 // indirect
 )
 
