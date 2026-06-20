@@ -3,6 +3,44 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.84.0] - 2026-06-20
+
+This release adds a lean TUI user setting, hardens MCP OAuth token storage, and includes several refactoring changes to make toolsets, providers, and embedder dependencies more explicit.
+
+## What's New
+
+- Adds a `settings.lean` global user config option to make the lean TUI the default for interactive runs, while preserving explicit CLI overrides including `--lean=false`
+- Adds a headless chat session API (`pkg/embeddedchat`) for embedding docker-agent runtime conversations in non-docker-agent UIs
+- Makes OpenAI, Anthropic, Google, and Amazon Bedrock providers optional via build tags, allowing embedders to drop unneeded providers and shrink binary size
+- Makes the RAG toolset opt-in to remove the cgo dependency on go-tree-sitter from embedders that don't need it
+
+## Bug Fixes
+
+- Fixes the Shift+Tab thinking-level cycle to include the `max` effort tier for Claude models that support it (Opus 4.7+, Fable 5, Mythos 5)
+- Fixes potential token loss and repeated keyring access in the OAuth token store
+- Hardens MCP OAuth token file storage with cross-process locking, reload-before-write merge semantics, Windows-safe atomic file replacement, and migration of legacy keyring entries
+
+## Technical Changes
+
+- Replaces the single keyring OAuth token bundle with a keyring-sealed AES-256/AES-GCM encrypted file, storing only a fixed-size key in the OS keyring
+- Refactors toolset and provider registries to be explicit rather than relying on blank imports and `init()` functions
+- Decouples embedder dependencies so that `pkg/runtime`, `pkg/model/provider`, and `pkg/tools/mcp` no longer transitively pull in `openai-go` and `99designs/keyring`; moves the OS-keyring-backed MCP OAuth store to its own `pkg/tools/mcp/keyringstore` sub-package
+- Removes unused agent in the wasm runtime
+### Pull Requests
+
+- [#3171](https://github.com/docker/docker-agent/pull/3171) - feat(embeddedchat): add headless chat session API
+- [#3174](https://github.com/docker/docker-agent/pull/3174) - refactor(rag): make the rag toolset opt-in to drop cgo from embedders
+- [#3176](https://github.com/docker/docker-agent/pull/3176) - feat(provider): make openai, anthropic, google, and amazon-bedrock optional
+- [#3178](https://github.com/docker/docker-agent/pull/3178) - fix(modelinfo): offer the max effort tier in the Shift+Tab thinking cycle
+- [#3179](https://github.com/docker/docker-agent/pull/3179) - docs: update CHANGELOG.md for v1.83.0
+- [#3181](https://github.com/docker/docker-agent/pull/3181) - Add lean TUI user setting
+- [#3183](https://github.com/docker/docker-agent/pull/3183) - docs: update /docs for PRs merged 2026-06-18–20
+- [#3184](https://github.com/docker/docker-agent/pull/3184) - refactor: make toolsets and providers explicit
+- [#3185](https://github.com/docker/docker-agent/pull/3185) - fix: seal MCP OAuth tokens with keyring-backed file
+- [#3187](https://github.com/docker/docker-agent/pull/3187) - Remove unused agent in wasm runtime
+- [#3189](https://github.com/docker/docker-agent/pull/3189) - refactor: decouple embedder deps and register keyring store explicitly
+
+
 ## [Unreleased]
 
 ## What's New
@@ -3649,3 +3687,5 @@ This release improves the terminal user interface with better error handling and
 [v1.82.0]: https://github.com/docker/docker-agent/releases/tag/v1.82.0
 
 [v1.83.0]: https://github.com/docker/docker-agent/releases/tag/v1.83.0
+
+[v1.84.0]: https://github.com/docker/docker-agent/releases/tag/v1.84.0
