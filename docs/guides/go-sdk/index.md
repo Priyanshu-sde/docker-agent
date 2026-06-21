@@ -154,19 +154,28 @@ Requesting a model whose provider was compiled out fails at construction time wi
   <p>The Google provider's Vertex Model Garden support also imports the Anthropic SDK, so the Anthropic dependency is only fully removed when <em>both</em> <code>docker_agent_no_anthropic</code> and <code>docker_agent_no_google</code> are set.</p>
 </div>
 
-## RAG Toolset (cgo-free builds)
+## RAG Toolset (opt-out)
 
-The RAG toolset (`type: rag`) uses a tree-sitter code parser that requires cgo. When building without cgo — or when you want to drop the cgo dependency entirely — do not import the `pkg/rag` package in your binary.
+The RAG toolset (`type: rag`) is included in `NewDefaultToolsetRegistry()` (from `pkg/teamloader/toolsets`) and `loaderdefaults.Opts()` (from `pkg/teamloader/defaults`).
 
-By default the RAG toolset is **opt-in**: it is only linked when you blank-import its package:
+The underlying tree-sitter code parser uses cgo, but build-tag guards in `pkg/rag/treesitter` mean importing the package is safe regardless of `CGO_ENABLED`: with `CGO_ENABLED=0` the parser stub compiles in and returns a runtime error on first use rather than failing at compile time.
+
+If you want to exclude the RAG toolset from your binary entirely — surfacing a load-time warning on the agent rather than a deferred runtime error from the `!cgo` stub — remove it from the registry before passing it to `teamloader.Load`:
 
 ```go
 import (
-    _ "github.com/docker/docker-agent/pkg/tools/builtin/rag" // register RAG toolset
+    "github.com/docker/docker-agent/pkg/teamloader"
+    loadertoolsets "github.com/docker/docker-agent/pkg/teamloader/toolsets"
 )
+
+// Opt out of the RAG toolset; a config that declares type: rag attaches
+// a load-time warning to the agent instead of failing at document processing.
+creators := loadertoolsets.DefaultToolsetCreators()
+delete(creators, "rag")
+registry := teamloader.NewToolsetRegistry(creators)
 ```
 
-Without this import, a config that declares `type: rag` fails with a "toolset type not registered" error at startup. If your application does not use RAG, simply omit the blank import; the rest of docker-agent works without cgo.
+Pass the custom registry via `teamloader.WithToolsetRegistry(registry)` when calling `teamloader.Load`. Note that `teamloader.Load()` does not return an error for unknown toolset types — the failure is recorded as a load-time warning on the agent (`agent.LoadTimeWarnings()`) and surfaced via logging and TUI notifications.
 
 ## Basic Example
 
