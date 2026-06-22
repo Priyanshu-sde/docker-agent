@@ -3,6 +3,17 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.85.0] - 2026-06-22
+
+This release contains only a changelog documentation update for v1.84.0 with no user-facing changes.
+
+## Technical Changes
+- Updates CHANGELOG.md with release notes for v1.84.0
+### Pull Requests
+
+- [#3190](https://github.com/docker/docker-agent/pull/3190) - docs: update CHANGELOG.md for v1.84.0
+
+
 ## [v1.84.0] - 2026-06-20
 
 This release adds a lean TUI user setting, hardens MCP OAuth token storage, and includes several refactoring changes to make toolsets, providers, and embedder dependencies more explicit.
@@ -3689,3 +3700,5 @@ This release improves the terminal user interface with better error handling and
 [v1.83.0]: https://github.com/docker/docker-agent/releases/tag/v1.83.0
 
 [v1.84.0]: https://github.com/docker/docker-agent/releases/tag/v1.84.0
+
+[v1.85.0]: https://github.com/docker/docker-agent/releases/tag/v1.85.0
