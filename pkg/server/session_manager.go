@@ -375,10 +375,26 @@ func (sm *SessionManager) CreateSession(ctx context.Context, sessionTemplate *se
 	return sess, sm.sessionStore.AddSession(ctx, sess)
 }
 
-// ErrForkInvalidMessage is returned when a fork is requested at a message
-// index that does not point at a user-role message (e.g. an assistant turn,
-// a tool response, or a sub-session item).
-var ErrForkInvalidMessage = errors.New("fork point must be a user message")
+// Sentinel errors returned by ForkSession. They are matched with
+// errors.Is by the HTTP handler to classify failures as 400 vs 500, so
+// rewording the error string later is safe — the classification stays
+// pinned to the sentinel rather than to the message text.
+var (
+	// ErrForkInvalidMessage is returned when the resolved fork point is
+	// not a user-role message (e.g. an assistant turn, a tool response,
+	// or a sub-session item).
+	ErrForkInvalidMessage = errors.New("fork point must be a user message")
+
+	// ErrForkOutOfRange is returned when the requested message index is
+	// outside the parent session's visible message list.
+	ErrForkOutOfRange = errors.New("fork message index out of range")
+
+	// ErrForkInSubSession is returned when the requested message index
+	// falls inside a sub-session, where positional forking would be
+	// ambiguous (a sub-session can carry many messages but the fork
+	// model is "stop before this user turn in the parent's timeline").
+	ErrForkInSubSession = errors.New("fork message index falls inside a sub-session")
+)
 
 // ForkSession creates a new session whose history is a deep copy of the
 // parent session up to (but excluding) the message at userMessageIndex, with
@@ -387,10 +403,17 @@ var ErrForkInvalidMessage = errors.New("fork point must be a user message")
 // indexing that api.SessionResponse.Messages exposes to clients — so callers
 // do not need to know about the underlying Item slice.
 //
-// The message at userMessageIndex must be a user message; otherwise
-// ErrForkInvalidMessage is returned. The fork itself does not include that
-// message, so a client can prefill it into its chat input to let the user
-// edit and resubmit.
+// The message at userMessageIndex must be a user-role message in the
+// parent's visible list; values outside `[0, visibleMessageCount)` return
+// ErrForkOutOfRange and non-user messages return ErrForkInvalidMessage.
+// The fork itself does not include that message, so a client can prefill
+// it into its chat input to let the user edit and resubmit.
+//
+// There is intentionally no "full clone" shortcut on this endpoint: every
+// fork must anchor at a real user turn so the resulting history ends
+// cleanly between a user message and its (excluded) follow-up. Callers
+// that need a whole-session duplicate should issue a separate request
+// targeting the index of the most recent user message.
 func (sm *SessionManager) ForkSession(ctx context.Context, sessionID string, userMessageIndex int) (*session.Session, error) {
 	parent, err := sm.sessionStore.GetSession(ctx, sessionID)
 	if err != nil {
@@ -402,11 +425,9 @@ func (sm *SessionManager) ForkSession(ctx context.Context, sessionID string, use
 		return nil, err
 	}
 
-	if itemIndex < len(parent.Messages) {
-		item := parent.Messages[itemIndex]
-		if item.Message == nil || item.Message.Message.Role != chat.MessageRoleUser {
-			return nil, ErrForkInvalidMessage
-		}
+	item := parent.Messages[itemIndex]
+	if item.Message == nil || item.Message.Message.Role != chat.MessageRoleUser {
+		return nil, ErrForkInvalidMessage
 	}
 
 	forked, err := session.ForkSession(parent, itemIndex)
@@ -423,11 +444,12 @@ func (sm *SessionManager) ForkSession(ctx context.Context, sessionID string, use
 // flatMessageIndexToItemIndex maps an index in the flat user-visible message
 // list (Session.GetAllMessages — which skips system messages and flattens
 // sub-sessions) into an index in the parent's Session.Messages Item slice.
-// Returns an error if the index is out of range or lands inside a
-// sub-session, where positional forking would be ambiguous.
+// Returns ErrForkOutOfRange if the index is outside the visible list, or
+// ErrForkInSubSession if the index lands inside a sub-session, where
+// positional forking would be ambiguous.
 func flatMessageIndexToItemIndex(s *session.Session, flatIdx int) (int, error) {
 	if flatIdx < 0 {
-		return 0, fmt.Errorf("message index %d out of range", flatIdx)
+		return 0, fmt.Errorf("%w: %d", ErrForkOutOfRange, flatIdx)
 	}
 	seen := 0
 	for i, item := range s.Messages {
@@ -445,16 +467,16 @@ func flatMessageIndexToItemIndex(s *session.Session, flatIdx int) (int, error) {
 		case item.IsSubSession():
 			subCount := len(item.SubSession.GetAllMessages())
 			if flatIdx-seen < subCount {
-				return 0, fmt.Errorf("cannot fork at message index %d: position falls inside a sub-session", flatIdx)
+				return 0, fmt.Errorf("%w at index %d", ErrForkInSubSession, flatIdx)
 			}
 			seen += subCount
 		}
 	}
-	// Allow flatIdx == seen, meaning "after the last message" — a full clone.
-	if flatIdx == seen {
-		return len(s.Messages), nil
-	}
-	return 0, fmt.Errorf("message index %d out of range", flatIdx)
+	// flatIdx must point at an existing visible message. Values at or
+	// past the end (including the "after the last message" full-clone
+	// shortcut that earlier revisions allowed) are now rejected so the
+	// user-role check in ForkSession can never be skipped.
+	return 0, fmt.Errorf("%w: %d", ErrForkOutOfRange, flatIdx)
 }
 
 // GetSessions retrieves all sessions.

@@ -121,6 +121,19 @@ func TestGenerateForkTitle(t *testing.T) {
 			parentTitle: "My Session  (fork 1)",
 			expected:    "My Session (fork 2)",
 		},
+		{
+			// Regression: a user-chosen title containing "(fork N)" anywhere
+			// other than at the end must not be treated as a suffix — the
+			// trailing content has to be preserved.
+			name:        "mid-title (fork N) is not treated as suffix",
+			parentTitle: "Q1 (fork 2) Analysis",
+			expected:    "Q1 (fork 2) Analysis (fork 1)",
+		},
+		{
+			name:        "title ending with ) but not (fork N)) is appended verbatim",
+			parentTitle: "My Session (notes)",
+			expected:    "My Session (notes) (fork 1)",
+		},
 	}
 
 	for _, tt := range tests {

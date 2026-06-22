@@ -256,10 +256,9 @@ func (s *Server) forkSession(c echo.Context) error {
 	forked, err := s.sm.ForkSession(c.Request().Context(), c.Param("id"), req.MessageIndex)
 	if err != nil {
 		switch {
-		case errors.Is(err, ErrForkInvalidMessage):
-			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-		case strings.Contains(err.Error(), "out of range"),
-			strings.Contains(err.Error(), "sub-session"):
+		case errors.Is(err, ErrForkInvalidMessage),
+			errors.Is(err, ErrForkOutOfRange),
+			errors.Is(err, ErrForkInSubSession):
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 		return echo.NewHTTPError(http.StatusInternalServerError, fmt.Sprintf("failed to fork session: %v", err))

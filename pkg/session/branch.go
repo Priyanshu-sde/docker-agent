@@ -4,11 +4,19 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/docker/docker-agent/pkg/chat"
 )
+
+// forkSuffixRe matches a "(fork N)" trailing suffix on a session title,
+// with optional leading whitespace before the parenthesis. Anchored at
+// the end of the string so mid-title occurrences of "(fork N)" (e.g.
+// in a user-chosen title like "Q1 (fork 2) Analysis") are not detected
+// as a suffix and the trailing content is not silently dropped.
+var forkSuffixRe = regexp.MustCompile(`^(.*?)[ \t]*\(fork (\d+)\)$`)
 
 // BranchSession creates a new session branched from the parent at the given position.
 // Messages up to (but not including) branchAtPosition are deep-cloned into the new session.
@@ -207,16 +215,21 @@ func generateBranchTitle(parentTitle string) string {
 // title using "(fork N)" suffixes that increment on repeated forks.
 // If the parent has no title, returns empty string (will trigger auto-generation).
 // "<title>" -> "<title> (fork 1)"; "<title> (fork N)" -> "<title> (fork N+1)".
+//
+// The "(fork N)" detection is anchored at the end of the title so a mid-title
+// occurrence (e.g. "Q1 (fork 2) Analysis") is not treated as a suffix.
+// generateBranchTitle uses an older LastIndex+Sscanf approach that has the
+// same end-anchoring gap; that's a pre-existing issue in the TUI's branch
+// flow and is intentionally left alone here.
 func generateForkTitle(parentTitle string) string {
 	if parentTitle == "" {
 		return ""
 	}
 
-	if idx := strings.LastIndex(parentTitle, "(fork "); idx >= 0 {
-		suffix := parentTitle[idx:]
+	if m := forkSuffixRe.FindStringSubmatch(parentTitle); m != nil {
+		baseTitle := m[1]
 		var n int
-		if _, err := fmt.Sscanf(suffix, "(fork %d)", &n); err == nil && n >= 1 {
-			baseTitle := strings.TrimRight(parentTitle[:idx], " \t")
+		if _, err := fmt.Sscanf(m[2], "%d", &n); err == nil && n >= 1 {
 			return fmt.Sprintf("%s (fork %d)", baseTitle, n+1)
 		}
 	}

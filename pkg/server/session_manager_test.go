@@ -439,8 +439,10 @@ func TestForkSession_RejectsNonUserMessage(t *testing.T) {
 }
 
 // TestForkSession_OutOfRange covers the validation boundary: a negative
-// index, or one past the end of the message list when not used as a full
-// clone, must fail without touching the store.
+// index, an index past the end of the visible message list, and the
+// "after the last message" position must all fail with ErrForkOutOfRange
+// without touching the store. The end-of-list case is the regression
+// guard for the dropped full-clone shortcut.
 func TestForkSession_OutOfRange(t *testing.T) {
 	t.Parallel()
 
@@ -453,12 +455,15 @@ func TestForkSession_OutOfRange(t *testing.T) {
 	sm := NewSessionManager(ctx, config.Sources{}, store, 0, &config.RuntimeConfig{})
 
 	_, err := sm.ForkSession(ctx, parent.ID, -1)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "out of range")
+	require.ErrorIs(t, err, ErrForkOutOfRange)
 
 	_, err = sm.ForkSession(ctx, parent.ID, 5)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "out of range")
+	require.ErrorIs(t, err, ErrForkOutOfRange)
+
+	// Equal to the visible-message count: previously a silent full clone,
+	// now an explicit ErrForkOutOfRange so the role check can't be bypassed.
+	_, err = sm.ForkSession(ctx, parent.ID, 1)
+	require.ErrorIs(t, err, ErrForkOutOfRange)
 }
 
 // TestForkSession_DeepCopyIsolatesParent verifies that mutating the
@@ -515,14 +520,16 @@ func TestFlatMessageIndexToItemIndex(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 2, idx, "flat index 1 must skip past the system item")
 
-	// End-of-history (full clone) is allowed.
-	idx, err = flatMessageIndexToItemIndex(sess, 2)
-	require.NoError(t, err)
-	assert.Equal(t, len(sess.Messages), idx)
+	// Past the end is rejected, including the "after the last message"
+	// position that earlier revisions accepted as a full-clone shortcut.
+	// Forks must anchor on a real user turn so the role validation in
+	// ForkSession is never bypassed.
+	_, err = flatMessageIndexToItemIndex(sess, 2)
+	require.ErrorIs(t, err, ErrForkOutOfRange)
 
 	_, err = flatMessageIndexToItemIndex(sess, -1)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrForkOutOfRange)
 
 	_, err = flatMessageIndexToItemIndex(sess, 3)
-	require.Error(t, err)
+	require.ErrorIs(t, err, ErrForkOutOfRange)
 }

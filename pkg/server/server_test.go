@@ -250,6 +250,15 @@ func TestServer_ForkSession(t *testing.T) {
 		"/api/sessions/"+parent.ID+"/fork",
 		api.ForkSessionRequest{MessageIndex: 1})
 	assert.Equal(t, http.StatusBadRequest, rejected.StatusCode, rejected.body)
+
+	// Forking past the end of the visible list (no real "after the last
+	// message" full-clone shortcut) must also return 400, not 500. This
+	// pins the sentinel-driven classification so future error-message
+	// reshuffles can't silently flip the status code.
+	outOfRange := httpRaw(t, ctx, http.MethodPost, lnPath,
+		"/api/sessions/"+parent.ID+"/fork",
+		api.ForkSessionRequest{MessageIndex: 99})
+	assert.Equal(t, http.StatusBadRequest, outOfRange.StatusCode, outOfRange.body)
 }
 
 // httpRaw issues an HTTP request and returns the raw response without
