@@ -16,6 +16,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/docker/docker-agent/pkg/concurrent"
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
@@ -238,6 +241,19 @@ func (h *shellHandler) RunShell(ctx context.Context, params RunShellArgs) (*tool
 	defer cancel()
 
 	cwd := h.resolveWorkDir(params.Cwd)
+
+	// Stamp the call shape (cmd, cwd, timeout) onto the active span.
+	// Cmd ships unconditionally — it's the main signal of what the
+	// agent actually did, and gating it on chat-content capture loses
+	// too much debug value. Drop or hash `cagent.tool.shell.cmd` at
+	// the OTel collector if commands routinely carry secrets.
+	if span := trace.SpanFromContext(ctx); span.IsRecording() {
+		span.SetAttributes(
+			attribute.String("cagent.tool.shell.cmd", params.Cmd),
+			attribute.Float64("cagent.tool.shell.timeout_seconds", timeout.Seconds()),
+			attribute.String("cagent.tool.shell.cwd", cwd),
+		)
+	}
 
 	slog.DebugContext(ctx, "Executing native shell command", "command", params.Cmd, "cwd", cwd)
 

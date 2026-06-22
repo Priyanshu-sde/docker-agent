@@ -21,6 +21,7 @@ import (
 	ragtypes "github.com/docker/docker-agent/pkg/rag/types"
 	"github.com/docker/docker-agent/pkg/runtime/toolexec"
 	"github.com/docker/docker-agent/pkg/session"
+	"github.com/docker/docker-agent/pkg/telemetry/genai"
 	"github.com/docker/docker-agent/pkg/tools"
 	bgagent "github.com/docker/docker-agent/pkg/tools/builtin/agent"
 	"github.com/docker/docker-agent/pkg/tools/builtin/handoff"
@@ -215,10 +216,32 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 	ctx = httpclient.ContextWithSessionID(ctx, sess.ID)
 	r.telemetry.RecordSessionStart(ctx, r.CurrentAgentName(), sess.ID)
 
-	ctx, sessionSpan := r.startSpan(ctx, "runtime.session", trace.WithAttributes(
-		attribute.String("agent", r.CurrentAgentName()),
-		attribute.String("session.id", sess.ID),
-	))
+	// Seed `gen_ai.conversation.id` into baggage at the session
+	// boundary. Every span the runtime, providers, MCP client, RAG,
+	// sandbox, evaluation, hooks, and (downstream) any subprocess
+	// or remote service create from here on will pick it up
+	// automatically without per-helper plumbing — and the value
+	// rides over W3C `baggage` so it crosses MCP / sandbox /
+	// HTTP boundaries too.
+	ctx = genai.WithConversationID(ctx, sess.ID)
+
+	// runtime.session is the root span for one stream. gen_ai.* keys
+	// are emitted alongside the legacy `agent` / `session.id` keys
+	// so existing dashboards keep matching while spec-aware tooling
+	// can filter by `gen_ai.conversation.id` and
+	// `cagent.agent.name`. Legacy keys drop out under
+	// OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental.
+	sessionAttrs := []attribute.KeyValue{
+		attribute.String(genai.AttrConversationID, sess.ID),
+		attribute.String(genai.AttrAgentNameRuntime, r.CurrentAgentName()),
+	}
+	if genai.EmitLegacyAttributes() {
+		sessionAttrs = append(sessionAttrs,
+			attribute.String("agent", r.CurrentAgentName()),
+			attribute.String("session.id", sess.ID),
+		)
+	}
+	ctx, sessionSpan := r.startSpan(ctx, "runtime.session", trace.WithAttributes(sessionAttrs...))
 	defer sessionSpan.End()
 
 	// Swap in this stream's events channel for elicitation and save the
@@ -267,6 +290,12 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 		return
 	}
 	agentTools = filterExcludedTools(agentTools, sess.ExcludedTools)
+
+	// Record the catalogue size on the session span — answers "how
+	// many tools could this turn actually use?" without having to
+	// walk into per-toolset spans. Stamped after exclusion filters
+	// so the count matches what was offered to the model.
+	sessionSpan.SetAttributes(attribute.Int("cagent.agent.tools.count", len(agentTools)))
 
 	sink.Emit(ToolsetInfo(len(agentTools), false, a.Name()))
 
@@ -513,10 +542,17 @@ func (r *LocalRuntime) runTurn(
 	ls *loopState,
 	events EventSink,
 ) turnControl {
-	streamCtx, streamSpan := r.startSpan(ctx, "runtime.stream", trace.WithAttributes(
-		attribute.String("agent", a.Name()),
-		attribute.String("session.id", sess.ID),
-	))
+	streamAttrs := []attribute.KeyValue{
+		attribute.String(genai.AttrConversationID, sess.ID),
+		attribute.String(genai.AttrAgentNameRuntime, a.Name()),
+	}
+	if genai.EmitLegacyAttributes() {
+		streamAttrs = append(streamAttrs,
+			attribute.String("agent", a.Name()),
+			attribute.String("session.id", sess.ID),
+		)
+	}
+	streamCtx, streamSpan := r.startSpan(ctx, "runtime.stream", trace.WithAttributes(streamAttrs...))
 	// streamSpan ends inline at the natural points (success path before
 	// recordAssistantMessage, error path after handleStreamError) so its
 	// duration tracks the model call only, not the whole iteration. The
@@ -677,6 +713,15 @@ func (r *LocalRuntime) runTurn(
 			"Agent terminated: detected %d consecutive identical calls to %s. "+
 				"This indicates a degenerate loop where the model is not making progress.",
 			consecutive, toolName)
+		// Mark the session span as Error so loop-termination shows up
+		// in trace status / error-rate dashboards instead of blending
+		// in with normal completions.
+		sessionSpan.SetAttributes(
+			attribute.String("error.type", "loop_detected"),
+			attribute.String("cagent.session.terminated_by", "loop_detector"),
+			attribute.Int("cagent.loop.consecutive_calls", consecutive),
+		)
+		sessionSpan.SetStatus(codes.Error, errMsg)
 		events.Emit(ErrorWithCode(ErrorCodeLoopDetected, errMsg))
 		r.notifyError(ctx, a, sess.ID, errMsg)
 		ls.loopDetector.Reset()

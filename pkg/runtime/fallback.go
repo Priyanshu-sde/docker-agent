@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker-agent/pkg/modelerrors"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/session"
+	"github.com/docker/docker-agent/pkg/telemetry/genai"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -237,6 +238,14 @@ func (e *fallbackExecutor) execute(
 	modelChain := buildModelChain(primaryModel, fallbackModels)
 	startIndex := e.chainStartIndex(a, len(fallbackModels))
 
+	// One runtime.fallback span wraps the whole chain. Each per-model
+	// CreateChatCompletionStream call below opens its own `chat {model}`
+	// CLIENT child span via the provider decorator, so the fallback span
+	// is a useful aggregate boundary (total attempts, final model,
+	// terminal outcome) without duplicating per-model timing data.
+	ctx, fbSpan := genai.StartFallback(ctx, a.Name(), primaryModel.ID().Model, startIndex > 0)
+	defer fbSpan.End()
+
 	var lastErr error
 	primaryFailedWithNonRetryable := false
 	hasFallbacks := len(fallbackModels) > 0
@@ -252,14 +261,17 @@ func (e *fallbackExecutor) execute(
 		for attempt := range maxAttempts {
 			// Check context before each attempt
 			if ctx.Err() != nil {
+				fbSpan.SetOutcome(genai.FallbackOutcomeContextCanceled)
 				return streamResult{}, nil, ctx.Err()
 			}
+			fbSpan.IncrementAttempt()
 
 			// Apply backoff before retry (not on first attempt of each model)
 			if attempt > 0 {
 				backoffDelay := backoff.Calculate(attempt - 1)
 				logRetryBackoff(a.Name(), modelEntry.provider.ID(), attempt, backoffDelay)
 				if !backoff.SleepWithContext(ctx, backoffDelay) {
+					fbSpan.SetOutcome(genai.FallbackOutcomeContextCanceled)
 					return streamResult{}, nil, ctx.Err()
 				}
 			}
@@ -294,6 +306,7 @@ func (e *fallbackExecutor) execute(
 				lastErr = err
 				decision, retErr := e.classifyAttemptError(ctx, err, a, modelEntry, attempt, hasFallbacks, &primaryFailedWithNonRetryable)
 				if retErr != nil {
+					fbSpan.SetOutcome(genai.FallbackOutcomeContextCanceled)
 					return streamResult{}, nil, retErr
 				}
 				if decision == retryDecisionBreak {
@@ -319,6 +332,7 @@ func (e *fallbackExecutor) execute(
 				lastErr = err
 				decision, retErr := e.classifyAttemptError(ctx, err, a, modelEntry, attempt, hasFallbacks, &primaryFailedWithNonRetryable)
 				if retErr != nil {
+					fbSpan.SetOutcome(genai.FallbackOutcomeContextCanceled)
 					return streamResult{}, nil, retErr
 				}
 				if decision == retryDecisionBreak {
@@ -328,6 +342,8 @@ func (e *fallbackExecutor) execute(
 			}
 
 			e.recordSuccess(a, modelEntry, primaryFailedWithNonRetryable)
+			fbSpan.SetFinalModel(modelEntry.provider.ID().Model)
+			fbSpan.SetOutcome(genai.FallbackOutcomeSuccess)
 			return res, modelEntry.provider, nil
 		}
 	}
@@ -341,12 +357,17 @@ func (e *fallbackExecutor) execute(
 			prefix = "all models failed"
 		}
 		wrapped := fmt.Errorf("%s: %w", prefix, lastErr)
+		fbSpan.RecordError(wrapped, "")
+		fbSpan.SetOutcome(genai.FallbackOutcomeFailed)
 		if modelerrors.IsContextOverflowError(lastErr) {
 			return streamResult{}, nil, modelerrors.NewContextOverflowError(wrapped)
 		}
 		return streamResult{}, nil, wrapped
 	}
-	return streamResult{}, nil, errors.New("model failed with unknown error")
+	unknownErr := errors.New("model failed with unknown error")
+	fbSpan.RecordError(unknownErr, "")
+	fbSpan.SetOutcome(genai.FallbackOutcomeFailed)
+	return streamResult{}, nil, unknownErr
 }
 
 // retryDecision is the outcome of handleModelError.

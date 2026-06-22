@@ -14,6 +14,9 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/docker/docker-agent/pkg/api"
 	"github.com/docker/docker-agent/pkg/concurrent"
@@ -803,12 +806,30 @@ func (sm *SessionManager) generateTitle(ctx context.Context, sess *session.Sessi
 	}
 }
 
-func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.Session, agentFilename, currentAgent string, rc *config.RuntimeConfig) (runtime.Runtime, *sessiontitle.Generator, error) {
+func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.Session, agentFilename, currentAgent string, rc *config.RuntimeConfig) (_ runtime.Runtime, _ *sessiontitle.Generator, err error) {
 	// Caller (RunSession) holds sm.mux and has already verified that no
 	// active runtime exists for this session. This function is purely a
 	// constructor: it must not touch sm.runtimeSessions, otherwise it would
 	// briefly publish a half-initialised activeRuntimes (e.g. without the
 	// cancel func) that other goroutines could observe.
+	//
+	// Every call is a cold-path construction (caller short-circuits
+	// cached hits), so a span here attributes per-request first-use
+	// latency (team load + runtime construction) without adding noise
+	// on warm paths.
+	ctx, span := otel.Tracer("github.com/docker/docker-agent/pkg/server").Start(
+		ctx, "session.runtime_init",
+		trace.WithSpanKind(trace.SpanKindInternal),
+		trace.WithAttributes(attribute.String("gen_ai.conversation.id", sess.ID)),
+	)
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+		}
+		span.End()
+	}()
+
 	loadResult, err := sm.loadTeamWithConfig(ctx, agentFilename, rc)
 	if err != nil {
 		return nil, nil, err
@@ -839,6 +860,9 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 		runtime.WithManagedOAuth(false),
 		runtime.WithUnmanagedOAuthRedirectURI(rc.MCPOAuthRedirectURI),
 		runtime.WithSessionStore(sm.sessionStore),
+		// Match the tracer scope used by the CLI; without this the
+		// API-server runtime's startSpan is a no-op so all the
+		// runtime.* spans go silent in HTTP-server mode.
 		runtime.WithTracer(otel.Tracer("cagent")),
 		runtime.WithModelSwitcherConfig(modelSwitcherCfg),
 	}

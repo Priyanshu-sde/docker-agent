@@ -14,6 +14,38 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestSanitizeRemoteAddress verifies that URLs with embedded credentials
+// (basic-auth userinfo, query-string secrets) collapse to a host-only
+// string before reaching the `server.address` span attribute. The point
+// is exfiltration safety: a URL like `https://user:token@host/?api_key=…`
+// would otherwise be replicated verbatim into every CLIENT span and
+// shipped to the trace backend.
+func TestSanitizeRemoteAddress(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{name: "plain", url: "https://example.com/mcp", want: "example.com"},
+		{name: "host with port", url: "https://example.com:8443/mcp", want: "example.com:8443"},
+		{name: "userinfo stripped", url: "https://alice:s3cret@example.com/mcp", want: "example.com"},
+		{name: "query stripped", url: "https://example.com/mcp?api_key=s3cret", want: "example.com"},
+		{name: "userinfo and query stripped", url: "https://alice:s3cret@example.com:8443/mcp?api_key=x", want: "example.com:8443"},
+		{name: "fragment stripped", url: "https://example.com/mcp#frag", want: "example.com"},
+		{name: "hostless empty fallback", url: "not-a-url", want: ""},
+		{name: "empty input", url: "", want: ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := sanitizeRemoteAddress(tc.url)
+			assert.Equal(t, tc.want, got, "sanitizeRemoteAddress(%q)", tc.url)
+		})
+	}
+}
+
 // TestRemoteClientCustomHeaders verifies that custom headers passed to the remote
 // MCP client are actually applied to HTTP requests sent to the MCP server.
 func TestRemoteClientCustomHeaders(t *testing.T) {

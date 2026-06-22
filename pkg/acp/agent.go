@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/coder/acp-go-sdk"
+	"go.opentelemetry.io/otel"
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/chat"
@@ -139,6 +140,9 @@ func (a *Agent) newRuntime(workingDir string) (runtime.Runtime, *agent.Agent, er
 		runtime.WithCurrentAgent(defaultAgent.Name()),
 		runtime.WithSessionStore(a.sessionStore),
 		runtime.WithProviderRegistry(a.providerRegistry),
+		// Match the CLI tracer scope; without this the ACP-mode
+		// runtime's `startSpan` is a no-op for every runtime.* span.
+		runtime.WithTracer(otel.Tracer("cagent")),
 	}
 	if workingDir != "" {
 		opts = append(opts, runtime.WithWorkingDir(workingDir))
