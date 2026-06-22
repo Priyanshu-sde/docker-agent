@@ -1539,6 +1539,25 @@
             "openai/gpt-4o-mini",
             "fast"
           ]
+        },
+        "capabilities": {
+          "$ref": "#/definitions/CapabilitiesConfig",
+          "description": "Explicit attachment capability override for models the models.dev catalogue does not describe correctly (custom OpenAI-compatible providers, local models like Ollama, or dropped model versions). When set, the declared flags are authoritative and no models.dev lookup is performed; when omitted, capabilities are detected automatically. Without it, such models fall back to text-only and their image/PDF attachments are silently dropped."
+        }
+      },
+      "additionalProperties": false
+    },
+    "CapabilitiesConfig": {
+      "type": "object",
+      "description": "Explicit attachment capabilities for a model, overriding automatic models.dev-based detection. The declared flags must match what the underlying endpoint actually accepts; claiming an unsupported modality results in a provider-side API error.",
+      "properties": {
+        "image": {
+          "type": "boolean",
+          "description": "Whether the model accepts image attachments"
+        },
+        "pdf": {
+          "type": "boolean",
+          "description": "Whether the model accepts PDF (application/pdf) attachments"
         }
       },
       "additionalProperties": false

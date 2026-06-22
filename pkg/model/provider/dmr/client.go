@@ -147,7 +147,7 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, opts ...options.Opt
 // convertMessages converts chat messages to OpenAI format and merges consecutive
 // system/user messages, which is needed by some local models run by DMR.
 func (c *Client) convertMessages(ctx context.Context, messages []chat.Message) []openai.ChatCompletionMessageParamUnion {
-	openaiMessages := oaistream.ConvertMessages(ctx, messages, c.ID(), c.ModelOptions.ModelsDevStore())
+	openaiMessages := oaistream.ConvertMessages(ctx, messages, c.ID(), c.ModelOptions.ModelsDevStore(), c.CapsOverride())
 	return oaistream.MergeConsecutiveMessages(openaiMessages)
 }
 

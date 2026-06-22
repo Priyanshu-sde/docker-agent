@@ -85,11 +85,11 @@ func TestConvertDocument_QualifiedIDRequired(t *testing.T) {
 	}}
 
 	// Bare model name (the original bug): image must be dropped.
-	partsBare := ConvertMultiContent(t.Context(), msgParts, modelsdev.NewID("", "gpt-4o"), store)
+	partsBare := ConvertMultiContent(t.Context(), msgParts, modelsdev.NewID("", "gpt-4o"), store, nil)
 	assert.Empty(t, partsBare, "bare model name must not resolve caps: image should be dropped")
 
 	// Qualified ID (the fix, matching what c.ID() returns): image must be preserved.
-	partsQualified := ConvertMultiContent(t.Context(), msgParts, modelsdev.NewID("openai", "gpt-4o"), store)
+	partsQualified := ConvertMultiContent(t.Context(), msgParts, modelsdev.NewID("openai", "gpt-4o"), store, nil)
 	require.Len(t, partsQualified, 1, "qualified ID must resolve caps: image should be present")
 	assert.NotNil(t, partsQualified[0].OfImageURL, "expected image URL part for qualified model ID")
 }

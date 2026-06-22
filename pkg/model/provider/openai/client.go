@@ -214,7 +214,7 @@ func (c *Client) Close() {
 // convertMessages converts chat.Message to openai.ChatCompletionMessageParamUnion
 // using the shared oaistream implementation.
 func (c *Client) convertMessages(ctx context.Context, messages []chat.Message) []openai.ChatCompletionMessageParamUnion {
-	return oaistream.ConvertMessages(ctx, messages, c.ID(), c.ModelOptions.ModelsDevStore())
+	return oaistream.ConvertMessages(ctx, messages, c.ID(), c.ModelOptions.ModelsDevStore(), c.CapsOverride())
 }
 
 // CreateChatCompletionStream creates a streaming chat completion request
@@ -675,7 +675,7 @@ func (c *Client) convertMessagesToResponseInput(ctx context.Context, messages []
 						}
 					case chat.MessagePartTypeDocument:
 						if part.Document != nil {
-							docParts, err := convertDocumentToResponseInput(ctx, *part.Document, c.ID(), c.ModelOptions.ModelsDevStore())
+							docParts, err := convertDocumentToResponseInput(ctx, *part.Document, c.ID(), c.ModelOptions.ModelsDevStore(), c.CapsOverride())
 							if err != nil {
 								slog.WarnContext(ctx, "failed to convert document attachment", "error", err, "doc", part.Document.Name)
 								continue
@@ -794,7 +794,7 @@ func (c *Client) convertMessagesToResponseInput(ctx context.Context, messages []
 					}
 				case chat.MessagePartTypeDocument:
 					if part.Document != nil {
-						docParts, err := convertDocumentToResponseInput(ctx, *part.Document, c.ID(), c.ModelOptions.ModelsDevStore())
+						docParts, err := convertDocumentToResponseInput(ctx, *part.Document, c.ID(), c.ModelOptions.ModelsDevStore(), c.CapsOverride())
 						if err != nil {
 							slog.WarnContext(ctx, "failed to convert tool result document attachment", "error", err, "doc", part.Document.Name)
 							continue

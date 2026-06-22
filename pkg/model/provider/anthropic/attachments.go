@@ -23,9 +23,11 @@ import (
 //   - application/pdf with InlineData → DocumentBlockParam (base64)
 //   - text with InlineText → TextBlockParam with TXTEnvelope
 //   - unsupported / no content → nil (logged as warning)
-func convertDocument(ctx context.Context, doc chat.Document, id modelsdev.ID, store *modelsdev.Store) ([]anthropic.ContentBlockParamUnion, error) {
-	mc := modelinfo.LoadCaps(ctx, store, id)
-	if !mc.Supports(doc.MimeType) && modelinfo.IsClaude(ctx, store, id) {
+func convertDocument(ctx context.Context, doc chat.Document, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) ([]anthropic.ContentBlockParamUnion, error) {
+	mc := modelinfo.ResolveCaps(ctx, store, id, override)
+	// An explicit config override is authoritative; only fall back to the
+	// "any Claude model supports image+PDF" heuristic when none was declared.
+	if override == nil && !mc.Supports(doc.MimeType) && modelinfo.IsClaude(ctx, store, id) {
 		mc = modelinfo.CapsWith(true, true)
 	}
 	return convertDocumentWithCaps(ctx, doc, mc)

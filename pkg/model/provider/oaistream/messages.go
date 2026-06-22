@@ -14,6 +14,7 @@ import (
 	"github.com/openai/openai-go/v3/packages/param"
 
 	"github.com/docker/docker-agent/pkg/chat"
+	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -27,18 +28,22 @@ func (j JSONSchema) MarshalJSON() ([]byte, error) {
 }
 
 // ConvertMultiContent converts chat.MessagePart slices to OpenAI content
-// parts using the provided modelsdev.Store for capability lookups.
-func ConvertMultiContent(ctx context.Context, multiContent []chat.MessagePart, id modelsdev.ID, store *modelsdev.Store) []openai.ChatCompletionContentPartUnionParam {
-	return convertMultiContentWithStore(ctx, multiContent, id, store)
+// parts using the provided modelsdev.Store for capability lookups. A non-nil
+// override declares the model's attachment capabilities explicitly, bypassing
+// the models.dev lookup (issue #2741).
+func ConvertMultiContent(ctx context.Context, multiContent []chat.MessagePart, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []openai.ChatCompletionContentPartUnionParam {
+	return convertMultiContentWithStore(ctx, multiContent, id, store, override)
 }
 
 // ConvertMessages converts chat.Message slices to OpenAI message params
-// using the provided modelsdev.Store for capability lookups.
-func ConvertMessages(ctx context.Context, messages []chat.Message, id modelsdev.ID, store *modelsdev.Store) []openai.ChatCompletionMessageParamUnion {
-	return convertMessagesWithStore(ctx, messages, id, store)
+// using the provided modelsdev.Store for capability lookups. A non-nil
+// override declares the model's attachment capabilities explicitly, bypassing
+// the models.dev lookup (issue #2741).
+func ConvertMessages(ctx context.Context, messages []chat.Message, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []openai.ChatCompletionMessageParamUnion {
+	return convertMessagesWithStore(ctx, messages, id, store, override)
 }
 
-func convertMultiContentWithStore(ctx context.Context, multiContent []chat.MessagePart, id modelsdev.ID, store *modelsdev.Store) []openai.ChatCompletionContentPartUnionParam {
+func convertMultiContentWithStore(ctx context.Context, multiContent []chat.MessagePart, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []openai.ChatCompletionContentPartUnionParam {
 	parts := make([]openai.ChatCompletionContentPartUnionParam, 0, len(multiContent))
 	for _, part := range multiContent {
 		switch part.Type {
@@ -54,7 +59,7 @@ func convertMultiContentWithStore(ctx context.Context, multiContent []chat.Messa
 			}
 		case chat.MessagePartTypeDocument:
 			if part.Document != nil {
-				docParts, err := convertDocument(ctx, *part.Document, id, store)
+				docParts, err := convertDocument(ctx, *part.Document, id, store, override)
 				if err != nil {
 					slog.WarnContext(ctx, "failed to convert document attachment", "error", err, "doc", part.Document.Name)
 					continue
@@ -66,7 +71,7 @@ func convertMultiContentWithStore(ctx context.Context, multiContent []chat.Messa
 	return parts
 }
 
-func convertMessagesWithStore(ctx context.Context, messages []chat.Message, id modelsdev.ID, store *modelsdev.Store) []openai.ChatCompletionMessageParamUnion {
+func convertMessagesWithStore(ctx context.Context, messages []chat.Message, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []openai.ChatCompletionMessageParamUnion {
 	openaiMessages := make([]openai.ChatCompletionMessageParamUnion, 0, len(messages))
 	for i := range messages {
 		msg := &messages[i]
@@ -99,7 +104,7 @@ func convertMessagesWithStore(ctx context.Context, messages []chat.Message, id m
 			if len(msg.MultiContent) == 0 {
 				openaiMessage = openai.UserMessage(msg.Content)
 			} else {
-				openaiMessage = openai.UserMessage(convertMultiContentWithStore(ctx, msg.MultiContent, id, store))
+				openaiMessage = openai.UserMessage(convertMultiContentWithStore(ctx, msg.MultiContent, id, store, override))
 			}
 
 		case chat.MessageRoleAssistant:
@@ -189,7 +194,7 @@ func convertMessagesWithStore(ctx context.Context, messages []chat.Message, id m
 					}
 				case chat.MessagePartTypeDocument:
 					if part.Document != nil {
-						docParts, err := convertDocument(ctx, *part.Document, id, store)
+						docParts, err := convertDocument(ctx, *part.Document, id, store, override)
 						if err != nil {
 							slog.WarnContext(ctx, "failed to convert tool result document attachment", "error", err, "doc", part.Document.Name)
 							continue

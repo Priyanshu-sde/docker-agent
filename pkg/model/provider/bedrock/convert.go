@@ -12,6 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/bedrockruntime/types"
 
 	"github.com/docker/docker-agent/pkg/chat"
+	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 	"github.com/docker/docker-agent/pkg/tools"
 )
@@ -19,7 +20,7 @@ import (
 // convertMessages handles Bedrock's Converse API constraints:
 // - Tool results must immediately follow the assistant message with tool_use
 // - Multiple consecutive tool results must be grouped into a single user message
-func convertMessages(ctx context.Context, messages []chat.Message, id modelsdev.ID, store *modelsdev.Store, enableCaching bool) ([]types.Message, []types.SystemContentBlock) {
+func convertMessages(ctx context.Context, messages []chat.Message, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride, enableCaching bool) ([]types.Message, []types.SystemContentBlock) {
 	var bedrockMessages []types.Message
 	var systemBlocks []types.SystemContentBlock
 
@@ -44,7 +45,7 @@ func convertMessages(ctx context.Context, messages []chat.Message, id modelsdev.
 			}
 
 		case chat.MessageRoleUser:
-			contentBlocks := convertUserContent(ctx, msg, id, store)
+			contentBlocks := convertUserContent(ctx, msg, id, store, override)
 			if len(contentBlocks) > 0 {
 				bedrockMessages = append(bedrockMessages, types.Message{
 					Role:    types.ConversationRoleUser,
@@ -72,7 +73,7 @@ func convertMessages(ctx context.Context, messages []chat.Message, id modelsdev.
 					toolResultBlocks = append(toolResultBlocks, &types.ContentBlockMemberToolResult{
 						Value: types.ToolResultBlock{
 							ToolUseId: aws.String(messages[j].ToolCallID),
-							Content:   convertToolResultContent(ctx, &messages[j], id, store),
+							Content:   convertToolResultContent(ctx, &messages[j], id, store, override),
 						},
 					})
 				}
@@ -117,7 +118,7 @@ func applyCachePointsToMessages(messages []types.Message) {
 	}
 }
 
-func convertUserContent(ctx context.Context, msg *chat.Message, id modelsdev.ID, store *modelsdev.Store) []types.ContentBlock {
+func convertUserContent(ctx context.Context, msg *chat.Message, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []types.ContentBlock {
 	var blocks []types.ContentBlock
 
 	if len(msg.MultiContent) > 0 {
@@ -136,7 +137,7 @@ func convertUserContent(ctx context.Context, msg *chat.Message, id modelsdev.ID,
 				}
 			case chat.MessagePartTypeDocument:
 				if part.Document != nil {
-					docBlocks, err := convertDocument(ctx, *part.Document, id, store)
+					docBlocks, err := convertDocument(ctx, *part.Document, id, store, override)
 					if err != nil {
 						slog.WarnContext(ctx, "failed to convert document attachment", "error", err, "doc", part.Document.Name)
 						continue
@@ -154,7 +155,7 @@ func convertUserContent(ctx context.Context, msg *chat.Message, id modelsdev.ID,
 	return blocks
 }
 
-func convertToolResultContent(ctx context.Context, msg *chat.Message, id modelsdev.ID, store *modelsdev.Store) []types.ToolResultContentBlock {
+func convertToolResultContent(ctx context.Context, msg *chat.Message, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []types.ToolResultContentBlock {
 	if len(msg.MultiContent) == 0 {
 		return []types.ToolResultContentBlock{&types.ToolResultContentBlockMemberText{Value: msg.Content}}
 	}
@@ -176,7 +177,7 @@ func convertToolResultContent(ctx context.Context, msg *chat.Message, id modelsd
 			if part.Document == nil {
 				continue
 			}
-			docBlocks, err := convertDocument(ctx, *part.Document, id, store)
+			docBlocks, err := convertDocument(ctx, *part.Document, id, store, override)
 			if err != nil {
 				slog.WarnContext(ctx, "failed to convert tool result document attachment", "error", err, "doc", part.Document.Name)
 				continue

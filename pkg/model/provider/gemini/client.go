@@ -234,7 +234,7 @@ func thoughtSignatureOrDefault(sig []byte) []byte {
 }
 
 // convertMessagesToGemini converts chat.Messages into Gemini Contents
-func convertMessagesToGemini(ctx context.Context, messages []chat.Message, id modelsdev.ID, store *modelsdev.Store) []*genai.Content {
+func convertMessagesToGemini(ctx context.Context, messages []chat.Message, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []*genai.Content {
 	contents := make([]*genai.Content, 0, len(messages))
 
 	// Vertex Gemini rejects a request unless the turn answering an N-function-call turn
@@ -263,7 +263,7 @@ func convertMessagesToGemini(ctx context.Context, messages []chat.Message, id mo
 		if msg.Role == chat.MessageRoleTool && msg.ToolCallID != "" {
 			response := map[string]any{"result": msg.Content}
 
-			attachmentParts := functionResponsePartsFromMultiContent(ctx, msg.MultiContent, id, store)
+			attachmentParts := functionResponsePartsFromMultiContent(ctx, msg.MultiContent, id, store, override)
 
 			var part *genai.Part
 			if len(attachmentParts) > 0 {
@@ -302,7 +302,7 @@ func convertMessagesToGemini(ctx context.Context, messages []chat.Message, id mo
 
 		// Handle regular messages
 		if len(msg.MultiContent) > 0 {
-			parts := convertMultiContent(ctx, msg.MultiContent, msg.ThoughtSignature, id, store)
+			parts := convertMultiContent(ctx, msg.MultiContent, msg.ThoughtSignature, id, store, override)
 			if len(parts) > 0 {
 				contents = append(contents, genai.NewContentFromParts(parts, role))
 			}
@@ -317,7 +317,7 @@ func convertMessagesToGemini(ctx context.Context, messages []chat.Message, id mo
 	return contents
 }
 
-func functionResponsePartsFromMultiContent(ctx context.Context, multiContent []chat.MessagePart, id modelsdev.ID, store *modelsdev.Store) []*genai.FunctionResponsePart {
+func functionResponsePartsFromMultiContent(ctx context.Context, multiContent []chat.MessagePart, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []*genai.FunctionResponsePart {
 	var parts []*genai.FunctionResponsePart
 	for _, part := range multiContent {
 		switch part.Type {
@@ -338,7 +338,7 @@ func functionResponsePartsFromMultiContent(ctx context.Context, multiContent []c
 			if part.Document == nil {
 				continue
 			}
-			docPart, err := convertDocument(ctx, *part.Document, id, store)
+			docPart, err := convertDocument(ctx, *part.Document, id, store, override)
 			if err != nil {
 				slog.WarnContext(ctx, "failed to convert tool result document attachment", "error", err, "doc", part.Document.Name)
 				continue
@@ -374,7 +374,7 @@ func newTextPartWithSignature(text string, signature []byte) *genai.Part {
 }
 
 // convertMultiContent converts multi-part content to Gemini parts
-func convertMultiContent(ctx context.Context, multiContent []chat.MessagePart, thoughtSignature []byte, id modelsdev.ID, store *modelsdev.Store) []*genai.Part {
+func convertMultiContent(ctx context.Context, multiContent []chat.MessagePart, thoughtSignature []byte, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) []*genai.Part {
 	parts := make([]*genai.Part, 0, len(multiContent))
 	for _, part := range multiContent {
 		switch part.Type {
@@ -387,7 +387,7 @@ func convertMultiContent(ctx context.Context, multiContent []chat.MessagePart, t
 			}
 		case chat.MessagePartTypeDocument:
 			if part.Document != nil {
-				docPart, err := convertDocument(ctx, *part.Document, id, store)
+				docPart, err := convertDocument(ctx, *part.Document, id, store, override)
 				if err != nil {
 					slog.WarnContext(ctx, "failed to convert document attachment", "error", err, "doc", part.Document.Name)
 					continue
@@ -687,7 +687,7 @@ func (c *Client) CreateChatCompletionStream(
 		}
 	}
 
-	contents := convertMessagesToGemini(ctx, messages, c.ID(), c.ModelOptions.ModelsDevStore())
+	contents := convertMessagesToGemini(ctx, messages, c.ID(), c.ModelOptions.ModelsDevStore(), c.CapsOverride())
 
 	// Debug: Log the messages we're sending
 	slog.DebugContext(ctx, "Gemini messages", "count", len(contents))

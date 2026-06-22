@@ -41,8 +41,8 @@ func imageFormatFromMIME(mimeType string) (types.ImageFormat, bool) {
 //   - application/pdf with InlineData → ContentBlockMemberDocument (PDF)
 //   - text/* with InlineText → ContentBlockMemberText with TXTEnvelope
 //   - unsupported / no content → nil (logged as warning)
-func convertDocument(ctx context.Context, doc chat.Document, id modelsdev.ID, store *modelsdev.Store) ([]types.ContentBlock, error) {
-	mc := modelinfo.LoadCaps(ctx, store, id)
+func convertDocument(ctx context.Context, doc chat.Document, id modelsdev.ID, store *modelsdev.Store, override *modelinfo.CapsOverride) ([]types.ContentBlock, error) {
+	mc := modelinfo.ResolveCaps(ctx, store, id, override)
 	return convertDocumentWithCaps(ctx, doc, mc)
 }
 

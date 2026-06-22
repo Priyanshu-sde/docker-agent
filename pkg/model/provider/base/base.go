@@ -4,6 +4,7 @@ import (
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/model/provider/options"
+	"github.com/docker/docker-agent/pkg/modelinfo"
 	"github.com/docker/docker-agent/pkg/modelsdev"
 )
 
@@ -50,6 +51,20 @@ func (c *Config) ID() modelsdev.ID {
 
 func (c *Config) BaseConfig() Config {
 	return *c
+}
+
+// CapsOverride returns the model's explicit attachment-capability override
+// derived from its config, or nil when the config declares none (the common
+// case, in which capabilities are detected from models.dev). Provider clients
+// pass the result to [modelinfo.ResolveCaps] so a user-declared override wins
+// over a models.dev lookup that would otherwise miss for custom/aliased
+// providers and degrade attachments to text-only (issue #2741).
+func (c *Config) CapsOverride() *modelinfo.CapsOverride {
+	caps := c.ModelConfig.Capabilities
+	if caps == nil {
+		return nil
+	}
+	return &modelinfo.CapsOverride{Image: caps.Image, PDF: caps.PDF}
 }
 
 // EmbeddingResult contains the embedding and usage information

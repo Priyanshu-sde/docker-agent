@@ -833,6 +833,27 @@ type ModelConfig struct {
 	// model name from the models section or an inline "provider/model" spec.
 	// When empty, title generation reuses the agent's own model.
 	TitleModel string `json:"title_model,omitempty"`
+	// Capabilities optionally declares the model's attachment capabilities,
+	// overriding the automatic models.dev-based detection. See [CapabilitiesConfig].
+	Capabilities *CapabilitiesConfig `json:"capabilities,omitempty"`
+}
+
+// CapabilitiesConfig declares a model's attachment capabilities explicitly,
+// overriding docker-agent's automatic detection (which queries the models.dev
+// catalogue). It exists for models the catalogue does not describe correctly:
+// custom OpenAI-compatible providers, local models (e.g. Ollama), and model
+// versions that have been dropped from the catalogue. Without it, such models
+// fall back to text-only and their image/PDF attachments are silently dropped.
+//
+// When set, the declared flags are authoritative and no models.dev lookup is
+// performed. When nil (the default), capabilities are detected from models.dev.
+// The declared flags must match what the underlying endpoint actually accepts;
+// claiming an unsupported modality results in a provider-side API error.
+type CapabilitiesConfig struct {
+	// Image reports whether the model accepts image attachments.
+	Image bool `json:"image,omitempty"`
+	// PDF reports whether the model accepts PDF (application/pdf) attachments.
+	PDF bool `json:"pdf,omitempty"`
 }
 
 // IsFirstAvailable reports whether this model is a first-available selector
@@ -923,7 +944,8 @@ func (f *FlexibleModelConfig) isShorthandOnly() bool {
 		f.TaskBudget == nil &&
 		len(f.Routing) == 0 &&
 		f.FirstAvailable == nil &&
-		f.TitleModel == ""
+		f.TitleModel == "" &&
+		f.Capabilities == nil
 }
 
 // RoutingRule defines a single routing rule for model selection.

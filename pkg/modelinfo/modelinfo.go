@@ -36,6 +36,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/docker/docker-agent/pkg/modelsdev"
@@ -304,11 +305,58 @@ func ContextLimit(ctx context.Context, store *modelsdev.Store, id modelsdev.ID, 
 	return int64(model.Limit.Context)
 }
 
+// CapsOverride is an explicit, user-declared attachment capability set that
+// takes precedence over the models.dev catalogue. It is the modelinfo-level
+// representation of a config capability override, deliberately free of any
+// config-package dependency so modelinfo stays at the bottom of the import
+// graph (it must not import pkg/config).
+type CapsOverride struct {
+	Image bool
+	PDF   bool
+}
+
+// ResolveCaps returns the model's attachment capabilities, preferring an
+// explicit override when one is supplied and otherwise consulting models.dev
+// via [LoadCaps]. A nil override reproduces plain [LoadCaps] behaviour, so it
+// is safe to thread a nil override through every call site.
+//
+// The override is the escape hatch for models the catalogue does not describe
+// correctly (custom OpenAI-compatible providers, local models, dropped model
+// versions); see [github.com/docker/docker-agent/pkg/config/latest.CapabilitiesConfig].
+func ResolveCaps(ctx context.Context, store *modelsdev.Store, id modelsdev.ID, override *CapsOverride) ModelCapabilities {
+	if override != nil {
+		return CapsWith(override.Image, override.PDF)
+	}
+	return LoadCaps(ctx, store, id)
+}
+
+// capsMissLogged dedupes the "model not in models.dev" diagnostic so a given
+// model is reported at most once per process rather than on every request.
+var capsMissLogged sync.Map
+
+// warnCapsLookupMiss emits a one-shot diagnostic when a model is absent from
+// models.dev, distinguishing this recoverable misconfiguration from the silent
+// text-only fallback it used to cause. It points the user at the config escape
+// hatch so attachments can be restored. See issue #2741.
+func warnCapsLookupMiss(ctx context.Context, id modelsdev.ID, cause error) {
+	if _, dup := capsMissLogged.LoadOrStore(id.String(), struct{}{}); dup {
+		return
+	}
+	slog.WarnContext(ctx,
+		"modelinfo: model not found in models.dev; assuming text-only, so image and PDF "+
+			"attachments will be dropped. If this model does accept attachments, declare them "+
+			"in the agent config (models.<name>.capabilities: {image: true, pdf: true}) to "+
+			"override capability detection.",
+		"model", id.String(), "cause", cause)
+}
+
 // LoadCaps fetches (or returns from cache) the capability record for the given
 // model ID using the provided store.
 //
 // When the store is nil or the model is not found, LoadCaps returns a
-// conservative capability set that only allows text MIME types.
+// conservative capability set that only allows text MIME types. A models.dev
+// miss is logged once per model via [warnCapsLookupMiss] so the degraded
+// behaviour is diagnosable rather than silent.
 //
 // The supplied ctx is wrapped with loadCapsTimeout so the lookup stays
 // cancellable with the caller and the underlying models.dev load is bounded.
@@ -327,6 +375,8 @@ func LoadCaps(ctx context.Context, store *modelsdev.Store, id modelsdev.ID) Mode
 		if ctx.Err() != nil {
 			slog.WarnContext(ctx, "modelinfo: models.dev lookup timed out, using conservative caps",
 				"model", id.String(), "timeout", loadCapsTimeout)
+		} else {
+			warnCapsLookupMiss(ctx, id, err)
 		}
 		return ModelCapabilities{}
 	}

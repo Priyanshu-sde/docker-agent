@@ -366,7 +366,7 @@ func TestConvertMessagesToGemini_ThoughtSignature(t *testing.T) {
 			contents := convertMessagesToGemini(t.Context(), []chat.Message{
 				{Role: chat.MessageRoleUser, Content: "go"},
 				tt.message,
-			}, modelsdev.ID{}, modelsdev.NewDatabaseStore(&modelsdev.Database{}))
+			}, modelsdev.ID{}, modelsdev.NewDatabaseStore(&modelsdev.Database{}), nil)
 
 			require.Len(t, contents, 2)
 			assistant := contents[1]
@@ -515,7 +515,7 @@ func TestConvertMessagesToGemini_ParallelToolResponsesCoalesced(t *testing.T) {
 		{Role: chat.MessageRoleTool, ToolCallID: "call-2", Content: "result-b"},
 	}
 
-	contents := convertMessagesToGemini(t.Context(), messages, modelsdev.ID{}, modelsdev.NewDatabaseStore(&modelsdev.Database{}))
+	contents := convertMessagesToGemini(t.Context(), messages, modelsdev.ID{}, modelsdev.NewDatabaseStore(&modelsdev.Database{}), nil)
 
 	// user + assistant(2 function calls) + ONE coalesced tool-response content.
 	require.Len(t, contents, 3)

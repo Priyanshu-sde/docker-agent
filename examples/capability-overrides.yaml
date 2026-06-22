@@ -1,0 +1,45 @@
+# Demonstrates the `capabilities` override for models the models.dev catalogue
+# does not describe correctly. Custom OpenAI-compatible providers and local
+# models are not (always) in models.dev, so docker-agent cannot auto-detect
+# whether they accept image/PDF attachments and conservatively falls back to
+# text-only, silently dropping attachments (issue #2741).
+#
+# Declaring `capabilities` makes the model's attachment support authoritative
+# and skips the models.dev lookup entirely. The flags must match what the
+# endpoint actually accepts; claiming an unsupported modality leads to a
+# provider-side API error.
+providers:
+  # A local Ollama endpoint (OpenAI-compatible). models.dev has no "ollama"
+  # provider entry and never catalogues arbitrary local tags such as "llava".
+  ollama:
+    base_url: http://localhost:11434/v1
+
+  # A self-contained custom OpenAI-compatible gateway. Its provider name is
+  # user-defined, so models.dev knows nothing about the models it serves.
+  vision-proxy:
+    api_type: openai_chatcompletions
+    base_url: https://llm.internal.example.com/v1
+    token_key: MY_PROXY_API_KEY
+
+models:
+  # Local vision model: the override is the only way to keep image attachments.
+  llava-local:
+    provider: ollama
+    model: llava
+    capabilities:
+      image: true
+      pdf: false
+
+  # Custom gateway serving a vision- and PDF-capable model.
+  proxy-vision:
+    provider: vision-proxy
+    model: gpt-4o
+    capabilities:
+      image: true
+      pdf: true
+
+agents:
+  root:
+    model: llava-local
+    description: Assistant on a local Ollama vision model with declared image support
+    instruction: You are a helpful assistant. Describe any images the user attaches.
