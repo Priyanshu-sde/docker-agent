@@ -194,6 +194,7 @@ A per-toolset `callbackRedirectURL` (in the YAML) overrides the runtime-wide `--
 | Service    | URL                                               | Transport  | Description                       |
 | ---------- | ------------------------------------------------- | ---------- | --------------------------------- |
 | Canva      | `https://mcp.canva.com/mcp`                       | streamable | Design and graphics platform      |
+| Miro       | `https://mcp.miro.com/`                           | streamable | Collaborative whiteboard platform (Enterprise plan required; see [official docs](https://developers.miro.com/docs/miro-mcp)) |
 | Cloudinary | `https://asset-management.mcp.cloudinary.com/sse` | sse        | Media management and optimization |
 | InVideo    | `https://mcp.invideo.io/sse`                      | sse        | Video creation platform           |
 | Webflow    | `https://mcp.webflow.com/sse`                     | sse        | Website builder and CMS           |
