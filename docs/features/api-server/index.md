@@ -328,7 +328,7 @@ $ curl -X POST http://localhost:8080/api/sessions/$SID/fork \
 
 - `message_index` must point to a **user-role message**; pointing at an assistant turn returns `400 Bad Request`.
 - Out-of-range indices return `400 Bad Request`.
-- An index that falls inside a sub-session returns `400 Bad Request`.
+- An index that falls inside a sub-session returns `400 Bad Request`. A sub-session is a nested session created when a multi-agent config delegates work to a child agent; its messages are embedded within the parent session's message list and cannot be used as a fork boundary.
 
 ## Idempotent follow-ups
 

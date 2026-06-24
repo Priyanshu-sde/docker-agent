@@ -207,6 +207,8 @@ colors:
   background: "#1A0F0A"
 ```
 
+If `name:` is omitted, docker-agent uses the filename stem as the display name in the theme picker (e.g. `brand` from `themes/brand.yaml`).
+
 To replace docker-agent's default theme entirely, ship the file as `themes/default.yaml` — it masks the bundled default while inheriting any colors you don't set.
 
 **Semantics:**
