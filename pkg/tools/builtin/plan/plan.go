@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -67,6 +68,15 @@ type Summary struct {
 	UpdatedAt string `json:"updatedAt"`
 }
 
+// ListResult is the output of list_plans. Warnings lists plan files that could
+// not be read or decoded, so a caller can tell "no plans exist" apart from
+// "some plans failed to load" — important because an agent that mistakes a
+// temporarily unreadable plan for a missing one could recreate and clobber it.
+type ListResult struct {
+	Plans    []Summary `json:"plans"`
+	Warnings []string  `json:"warnings,omitempty"`
+}
+
 type ToolSet struct {
 	mu  sync.Mutex
 	dir string
@@ -81,19 +91,21 @@ var (
 // sharedToolSet returns the one ToolSet shared by every agent in this process,
 // built once on first use. Sharing a single instance means all collaborating
 // agents serialize their plan operations on the same mutex.
-var sharedToolSet = sync.OnceValues(func() (*ToolSet, error) {
-	dir := DefaultDir()
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("failed to create plans directory: %w", err)
-	}
-	return New(dir), nil
+//
+// Building the struct cannot fail, so the directory is *not* created here:
+// save() runs os.MkdirAll on every write, which means a directory that is
+// momentarily unavailable at startup (e.g. a not-yet-mounted parent) is
+// recovered from automatically instead of being permanently memoized as an
+// error.
+var sharedToolSet = sync.OnceValue(func() *ToolSet {
+	return New(DefaultDir())
 })
 
 // CreateToolSet is used by the tools registry. It returns a process-wide
 // singleton so that all agents collaborating in the same process share one
 // lock over the global plans folder.
 func CreateToolSet() (tools.ToolSet, error) {
-	return sharedToolSet()
+	return sharedToolSet(), nil
 }
 
 // DefaultDir is the global shared folder where plans are stored, under the
@@ -250,24 +262,34 @@ func (t *ToolSet) listPlans(_ context.Context, _ tools.ToolCall) (*tools.ToolCal
 	entries, err := os.ReadDir(t.dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return tools.ResultJSON([]Summary{}), nil
+			return tools.ResultJSON(ListResult{Plans: []Summary{}}), nil
 		}
 		return tools.ResultError(err.Error()), nil
 	}
 
-	summaries := make([]Summary, 0, len(entries))
+	result := ListResult{Plans: []Summary{}}
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
+		// The filename is the authoritative key: read_plan and delete_plan
+		// resolve a name to <name>.json, so the listed name must match the
+		// filename, not the (possibly drifted) name field inside the JSON.
+		name := strings.TrimSuffix(entry.Name(), ".json")
 		plan, ok, err := t.load(filepath.Join(t.dir, entry.Name()))
 		if err != nil || !ok {
-			// Skip unreadable or corrupt files so one bad plan doesn't break
-			// listing the rest; read_plan surfaces the specific error.
+			// Don't abort the whole listing on one bad file, but surface it as
+			// a warning so the caller doesn't mistake an unreadable plan for a
+			// missing one.
+			msg := "unreadable"
+			if err != nil {
+				msg = err.Error()
+			}
+			result.Warnings = append(result.Warnings, fmt.Sprintf("skipped %q: %s", name, msg))
 			continue
 		}
-		summaries = append(summaries, Summary{
-			Name:      plan.Name,
+		result.Plans = append(result.Plans, Summary{
+			Name:      name,
 			Title:     plan.Title,
 			Author:    plan.Author,
 			Revision:  plan.Revision,
@@ -275,11 +297,11 @@ func (t *ToolSet) listPlans(_ context.Context, _ tools.ToolCall) (*tools.ToolCal
 		})
 	}
 
-	sort.Slice(summaries, func(i, j int) bool {
-		return summaries[i].Name < summaries[j].Name
+	sort.Slice(result.Plans, func(i, j int) bool {
+		return result.Plans[i].Name < result.Plans[j].Name
 	})
 
-	return tools.ResultJSON(summaries), nil
+	return tools.ResultJSON(result), nil
 }
 
 type DeletePlanArgs struct {
@@ -336,7 +358,7 @@ func (t *ToolSet) Tools(context.Context) ([]tools.Tool, error) {
 			Name:         ToolNameListPlans,
 			Category:     "plan",
 			Description:  "List all shared plans with their name, title, author, and revision.",
-			OutputSchema: tools.MustSchemaFor[[]Summary](),
+			OutputSchema: tools.MustSchemaFor[ListResult](),
 			Handler:      t.listPlans,
 			Annotations: tools.ToolAnnotations{
 				Title:        "List Plans",

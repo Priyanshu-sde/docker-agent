@@ -195,12 +195,13 @@ func TestPlanTool_ListPlans(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
-	var summaries []Summary
-	require.NoError(t, json.Unmarshal([]byte(result.Output), &summaries))
-	require.Len(t, summaries, 2)
+	var list ListResult
+	require.NoError(t, json.Unmarshal([]byte(result.Output), &list))
+	require.Len(t, list.Plans, 2)
 	// Sorted by name.
-	assert.Equal(t, "alpha", summaries[0].Name)
-	assert.Equal(t, "beta", summaries[1].Name)
+	assert.Equal(t, "alpha", list.Plans[0].Name)
+	assert.Equal(t, "beta", list.Plans[1].Name)
+	assert.Empty(t, list.Warnings)
 }
 
 func TestPlanTool_ListEmpty(t *testing.T) {
@@ -210,9 +211,10 @@ func TestPlanTool_ListEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
-	var summaries []Summary
-	require.NoError(t, json.Unmarshal([]byte(result.Output), &summaries))
-	assert.Empty(t, summaries)
+	var list ListResult
+	require.NoError(t, json.Unmarshal([]byte(result.Output), &list))
+	assert.Empty(t, list.Plans)
+	assert.Empty(t, list.Warnings)
 }
 
 func TestPlanTool_ListSkipsCorrupt(t *testing.T) {
@@ -226,10 +228,38 @@ func TestPlanTool_ListSkipsCorrupt(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.IsError)
 
-	var summaries []Summary
-	require.NoError(t, json.Unmarshal([]byte(result.Output), &summaries))
-	require.Len(t, summaries, 1)
-	assert.Equal(t, "good", summaries[0].Name)
+	var list ListResult
+	require.NoError(t, json.Unmarshal([]byte(result.Output), &list))
+	require.Len(t, list.Plans, 1)
+	assert.Equal(t, "good", list.Plans[0].Name)
+	// The corrupt file is surfaced as a warning rather than silently dropped.
+	require.Len(t, list.Warnings, 1)
+	assert.Contains(t, list.Warnings[0], "bad")
+}
+
+func TestPlanTool_ListNameFromFilename(t *testing.T) {
+	tool := newTestPlanTool(t)
+
+	// A plan file whose stored name field disagrees with its filename. The
+	// filename is authoritative because read_plan/delete_plan key off it.
+	drifted := Plan{Name: "wrong-name", Content: "x", Revision: 1}
+	data, err := json.Marshal(drifted)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(tool.dir, "real-name.json"), data, 0o600))
+
+	result, err := tool.listPlans(t.Context(), tools.ToolCall{})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+
+	var list ListResult
+	require.NoError(t, json.Unmarshal([]byte(result.Output), &list))
+	require.Len(t, list.Plans, 1)
+	// The name returned matches the filename, so a follow-up read_plan works.
+	assert.Equal(t, "real-name", list.Plans[0].Name)
+
+	read, err := tool.readPlan(t.Context(), ReadPlanArgs{Name: list.Plans[0].Name})
+	require.NoError(t, err)
+	assert.False(t, read.IsError)
 }
 
 func TestPlanTool_DeletePlan(t *testing.T) {
