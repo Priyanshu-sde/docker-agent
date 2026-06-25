@@ -134,20 +134,29 @@ func GenerateState() (string, error) {
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
 
-// BuildAuthorizationURL builds the OAuth authorization URL with PKCE
+// BuildAuthorizationURL builds the OAuth authorization URL with PKCE.
+// It merges the OAuth parameters into any query string already present on
+// authEndpoint (e.g. Grafana Cloud's grafana_url= selector) so the result
+// always has exactly one '?' even when the endpoint carries pre-existing params.
 func BuildAuthorizationURL(authEndpoint, clientID, redirectURI, state, codeChallenge, resourceURL string, scopes []string) string {
-	params := url.Values{}
-	params.Set("response_type", "code")
-	params.Set("client_id", clientID)
-	params.Set("redirect_uri", redirectURI)
-	params.Set("state", state)
-	params.Set("code_challenge", codeChallenge)
-	params.Set("code_challenge_method", "S256")
-	params.Set("resource", resourceURL) // RFC 8707: Resource Indicators
-	if len(scopes) > 0 {
-		params.Set("scope", strings.Join(scopes, " "))
+	u, err := url.Parse(authEndpoint)
+	if err != nil {
+		// Degrade gracefully: treat the whole input as an opaque endpoint.
+		u = &url.URL{Path: authEndpoint}
 	}
-	return authEndpoint + "?" + params.Encode()
+	q := u.Query() // preserves any params the auth server baked into the endpoint (e.g. grafana_url)
+	q.Set("response_type", "code")
+	q.Set("client_id", clientID)
+	q.Set("redirect_uri", redirectURI)
+	q.Set("state", state)
+	q.Set("code_challenge", codeChallenge)
+	q.Set("code_challenge_method", "S256")
+	q.Set("resource", resourceURL) // RFC 8707: Resource Indicators
+	if len(scopes) > 0 {
+		q.Set("scope", strings.Join(scopes, " "))
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // ExchangeCodeForToken exchanges an authorization code for an access token.

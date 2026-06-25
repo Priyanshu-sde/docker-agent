@@ -2534,3 +2534,86 @@ func TestRoundTrip_ConcurrentInvalidToken_NoRefresh_StickyDecline(t *testing.T) 
 	assert.Equal(t, int32(0), tokenCalls.Load(),
 		"token endpoint must NOT be hit: no refresh token exists")
 }
+
+// TestBuildAuthorizationURL verifies that BuildAuthorizationURL always
+// produces a well-formed URL with exactly one '?' regardless of whether the
+// auth endpoint already contains a query string. Regression test for #3229.
+func TestBuildAuthorizationURL(t *testing.T) {
+	const (
+		clientID      = "test-client"
+		redirectURI   = "https://example.com/callback"
+		state         = "test-state"
+		codeChallenge = "test-challenge"
+		resourceURL   = "https://mcp.example.com"
+	)
+
+	tests := []struct {
+		name               string
+		authEndpoint       string
+		scopes             []string
+		wantPreservedParam map[string]string // params the endpoint already carried
+		wantNoScope        bool
+	}{
+		{
+			name:         "plain endpoint without existing query string",
+			authEndpoint: "https://auth.example.com/authorize",
+			scopes:       []string{"read", "write"},
+		},
+		{
+			// Regression case: Grafana Cloud bakes grafana_url= into the endpoint.
+			name:         "endpoint with pre-existing query string (Grafana Cloud)",
+			authEndpoint: "https://mcp.grafana.com/mcp/oauth/authorize?grafana_url=https%3A%2F%2Fdockerinc.grafana.net",
+			scopes:       []string{"metrics:read"},
+			wantPreservedParam: map[string]string{
+				"grafana_url": "https://dockerinc.grafana.net",
+			},
+		},
+		{
+			name:        "empty scopes omits scope param",
+			authEndpoint: "https://auth.example.com/authorize",
+			scopes:      nil,
+			wantNoScope: true,
+		},
+		{
+			name:         "multiple scopes are space-joined",
+			authEndpoint: "https://auth.example.com/authorize",
+			scopes:       []string{"openid", "profile", "email"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := BuildAuthorizationURL(tc.authEndpoint, clientID, redirectURI, state, codeChallenge, resourceURL, tc.scopes)
+
+			// Exactly one '?' in the result.
+			assert.Equal(t, 1, strings.Count(result, "?"),
+				"result must contain exactly one '?': %s", result)
+
+			// Parse and inspect individual query parameters.
+			u, err := url.Parse(result)
+			require.NoError(t, err, "result must be a valid URL")
+			q := u.Query()
+
+			assert.Equal(t, "code", q.Get("response_type"))
+			assert.Equal(t, clientID, q.Get("client_id"))
+			assert.Equal(t, redirectURI, q.Get("redirect_uri"))
+			assert.Equal(t, state, q.Get("state"))
+			assert.Equal(t, codeChallenge, q.Get("code_challenge"))
+			assert.Equal(t, "S256", q.Get("code_challenge_method"))
+			assert.Equal(t, resourceURL, q.Get("resource"))
+
+			// scope handling
+			if tc.wantNoScope {
+				assert.False(t, q.Has("scope"), "scope param must be absent when scopes is empty")
+			} else {
+				assert.Equal(t, strings.Join(tc.scopes, " "), q.Get("scope"))
+			}
+
+			// pre-existing params must survive intact
+			for k, want := range tc.wantPreservedParam {
+				assert.Equal(t, want, q.Get(k),
+					"pre-existing param %q must be preserved unchanged", k)
+			}
+		})
+	}
+}
