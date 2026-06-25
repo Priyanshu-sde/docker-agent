@@ -55,7 +55,7 @@ type Model interface {
 	AddLoadingMessage(description string) tea.Cmd
 	ReplaceLoadingWithUser(content string, sessionPos int) tea.Cmd
 	AddErrorMessage(content string) tea.Cmd
-	AddAssistantMessage() tea.Cmd
+	AddAssistantMessage(sender, label string) tea.Cmd
 	AddCancelledMessage() tea.Cmd
 	AddWelcomeMessage(content string) tea.Cmd
 	AddOrUpdateToolCall(agentName string, toolCall tools.ToolCall, toolDef tools.Tool, status types.ToolStatus) tea.Cmd
@@ -1237,8 +1237,12 @@ func (m *model) AddShellOutputMessage(content string) tea.Cmd {
 	return m.addMessage(types.ShellOutput(content))
 }
 
-func (m *model) AddAssistantMessage() tea.Cmd {
-	return m.addMessage(types.Spinner())
+func (m *model) AddAssistantMessage(sender, label string) tea.Cmd {
+	m.removeSpinner()
+	if label == "" {
+		return m.addMessage(types.Spinner())
+	}
+	return m.addMessage(types.SpinnerLabeled(sender, label))
 }
 
 func (m *model) AddCancelledMessage() tea.Cmd {

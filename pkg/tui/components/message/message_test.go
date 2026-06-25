@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/docker/docker-agent/pkg/tui/components/spinner"
 	"github.com/docker/docker-agent/pkg/tui/types"
 )
 
@@ -292,4 +293,34 @@ func TestUserMessageNotCollapsible(t *testing.T) {
 
 	height := mv.Height(80)
 	assert.False(t, mv.IsToggleLine(height-1))
+}
+
+// TestLabeledSpinnerRendersDelegationContext covers the delegated-stream spinner:
+// a MessageTypeSpinner carrying a label renders an animated glyph plus the
+// "parent → child" text, and stays spinner-driven so it is never cached.
+func TestLabeledSpinnerRendersDelegationContext(t *testing.T) {
+	t.Parallel()
+
+	// Sender drives the accent color (child); Content holds the label.
+	msg := types.SpinnerLabeled("researcher", "root → researcher")
+	mv := New(msg, nil)
+	mv.SetSize(80, 0)
+
+	assert.True(t, mv.isSpinnerDriven(), "labeled spinner must stay uncached/animated")
+
+	out := stripANSI(mv.View())
+	assert.Contains(t, out, "root → researcher", "label should read parent → child")
+	assert.Contains(t, out, spinner.Frame(0), "animated glyph should lead the label")
+}
+
+// TestBareSpinnerKeepsPlayfulView ensures the normal top-level turn (empty
+// label) is untouched: it still renders the playful spinner verbatim.
+func TestBareSpinnerKeepsPlayfulView(t *testing.T) {
+	t.Parallel()
+
+	mv := New(types.Spinner(), nil)
+	mv.SetSize(80, 0)
+
+	assert.True(t, mv.isSpinnerDriven())
+	assert.Equal(t, mv.spinner.View(), mv.View(), "empty label must keep the default spinner rendering")
 }

@@ -254,7 +254,12 @@ func (mv *messageModel) render(width int) string {
 	msg := mv.message
 	switch msg.Type {
 	case types.MessageTypeSpinner:
-		return mv.spinner.View()
+		if msg.Content == "" {
+			return mv.spinner.View() // top-level: keep the playful spinner
+		}
+		// Delegated stream: animated glyph + per-agent-colored "parent → child".
+		glyph := styles.SpinnerDotsAccentStyle.MarginLeft(2).Render(mv.spinner.RawFrame())
+		return glyph + " " + styles.AgentAccentStyleFor(msg.Sender).Render(msg.Content)
 	case types.MessageTypeUser:
 		// Choose style based on selection state
 		messageStyle := styles.UserMessageStyle

@@ -83,6 +83,13 @@ func Spinner() *Message {
 	}
 }
 
+// SpinnerLabeled is a pending-response spinner that names the agent we're waiting
+// on. Sender drives the accent color; Content holds the label (e.g. "root → x").
+// Empty Content renders the default spinner.
+func SpinnerLabeled(sender, label string) *Message {
+	return &Message{Type: MessageTypeSpinner, Sender: sender, Content: label}
+}
+
 func Error(content string) *Message {
 	return &Message{
 		Type:    MessageTypeError,

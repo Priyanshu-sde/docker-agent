@@ -75,7 +75,7 @@ func TestLongSessionDoesNotRetainPerMessageRenderState(t *testing.T) {
 
 	streamMessage := func(i int) {
 		m.AddUserMessage(fmt.Sprintf("user message %d", i))
-		m.AddAssistantMessage()
+		m.AddAssistantMessage("", "")
 		for off := 0; off < len(body); off += chunkSize {
 			end := min(off+chunkSize, len(body))
 			m.AppendToLastMessage("root", body[off:end])

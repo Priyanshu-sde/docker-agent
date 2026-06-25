@@ -142,7 +142,8 @@ type chatPage struct {
 
 	msgCancel       context.CancelFunc
 	streamCancelled bool
-	streamDepth     int // nesting depth of active streams (incremented on StreamStarted, decremented on StreamStopped)
+	streamDepth     int      // nesting depth of active streams (incremented on StreamStarted, decremented on StreamStopped)
+	agentStack      []string // agent per active stream level; len(agentStack)==streamDepth
 	streamStartTime time.Time
 
 	// Track whether we've received content from an assistant response
@@ -443,10 +444,22 @@ func (p *chatPage) setWorking(working bool) tea.Cmd {
 // the scrollable list; when stopping, it explicitly removes any lingering spinner.
 func (p *chatPage) setPendingResponse(pending bool) tea.Cmd {
 	if pending {
-		return p.messages.AddAssistantMessage()
+		sender, label := p.pendingSpinnerContext()
+		return p.messages.AddAssistantMessage(sender, label)
 	}
 	p.messages.RemoveSpinner()
 	return nil
+}
+
+// pendingSpinnerContext labels the waiting spinner during delegation only.
+// Depth < 2 → empty (default playful spinner); nested → child + "parent → child".
+func (p *chatPage) pendingSpinnerContext() (sender, label string) {
+	n := len(p.agentStack)
+	if n < 2 {
+		return "", ""
+	}
+	child := p.agentStack[n-1]
+	return child, p.agentStack[n-2] + " → " + child
 }
 
 // renderCollapsedSidebar renders the sidebar in collapsed mode (at top of screen).
@@ -620,6 +633,7 @@ func (p *chatPage) cancelStream(showCancelMessage bool) tea.Cmd {
 	p.msgCancel = nil
 	p.streamCancelled = true
 	p.streamDepth = 0
+	p.agentStack = nil
 	p.setPendingResponse(false)
 	// Send StreamCancelledMsg to all components to handle cleanup
 	return tea.Batch(
@@ -890,6 +904,7 @@ func (p *chatPage) processMessage(msg msgtypes.SendMsg) tea.Cmd {
 	}
 
 	p.streamDepth = 0
+	p.agentStack = nil
 	p.sidebar.ResetStreamTracking()
 
 	var ctx context.Context

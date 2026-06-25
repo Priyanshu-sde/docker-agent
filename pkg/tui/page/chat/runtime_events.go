@@ -202,6 +202,7 @@ func (p *chatPage) handleStreamStarted(msg *runtime.StreamStartedEvent) tea.Cmd 
 	slog.Debug("handleStreamStarted called", "agent", msg.AgentName, "session_id", msg.SessionID)
 	p.streamCancelled = false
 	p.streamDepth++
+	p.agentStack = append(p.agentStack, msg.AgentName)
 	p.streamStartTime = time.Now()
 	spinnerCmd := p.setWorking(true)
 	pendingCmd := p.setPendingResponse(true)
@@ -233,12 +234,18 @@ func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd 
 		"agent", msg.AgentName,
 		"session_id", msg.SessionID,
 		"reason", msg.Reason,
-		"should_exit", p.app.ShouldExitAfterFirstResponse(),
+		"should_exit", p.app != nil && p.app.ShouldExitAfterFirstResponse(),
 		"has_content", p.hasReceivedAssistantContent,
 		"stream_depth", p.streamDepth)
 
 	if p.streamDepth > 0 {
 		p.streamDepth--
+		// Keep agentStack in sync: only pop when there was a depth to decrement,
+		// so spurious/duplicate StreamStopped events at depth 0 cannot cause
+		// the two slices to diverge.
+		if n := len(p.agentStack); n > 0 {
+			p.agentStack = p.agentStack[:n-1]
+		}
 	}
 
 	sidebarCmd := p.forwardToSidebar(msg)
@@ -247,8 +254,12 @@ func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd 
 	// forward to the sidebar and keep the working/cancel state intact.
 	// Without this guard, pressing Esc after a sub-agent completes but
 	// while the parent continues would have no effect.
+	// Also clear the now-stale "parent → child" labeled spinner and
+	// replace it with a plain parent spinner so the UI reflects the
+	// updated delegation state.
 	if p.streamDepth > 0 {
-		return tea.Batch(p.messages.ScrollToBottom(), sidebarCmd)
+		p.setPendingResponse(false)
+		return tea.Batch(p.messages.ScrollToBottom(), sidebarCmd, p.setPendingResponse(true))
 	}
 
 	// Outermost stream stopped — fully clean up.

@@ -19,7 +19,7 @@ func New(msg *types.Message, sessionState service.SessionStateReader) layout.Mod
 	return toolcommon.NewBase(msg, sessionState, render)
 }
 
-func render(msg *types.Message, _ spinner.Spinner, _ service.SessionStateReader, width, _ int) string {
+func render(msg *types.Message, s spinner.Spinner, _ service.SessionStateReader, width, _ int) string {
 	var params transfertask.Args
 	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &params); err != nil {
 		return ""
@@ -29,8 +29,9 @@ func render(msg *types.Message, _ spinner.Spinner, _ service.SessionStateReader,
 		" calls " +
 		styles.AgentBadgeStyleFor(params.Agent).Render(params.Agent)
 
-	// Calculate the icon with its margin
-	icon := styles.ToolCompletedIcon.Render("✓")
+	// Status-aware icon: spinner while the delegation runs, ✓ on success, ✗ on error.
+	// Single glyph (no elapsed suffix) keeps the wrap math below stable.
+	icon := statusIcon(msg, s)
 	iconWithSpace := icon + " "
 	iconWidth := lipgloss.Width(iconWithSpace)
 
@@ -56,4 +57,22 @@ func render(msg *types.Message, _ spinner.Spinner, _ service.SessionStateReader,
 	}
 
 	return header + "\n\n" + taskContent.String()
+}
+
+// statusIcon picks the leading glyph for the delegation card from the tool
+// status: an animated spinner while the sub-agent runs, ✓ on success, ✗ on
+// error. The transfertask Base spinner is ModeSpinnerOnly, so s.View() is a
+// single 1-cell glyph whose width matches ✓/✗, keeping the task-text wrap math
+// stable (no elapsed-time suffix, unlike toolcommon.Icon).
+func statusIcon(msg *types.Message, s spinner.Spinner) string {
+	switch msg.ToolStatus {
+	case types.ToolStatusRunning, types.ToolStatusPending, types.ToolStatusConfirmation:
+		return styles.NoStyle.MarginLeft(2).Render(s.View())
+	case types.ToolStatusCompleted:
+		return styles.ToolCompletedIcon.Render("✓")
+	case types.ToolStatusError:
+		return styles.ToolErrorIcon.Render("✗")
+	default: // genuinely unknown/terminal states
+		return styles.ToolCompletedIcon.Render("✓")
+	}
 }
