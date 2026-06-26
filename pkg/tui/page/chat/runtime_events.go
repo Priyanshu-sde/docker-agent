@@ -56,7 +56,7 @@ func (p *chatPage) handleRuntimeEvent(msg tea.Msg) (bool, tea.Cmd) {
 	// ===== Error and Warning Events =====
 	case *runtime.ErrorEvent:
 		if userconfig.Get().GetSound() {
-			sound.Play(sound.Failure)
+			sound.Play(p.ctx(), sound.Failure)
 		}
 		return true, p.messages.AddErrorMessage(msg.Error)
 
@@ -270,7 +270,7 @@ func (p *chatPage) handleStreamStopped(msg *runtime.StreamStoppedEvent) tea.Cmd 
 		duration := time.Since(p.streamStartTime)
 		threshold := time.Duration(userconfig.Get().GetSoundThreshold()) * time.Second
 		if duration >= threshold {
-			sound.Play(sound.Success)
+			sound.Play(p.ctx(), sound.Success)
 		}
 	}
 	p.msgCancel = nil

@@ -22,35 +22,35 @@ const (
 // Play plays a notification sound for the given event in the background.
 // It is non-blocking and safe to call from any goroutine.
 // If the sound cannot be played, the error is logged and silently ignored.
-func Play(event Event) {
+func Play(ctx context.Context, event Event) {
 	go func() {
-		if err := playSound(event); err != nil {
-			slog.Debug("Failed to play sound", "event", event, "error", err)
+		ctx := context.WithoutCancel(ctx)
+		if err := playSound(ctx, event); err != nil {
+			slog.DebugContext(ctx, "Failed to play sound", "event", event, "error", err)
 		}
 	}()
 }
 
-func playSound(event Event) error {
+func playSound(ctx context.Context, event Event) error {
 	switch runtime.GOOS {
 	case "darwin":
-		return playDarwin(event)
+		return playDarwin(ctx, event)
 	case "linux":
-		return playLinux(event)
+		return playLinux(ctx, event)
 	case "windows":
-		return playWindows(event)
+		return playWindows(ctx, event)
 	default:
 		return nil
 	}
 }
 
 // runDetached executes a command for fire-and-forget audio playback. The
-// process is short-lived and not tied to any caller-provided context.
-func runDetached(name string, args ...string) error {
-	//rubocop:disable Lint/ContextConnectivity
-	return exec.CommandContext(context.Background(), name, args...).Run()
+// process is short-lived and not tied to caller cancellation.
+func runDetached(ctx context.Context, name string, args ...string) error {
+	return exec.CommandContext(ctx, name, args...).Run()
 }
 
-func playDarwin(event Event) error {
+func playDarwin(ctx context.Context, event Event) error {
 	// Use macOS built-in system sounds via afplay
 	var soundFile string
 	switch event {
@@ -59,10 +59,10 @@ func playDarwin(event Event) error {
 	case Failure:
 		soundFile = "/System/Library/Sounds/Basso.aiff"
 	}
-	return runDetached("afplay", soundFile)
+	return runDetached(ctx, "afplay", soundFile)
 }
 
-func playLinux(event Event) error {
+func playLinux(ctx context.Context, event Event) error {
 	// Try paplay (PulseAudio) first, then fall back to terminal bell
 	var soundFile string
 	switch event {
@@ -73,14 +73,14 @@ func playLinux(event Event) error {
 	}
 
 	if path, err := exec.LookPath("paplay"); err == nil {
-		return runDetached(path, soundFile)
+		return runDetached(ctx, path, soundFile)
 	}
 
 	// Fallback: terminal bell via printf
-	return runDetached("printf", `\a`)
+	return runDetached(ctx, "printf", `\a`)
 }
 
-func playWindows(event Event) error {
+func playWindows(ctx context.Context, event Event) error {
 	// Use PowerShell to play system sounds
 	var script string
 	switch event {
@@ -89,5 +89,5 @@ func playWindows(event Event) error {
 	case Failure:
 		script = `[System.Media.SystemSounds]::Hand.Play()`
 	}
-	return runDetached("powershell", "-NoProfile", "-NonInteractive", "-Command", script)
+	return runDetached(ctx, "powershell", "-NoProfile", "-NonInteractive", "-Command", script)
 }
