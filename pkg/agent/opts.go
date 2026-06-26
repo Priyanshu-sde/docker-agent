@@ -137,6 +137,17 @@ func WithRedactSecrets(redactSecrets bool) Opt {
 	}
 }
 
+// WithSaferShell registers the safer_shell builtin under safety_check
+// when any of the agent's shell toolsets has `safer: true`. The
+// builtin runs pre-Decide() and routes destructive shell commands to
+// user confirmation regardless of --yolo or permission allow-rules.
+// See [builtins.SaferShell] and [hooks.EventSafetyCheck].
+func WithSaferShell(saferShell bool) Opt {
+	return func(a *Agent) {
+		a.saferShell = saferShell
+	}
+}
+
 func WithAddDescriptionParameter(addDescriptionParameter bool) Opt {
 	return func(a *Agent) {
 		a.addDescriptionParameter = addDescriptionParameter

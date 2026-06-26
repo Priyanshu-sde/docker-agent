@@ -685,3 +685,145 @@ func TestDispatcher_ConfirmationMetadataNilWhenNoneSupplied(t *testing.T) {
 	require.Len(t, em.confirmationMeta, 1)
 	assert.Nil(t, em.confirmationMeta[0])
 }
+
+// TestDispatcher_SafetyCheckAskPreemptsYolo pins the load-bearing
+// property of the safety_check event: an Ask verdict must route to
+// user confirmation even when ToolsApproved (--yolo / Allow All)
+// would otherwise auto-run the call. Also verifies the hook's
+// Metadata reaches the confirmation event.
+func TestDispatcher_SafetyCheckAskPreemptsYolo(t *testing.T) {
+	a := newAgent()
+	sess := session.New()
+	sess.ToolsApproved = true
+
+	tool := tools.Tool{
+		Name: "shell",
+		Handler: func(context.Context, tools.ToolCall) (*tools.ToolCallResult, error) {
+			panic("must not run before approval")
+		},
+	}
+
+	hd := &stubHookDispatcher{
+		on: map[hooks.EventType]*hooks.Result{
+			hooks.EventSafetyCheck: {
+				Allowed:        true,
+				Decision:       hooks.DecisionAsk,
+				DecisionReason: "rm -rf <path>: irreversible",
+				Metadata: map[string]string{
+					"blast_radius": "high",
+					"category":     "fs-delete",
+				},
+			},
+		},
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	d := &toolexec.Dispatcher{
+		AgentFor: func(*session.Session) *agent.Agent { return a },
+		Hooks:    hd,
+	}
+	em := &captureEmitter{confirmed: make(chan struct{})}
+	go func() {
+		<-em.confirmed
+		cancel()
+	}()
+
+	d.Process(ctx, sess, []tools.ToolCall{{
+		ID:       "danger",
+		Function: tools.FunctionCall{Name: "shell", Arguments: `{"cmd":"rm -rf /tmp/x"}`},
+	}}, []tools.Tool{tool}, em)
+
+	require.Len(t, em.confirmations, 1, "Ask must route to user confirmation despite --yolo")
+	require.Len(t, em.confirmationMeta, 1)
+	assert.Equal(t, "high", em.confirmationMeta[0]["blast_radius"],
+		"safety_check Metadata must reach the confirmation event")
+	assert.Equal(t, "fs-delete", em.confirmationMeta[0]["category"])
+	require.Len(t, em.responses, 1)
+	assert.True(t, em.responses[0].IsError)
+	assert.Contains(t, em.responses[0].Output, "canceled by the user")
+}
+
+// TestDispatcher_SafetyCheckDenyShortCircuits pins the Deny path: a
+// safety_check Deny verdict goes straight to errorResponse without
+// emitting a confirmation event or consulting permission_request.
+func TestDispatcher_SafetyCheckDenyShortCircuits(t *testing.T) {
+	a := newAgent()
+	sess := session.New()
+	sess.ToolsApproved = true
+
+	tool := tools.Tool{
+		Name: "shell",
+		Handler: func(context.Context, tools.ToolCall) (*tools.ToolCallResult, error) {
+			panic("must not run when denied")
+		},
+	}
+
+	hd := &stubHookDispatcher{
+		on: map[hooks.EventType]*hooks.Result{
+			hooks.EventSafetyCheck: {
+				Allowed:        false,
+				Decision:       hooks.DecisionDeny,
+				DecisionReason: "blocked by policy",
+			},
+		},
+	}
+
+	d := &toolexec.Dispatcher{
+		AgentFor: func(*session.Session) *agent.Agent { return a },
+		Hooks:    hd,
+	}
+	em := &captureEmitter{}
+
+	d.Process(t.Context(), sess, []tools.ToolCall{{
+		ID:       "x",
+		Function: tools.FunctionCall{Name: "shell", Arguments: `{"cmd":"rm -rf /tmp/x"}`},
+	}}, []tools.Tool{tool}, em)
+
+	assert.Empty(t, em.confirmations, "Deny must not emit a confirmation event")
+	require.Len(t, em.responses, 1)
+	assert.True(t, em.responses[0].IsError)
+	assert.Contains(t, em.responses[0].Output, "safety_check hook")
+	assert.Contains(t, em.responses[0].Output, "blocked by policy")
+}
+
+// TestDispatcher_SafetyCheckAllowIsAdvisory pins the Allow path: an
+// Allow verdict from safety_check is informational, the pipeline
+// still proceeds. With ToolsApproved=true the call must auto-run.
+func TestDispatcher_SafetyCheckAllowIsAdvisory(t *testing.T) {
+	a := newAgent()
+	sess := session.New()
+	sess.ToolsApproved = true
+
+	ran := false
+	tool := tools.Tool{
+		Name: "shell",
+		Handler: func(context.Context, tools.ToolCall) (*tools.ToolCallResult, error) {
+			ran = true
+			return tools.ResultSuccess("ok"), nil
+		},
+	}
+
+	hd := &stubHookDispatcher{
+		on: map[hooks.EventType]*hooks.Result{
+			hooks.EventSafetyCheck: {
+				Allowed:  true,
+				Decision: hooks.DecisionAllow,
+			},
+		},
+	}
+
+	d := &toolexec.Dispatcher{
+		AgentFor: func(*session.Session) *agent.Agent { return a },
+		Hooks:    hd,
+	}
+	em := &captureEmitter{}
+
+	d.Process(t.Context(), sess, []tools.ToolCall{{
+		ID:       "x",
+		Function: tools.FunctionCall{Name: "shell", Arguments: `{"cmd":"ls /tmp"}`},
+	}}, []tools.Tool{tool}, em)
+
+	assert.True(t, ran, "Allow from safety_check is advisory; --yolo must still allow the call")
+	assert.Empty(t, em.confirmations)
+}

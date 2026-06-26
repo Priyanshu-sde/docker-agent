@@ -40,6 +40,7 @@ const (
 	ApprovalSourcePreToolUseHookAllow        = "pre_tool_use_hook_allow"
 	ApprovalSourcePreToolUseHookDeny         = "pre_tool_use_hook_deny"
 	ApprovalSourcePermissionRequestHookDeny  = "permission_request_hook_deny"
+	ApprovalSourceSafetyCheckHookDeny        = "safety_check_hook_deny"
 	ApprovalSourcePermissionRequestHookAllow = "permission_request_hook_allow"
 	ApprovalSourceReadOnlyHint               = "readonly_hint"
 	ApprovalSourceUserApproved               = "user_approved"
@@ -243,6 +244,13 @@ type call struct {
 	tc        tools.ToolCall // mutable: pre_tool_use hooks may rewrite arguments
 	tool      tools.Tool     // tool.Name is always set; other fields zero when !available
 	available bool           // false when the tool wasn't in the agent's toolset
+
+	// safety_check hook result cache. The first consultSafetyCheck call
+	// dispatches EventSafetyCheck and stores the verdict; subsequent
+	// calls return the cached result. Without the cache, approveAndRun
+	// + askUser would dispatch the hook chain up to twice per tool call.
+	safetyComputed bool
+	safetyResult   *hooks.Result
 }
 
 // run processes a single tool call and returns its outcome. All span
@@ -311,6 +319,11 @@ func (c *call) run(ctx context.Context) CallOutcome {
 //
 // The pipeline order is:
 //
+//  0. safety_check hooks — fire BEFORE the deterministic checkers so a
+//     Deny or Ask verdict here preempts --yolo and permission allow
+//     rules. Allow / no-opinion fall through. The safer_shell builtin
+//     is the canonical user; the verdict's metadata is surfaced to the
+//     confirmation event via [call.confirmationMetadata].
 //  1. yolo / permission checkers (delegated to [Decide]) — deterministic
 //     verdicts win first. ForceAsk goes straight to the user.
 //  2. pre_tool_use hooks (LLM-judge, shell scripts, ...) — consulted
@@ -328,6 +341,25 @@ func (c *call) run(ctx context.Context) CallOutcome {
 // that an LLM judge gets a turn on every call that isn't covered by an
 // explicit allow/deny rule.
 func (c *call) approveAndRun(ctx context.Context, runTool func() CallOutcome) CallOutcome {
+	// Stage 0: safety_check fires before the deterministic checkers so
+	// destructive-command verdicts can preempt --yolo / permissions.
+	if r := c.consultSafetyCheck(ctx); r != nil {
+		switch r.Decision {
+		case hooks.DecisionDeny:
+			slog.DebugContext(ctx, "Tool denied by safety_check hook", "tool", c.tc.Function.Name, "session_id", c.sess.ID, "reason", r.DecisionReason)
+			c.notifyApproval(ctx, ApprovalDecisionDeny, ApprovalSourceSafetyCheckHookDeny)
+			rejectMsg := "The tool call was rejected by a safety_check hook."
+			if reason := strings.TrimSpace(r.DecisionReason); reason != "" {
+				rejectMsg += " Reason: " + reason
+			}
+			c.errorResponse(ctx, rejectMsg)
+			return CallOutcome{}
+		case hooks.DecisionAsk:
+			return c.askUser(ctx, runTool)
+		}
+		// DecisionAllow / "" → advisory; fall through to Decide().
+	}
+
 	var checkers []NamedChecker
 	if c.d.Permissions != nil {
 		checkers = c.d.Permissions(c.sess)
@@ -373,6 +405,29 @@ func (c *call) approveAndRun(ctx context.Context, runTool func() CallOutcome) Ca
 		return runTool()
 	}
 	return c.askUser(ctx, runTool)
+}
+
+// consultSafetyCheck dispatches the safety_check hook chain for this
+// call and caches the verdict. SafetyCheck runs BEFORE the
+// deterministic approval pipeline ([Decide], --yolo, permission
+// patterns, pre_tool_use) so a deny/ask verdict here cannot be
+// bypassed by auto-approval rules. Returns nil when no safety_check
+// hook is registered, the hooks dispatcher itself is nil, or the
+// chain returned no opinion.
+//
+// Cached after the first call: approveAndRun consults it once and
+// askUser reads its metadata when emitting the confirmation event.
+// Without the cache the chain would dispatch up to twice per call.
+func (c *call) consultSafetyCheck(ctx context.Context) *hooks.Result {
+	if c.safetyComputed {
+		return c.safetyResult
+	}
+	c.safetyComputed = true
+	if c.d.Hooks == nil {
+		return nil
+	}
+	c.safetyResult = c.d.Hooks.Dispatch(ctx, c.a, hooks.EventSafetyCheck, NewHooksInput(c.sess, c.tc))
+	return c.safetyResult
 }
 
 // consultPreToolUseHook fires the pre_tool_use hook chain in the
@@ -505,11 +560,19 @@ func denySourceForChecker(checkerSource string) string {
 //
 // permission_request hooks fire first and may short-circuit the prompt
 // with an explicit allow or deny verdict; returning nothing falls
-// through to the interactive confirmation.
+// through to the interactive confirmation. The permission_request
+// chain is SKIPPED entirely when a safety_check hook produced an Ask
+// verdict — that's the whole point of safety_check preempting --yolo,
+// and letting a policy-level permission_request hook auto-allow the
+// call would unwind that protection.
 func (c *call) askUser(ctx context.Context, runTool func() CallOutcome) CallOutcome {
-	outcome, handled, hookMeta := c.runPermissionRequestHook(ctx, runTool)
-	if handled {
-		return outcome
+	var hookMeta map[string]string
+	if c.safetyResult == nil || c.safetyResult.Decision != hooks.DecisionAsk {
+		outcome, handled, meta := c.runPermissionRequestHook(ctx, runTool)
+		if handled {
+			return outcome
+		}
+		hookMeta = meta
 	}
 
 	slog.DebugContext(ctx, "Tools not approved, waiting for resume", "tool", c.tc.Function.Name, "session_id", c.sess.ID)
@@ -583,16 +646,28 @@ func (c *call) runPermissionRequestHook(ctx context.Context, runTool func() Call
 }
 
 // confirmationMetadata merges the tool's static metadata (set by the
-// toolset) with the per-call metadata a permission_request hook
-// contributed. Hook keys win on a clash. Returns nil when neither
-// source supplied anything, so the confirmation event stays lean.
-func (c *call) confirmationMetadata(hookMeta map[string]string) map[string]string {
-	if len(c.tool.Metadata) == 0 && len(hookMeta) == 0 {
+// toolset) with the per-call metadata contributed by permission_request
+// and safety_check hooks. Merge order — and therefore key-clash
+// precedence — is:
+//
+//	tool static  <  permission_request  <  safety_check
+//
+// safety_check wins because it carries security verdicts (blast
+// radius, classification) that a policy-level permission_request hook
+// must not silently overwrite. Returns nil when no source supplied
+// anything so the confirmation event stays lean.
+func (c *call) confirmationMetadata(permissionMeta map[string]string) map[string]string {
+	var safetyMeta map[string]string
+	if c.safetyResult != nil {
+		safetyMeta = c.safetyResult.Metadata
+	}
+	if len(c.tool.Metadata) == 0 && len(permissionMeta) == 0 && len(safetyMeta) == 0 {
 		return nil
 	}
-	merged := make(map[string]string, len(c.tool.Metadata)+len(hookMeta))
+	merged := make(map[string]string, len(c.tool.Metadata)+len(permissionMeta)+len(safetyMeta))
 	maps.Copy(merged, c.tool.Metadata)
-	maps.Copy(merged, hookMeta)
+	maps.Copy(merged, permissionMeta)
+	maps.Copy(merged, safetyMeta)
 	return merged
 }
 

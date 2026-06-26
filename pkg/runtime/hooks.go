@@ -36,6 +36,7 @@ func (r *LocalRuntime) buildHooksExecutors() {
 			AddEnvironmentInfo: a.AddEnvironmentInfo(),
 			AddPromptFiles:     a.AddPromptFiles(),
 			RedactSecrets:      a.RedactSecrets(),
+			SaferShell:         a.SaferShell(),
 		})
 		cfg = applyAutoInjectors(cfg, r.autoInjectors)
 		cfg = applyCacheDefault(cfg, a)
