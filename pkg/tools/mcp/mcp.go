@@ -317,14 +317,12 @@ func newSupervisor(ts *Toolset, base lifecycle.Policy) *lifecycle.Supervisor {
 		ts.invalidateCache()
 		ts.mu.Unlock()
 	}
-	policy.OnRestart = func() {
+	policy.OnRestart = func(ctx context.Context) {
 		// Refresh tool and prompt caches eagerly so subsequent
 		// Tools()/ListPrompts() calls return the up-to-date data
 		// from the new server. The new server may expose a
 		// different set of tools/prompts and notifications won't
 		// fire for tools that disappeared.
-		//rubocop:disable Lint/ContextConnectivity
-		ctx := context.Background()
 		ts.refreshToolCache(ctx)
 		ts.refreshPromptCache(ctx)
 	}

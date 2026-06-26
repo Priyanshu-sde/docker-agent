@@ -112,7 +112,7 @@ type Policy struct {
 	OnDisconnect func(err error)
 	// OnRestart is called after each successful reconnect. Useful for
 	// re-fetching server-side state (tools, prompts).
-	OnRestart func()
+	OnRestart func(ctx context.Context)
 	// OnFailed is called once when the supervisor enters StateFailed.
 	OnFailed func(err error)
 
@@ -425,7 +425,7 @@ func (s *Supervisor) watch(ctx context.Context) {
 		}
 
 		if cb := s.policy.OnRestart; cb != nil {
-			cb()
+			cb(ctx)
 		}
 	}
 }
