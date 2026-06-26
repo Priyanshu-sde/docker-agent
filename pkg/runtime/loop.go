@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -306,6 +307,7 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 		return
 	}
 	agentTools = filterExcludedTools(agentTools, sess.ExcludedTools)
+	agentTools = r.skillSubSessionTools(ctx, sess, a, agentTools, sink)
 
 	// Record the catalogue size on the session span — answers "how
 	// many tools could this turn actually use?" without having to
@@ -400,6 +402,7 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 			return
 		}
 		agentTools = filterExcludedTools(agentTools, sess.ExcludedTools)
+		agentTools = r.skillSubSessionTools(ctx, sess, a, agentTools, sink)
 
 		// Emit updated tool count. After a ToolListChanged MCP notification
 		// the cache is invalidated, so getTools above re-fetches from the
@@ -1093,6 +1096,76 @@ func filterExcludedTools(agentTools []tools.Tool, excluded []string) []tools.Too
 	return filtered
 }
 
+// filterAllowedTools keeps only tools whose names match an entry in allowed
+// (filepath.Match-style glob, falling back to an exact match). An empty
+// allow-list imposes no restriction. Used by fork-mode skill sub-sessions
+// that declare an allowed-tools list.
+func filterAllowedTools(agentTools []tools.Tool, allowed []string) []tools.Tool {
+	if len(allowed) == 0 {
+		return agentTools
+	}
+	filtered := make([]tools.Tool, 0, len(agentTools))
+	for _, t := range agentTools {
+		if toolNameMatchesAny(t.Name, allowed) {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// toolNameMatchesAny reports whether name matches any of the patterns. Each
+// pattern is tried as a filepath.Match glob; a malformed pattern falls back
+// to an exact string comparison.
+func toolNameMatchesAny(name string, patterns []string) bool {
+	for _, p := range patterns {
+		if p == name {
+			return true
+		}
+		if ok, err := filepath.Match(p, name); err == nil && ok {
+			return true
+		}
+	}
+	return false
+}
+
+// skillSubSessionTools augments the agent's tools for a fork-mode skill
+// sub-session: it applies the skill's allowed-tools allow-list to the
+// inherited agent tools, then appends the tools from the skill's assistive
+// toolsets (which bypass the allow-list — the skill explicitly asked for
+// them). It is a no-op for ordinary sessions that set neither field.
+func (r *LocalRuntime) skillSubSessionTools(ctx context.Context, sess *session.Session, a *agent.Agent, agentTools []tools.Tool, events EventSink) []tools.Tool {
+	if len(sess.AllowedTools) == 0 && len(sess.ExtraToolSets) == 0 {
+		return agentTools
+	}
+
+	agentTools = filterAllowedTools(agentTools, sess.AllowedTools)
+
+	for _, ts := range sess.ExtraToolSets {
+		tools.ConfigureHandlers(ts,
+			r.elicitationHandler,
+			r.samplingHandler,
+			func() { events.Emit(Authorization(tools.ElicitationActionAccept, a.Name())) },
+			r.managedOAuth,
+			r.unmanagedOAuthRedirectURI,
+		)
+		if startable, ok := tools.As[tools.Startable](ts); ok {
+			if err := startable.Start(ctx); err != nil {
+				slog.WarnContext(ctx, "Skill toolset failed to start; skipping",
+					"agent", a.Name(), "toolset", tools.DescribeToolSet(ts), "error", err)
+				continue
+			}
+		}
+		extra, err := ts.Tools(ctx)
+		if err != nil {
+			slog.WarnContext(ctx, "Skill toolset listing failed; skipping",
+				"agent", a.Name(), "toolset", tools.DescribeToolSet(ts), "error", err)
+			continue
+		}
+		agentTools = append(agentTools, extra...)
+	}
+	return agentTools
+}
+
 // reprobe re-runs ensureToolSetsAreStarted after a batch of tool calls.
 // If new tools became available (by name-set diff), it emits a ToolsetInfo
 // event to update the TUI immediately. The new tools will be picked up by
@@ -1114,6 +1187,7 @@ func (r *LocalRuntime) reprobe(
 		return
 	}
 	updated = filterExcludedTools(updated, sess.ExcludedTools)
+	updated = r.skillSubSessionTools(ctx, sess, a, updated, events)
 
 	// Emit any pending warnings that getTools just generated.
 	r.emitAgentWarnings(a, events)

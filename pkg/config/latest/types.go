@@ -548,8 +548,17 @@ type InlineSkill struct {
 	// Ignored for non-fork skills.
 	Model string `json:"model,omitempty" yaml:"model,omitempty"`
 	// AllowedTools optionally records the tools the skill expects. It mirrors
-	// the SKILL.md `allowed-tools` field.
+	// the SKILL.md `allowed-tools` field. For a fork-mode skill it is enforced
+	// as an allow-list over the parent agent's inherited tools while the skill
+	// runs in its sub-session: only tools whose names match an entry are kept.
+	// Entries are matched with filepath.Match-style globs (e.g. "read_*"),
+	// falling back to an exact match. Ignored for non-fork skills.
 	AllowedTools []string `json:"allowed_tools,omitempty" yaml:"allowed_tools,omitempty"`
+	// Toolsets lists names of reusable toolset definitions (from the top-level
+	// `toolsets` section) to expose to the skill while it runs in its fork
+	// sub-session, in addition to the parent agent's tools. Ignored for
+	// non-fork skills.
+	Toolsets []string `json:"toolsets,omitempty" yaml:"toolsets,omitempty"`
 }
 
 // SkillsConfig controls skill discovery sources, filtering, and inline

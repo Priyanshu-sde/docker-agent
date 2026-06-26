@@ -96,6 +96,8 @@ func (s *Session) Clone() *Session {
 		CustomModelsUsed:        cloneStringSlice(s.CustomModelsUsed),
 		AttachedFiles:           cloneStringSlice(s.AttachedFiles),
 		ExcludedTools:           cloneStringSlice(s.ExcludedTools),
+		AllowedTools:            cloneStringSlice(s.AllowedTools),
+		ExtraToolSets:           slices.Clone(s.ExtraToolSets),
 		AgentName:               s.AgentName,
 		ParentID:                s.ParentID,
 		MessageUsageHistory:     slices.Clone(s.MessageUsageHistory),

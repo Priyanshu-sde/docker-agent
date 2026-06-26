@@ -184,6 +184,19 @@ type Session struct {
 	// recursive run_skill calls.
 	ExcludedTools []string `json:"-"`
 
+	// AllowedTools, when non-empty, restricts this session's agent tools to
+	// those whose names match an entry (filepath.Match-style glob, falling
+	// back to an exact match). Used by fork-mode skill sub-sessions that
+	// declare an allowed-tools list. An empty list imposes no restriction.
+	// ExtraToolSets are always kept regardless of this filter.
+	AllowedTools []string `json:"-"`
+
+	// ExtraToolSets holds additional toolsets injected into this session on
+	// top of the agent's own toolsets. Used by fork-mode skill sub-sessions
+	// that declare assistive toolsets. Their tools bypass the AllowedTools
+	// filter (the skill explicitly asked for them).
+	ExtraToolSets []tools.ToolSet `json:"-"`
+
 	// AgentName, when set, tells RunStream which agent to use for this session
 	// instead of reading from the shared runtime currentAgent field. This is
 	// required for background agent tasks where multiple sessions may run
@@ -802,6 +815,24 @@ func WithID(id string) Opt {
 func WithExcludedTools(names []string) Opt {
 	return func(s *Session) {
 		s.ExcludedTools = names
+	}
+}
+
+// WithAllowedTools restricts the session's agent tools to those whose names
+// match an entry (glob or exact). Used by fork-mode skill sub-sessions.
+// ExtraToolSets are exempt from this filter.
+func WithAllowedTools(names []string) Opt {
+	return func(s *Session) {
+		s.AllowedTools = names
+	}
+}
+
+// WithExtraToolSets injects additional toolsets into the session on top of
+// the agent's own toolsets. Used by fork-mode skill sub-sessions that declare
+// assistive toolsets.
+func WithExtraToolSets(toolSets []tools.ToolSet) Opt {
+	return func(s *Session) {
+		s.ExtraToolSets = toolSets
 	}
 }
 

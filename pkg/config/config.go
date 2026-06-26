@@ -155,6 +155,10 @@ func validateConfig(cfg *latest.Config) error {
 		return err
 	}
 
+	if err := validateSkillToolsetRefs(cfg); err != nil {
+		return err
+	}
+
 	allNames := map[string]bool{}
 	for _, agent := range cfg.Agents {
 		allNames[agent.Name] = true
@@ -323,6 +327,25 @@ func validateProviderName(name string) error {
 	return nil
 }
 
+// validateSkillToolsetRefs checks that every toolset name referenced by an
+// agent's inline fork skills resolves to a definition in the top-level
+// `toolsets` section. Runs after resolveSkillDefinitions so skills merged in
+// via use_skills are covered too.
+func validateSkillToolsetRefs(cfg *latest.Config) error {
+	for i := range cfg.Agents {
+		agent := &cfg.Agents[i]
+		for j := range agent.Skills.Inline {
+			inline := &agent.Skills.Inline[j]
+			for _, ref := range inline.Toolsets {
+				if _, ok := cfg.Toolsets[ref]; !ok {
+					return fmt.Errorf("agent '%s' inline skill '%s' references non-existent toolset '%s'", agent.Name, inline.Name, ref)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // validateSkills validates a skills configuration. label identifies the owner
 // of the configuration in error messages (e.g. "agent 'foo'" or
 // "skill group 'base'").
@@ -358,6 +381,14 @@ func validateSkills(label string, sc *latest.SkillsConfig) error {
 		}
 		if inline.Context != "" && inline.Context != "fork" {
 			return fmt.Errorf("%s inline skill '%s' has invalid context '%s' (only 'fork' is supported)", label, inline.Name, inline.Context)
+		}
+		if inline.Context != "fork" {
+			if len(inline.Toolsets) > 0 {
+				return fmt.Errorf("%s inline skill '%s' declares toolsets but is not a fork skill (set context: fork)", label, inline.Name)
+			}
+			if len(inline.AllowedTools) > 0 {
+				return fmt.Errorf("%s inline skill '%s' declares allowed_tools but is not a fork skill (set context: fork)", label, inline.Name)
+			}
 		}
 		if seenInline[inline.Name] {
 			return fmt.Errorf("%s has duplicate inline skill '%s'", label, inline.Name)

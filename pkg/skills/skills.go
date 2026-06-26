@@ -22,7 +22,13 @@ type Skill struct {
 	Compatibility string
 	Metadata      map[string]string
 	AllowedTools  []string
-	Context       string // "fork" to run the skill as an isolated sub-agent
+	// Toolsets lists names of reusable toolset definitions (from the top-level
+	// `toolsets` section) to expose to the skill while it runs as a fork
+	// sub-agent (context: fork), in addition to the parent agent's tools.
+	// Populated from inline config or the SKILL.md `toolsets` frontmatter.
+	// Ignored for non-fork skills.
+	Toolsets []string
+	Context  string // "fork" to run the skill as an isolated sub-agent
 	// Model is an optional model override applied while the skill runs as
 	// a sub-agent (context: fork). It accepts either a named model from the
 	// agent config or an inline "provider/model" reference (e.g.

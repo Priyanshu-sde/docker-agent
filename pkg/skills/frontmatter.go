@@ -77,6 +77,17 @@ func parseTopLevelLine(skill *Skill, key, value string) bool {
 				skill.AllowedTools = append(skill.AllowedTools, t)
 			}
 		}
+	case "toolsets":
+		if value == "" {
+			// Block form: subsequent indented "- item" lines.
+			return true
+		}
+		// Inline comma-separated list.
+		for item := range strings.SplitSeq(value, ",") {
+			if t := unquote(strings.TrimSpace(item)); t != "" {
+				skill.Toolsets = append(skill.Toolsets, t)
+			}
+		}
 	}
 	return false
 }
@@ -95,6 +106,10 @@ func parseIndentedLine(skill *Skill, parentKey, line string) {
 	case "allowed-tools":
 		if item, ok := strings.CutPrefix(line, "- "); ok {
 			skill.AllowedTools = append(skill.AllowedTools, unquote(strings.TrimSpace(item)))
+		}
+	case "toolsets":
+		if item, ok := strings.CutPrefix(line, "- "); ok {
+			skill.Toolsets = append(skill.Toolsets, unquote(strings.TrimSpace(item)))
 		}
 	}
 }

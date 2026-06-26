@@ -893,7 +893,14 @@
           "items": {
             "type": "string"
           },
-          "description": "Tools the skill expects to use (mirrors the SKILL.md allowed-tools field)."
+          "description": "Tools the skill expects to use (mirrors the SKILL.md allowed-tools field). For a fork-mode skill (context: fork) this is enforced as an allow-list over the parent agent's inherited tools while the skill runs in its sub-session: only tools whose names match an entry are kept (entries support glob patterns like 'read_*', otherwise an exact match). Ignored for non-fork skills."
+        },
+        "toolsets": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Names of reusable toolset definitions (from the top-level 'toolsets' section) to expose to this skill while it runs in its fork sub-session, in addition to the parent agent's tools. Only valid for fork-mode skills (context: fork)."
         }
       },
       "required": [

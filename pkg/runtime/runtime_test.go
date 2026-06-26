@@ -2644,6 +2644,98 @@ func TestFilterExcludedTools(t *testing.T) {
 	})
 }
 
+func TestFilterAllowedTools(t *testing.T) {
+	allTools := []tools.Tool{
+		{Name: "read_file"},
+		{Name: "list_directory"},
+		{Name: "shell"},
+		{Name: "write_file"},
+	}
+
+	t.Run("empty allow-list returns all tools", func(t *testing.T) {
+		result := filterAllowedTools(allTools, nil)
+		assert.Len(t, result, 4)
+	})
+
+	t.Run("exact names", func(t *testing.T) {
+		result := filterAllowedTools(allTools, []string{"read_file", "shell"})
+		assert.Len(t, result, 2)
+		assert.Equal(t, "read_file", result[0].Name)
+		assert.Equal(t, "shell", result[1].Name)
+	})
+
+	t.Run("glob pattern", func(t *testing.T) {
+		result := filterAllowedTools(allTools, []string{"*_file"})
+		assert.Len(t, result, 2)
+		assert.ElementsMatch(t, []string{"read_file", "write_file"}, []string{result[0].Name, result[1].Name})
+	})
+
+	t.Run("no match yields empty", func(t *testing.T) {
+		result := filterAllowedTools(allTools, []string{"nonexistent"})
+		assert.Empty(t, result)
+	})
+}
+
+func TestToolNameMatchesAny(t *testing.T) {
+	assert.True(t, toolNameMatchesAny("read_file", []string{"read_file"}))
+	assert.True(t, toolNameMatchesAny("read_file", []string{"read_*"}))
+	assert.True(t, toolNameMatchesAny("read_file", []string{"shell", "read_*"}))
+	assert.False(t, toolNameMatchesAny("read_file", []string{"write_*"}))
+	assert.False(t, toolNameMatchesAny("read_file", nil))
+	// A malformed glob pattern falls back to exact comparison.
+	assert.True(t, toolNameMatchesAny("a[b", []string{"a[b"}))
+}
+
+// TestSkillSubSessionTools_ScopesAndInjects verifies that a fork-mode skill
+// sub-session both restricts inherited tools to the skill's allowed-tools
+// list and appends the tools from the skill's assistive toolsets (which are
+// exempt from the allow-list).
+func TestSkillSubSessionTools_ScopesAndInjects(t *testing.T) {
+	t.Parallel()
+
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	root := agent.New("root", "agent", agent.WithModel(prov))
+	tm := team.New(team.WithAgents(root))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	inherited := []tools.Tool{
+		{Name: "read_file"},
+		{Name: "shell"},
+		{Name: "write_file"},
+	}
+	extraTool := tools.Tool{Name: "fetch"}
+
+	sess := session.New(
+		session.WithAllowedTools([]string{"read_file"}),
+		session.WithExtraToolSets([]tools.ToolSet{newStubToolSet(nil, []tools.Tool{extraTool}, nil)}),
+	)
+
+	result := rt.skillSubSessionTools(t.Context(), sess, root, inherited, NewChannelSink(make(chan Event, 8)))
+
+	names := toolNames(result)
+	// read_file kept (allow-listed), shell/write_file filtered out, fetch injected.
+	assert.ElementsMatch(t, []string{"read_file", "fetch"}, names)
+}
+
+// TestSkillSubSessionTools_NoOpForOrdinarySession verifies that a session
+// without AllowedTools/ExtraToolSets is unaffected.
+func TestSkillSubSessionTools_NoOpForOrdinarySession(t *testing.T) {
+	t.Parallel()
+
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	root := agent.New("root", "agent", agent.WithModel(prov))
+	tm := team.New(team.WithAgents(root))
+	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	inherited := []tools.Tool{{Name: "read_file"}, {Name: "shell"}}
+	sess := session.New()
+
+	result := rt.skillSubSessionTools(t.Context(), sess, root, inherited, NewChannelSink(make(chan Event, 8)))
+	assert.Equal(t, inherited, result)
+}
+
 func TestMergeExcludedTools(t *testing.T) {
 	t.Run("both empty", func(t *testing.T) {
 		assert.Nil(t, mergeExcludedTools(nil, nil))

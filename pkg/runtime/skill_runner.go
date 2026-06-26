@@ -112,6 +112,8 @@ func (r *LocalRuntime) RunSkillFork(ctx context.Context, sess *session.Session, 
 			ToolsApproved:       sess.ToolsApproved,
 			NonInteractive:      sess.NonInteractive,
 			ExcludedTools:       []string{skills.ToolNameRunSkill},
+			AllowedTools:        prepared.AllowedTools,
+			ExtraToolSets:       prepared.ToolSets,
 		},
 	})
 }

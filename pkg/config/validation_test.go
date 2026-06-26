@@ -211,6 +211,120 @@ func TestInlineSkillsValidationErrors(t *testing.T) {
 	}
 }
 
+func TestForkSkillToolsets(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid fork skill with toolset reference", func(t *testing.T) {
+		t.Parallel()
+		cfgStr := `version: "` + latest.Version + `"
+toolsets:
+  web:
+    type: fetch
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+    skills:
+      - name: research
+        description: Research a topic.
+        context: fork
+        toolsets:
+          - web
+        instructions: Do research.
+`
+		cfg, err := Load(t.Context(), NewBytesSource("test", []byte(cfgStr)))
+		require.NoError(t, err)
+		agent, ok := cfg.Agents.Lookup("root")
+		require.True(t, ok)
+		require.Len(t, agent.Skills.Inline, 1)
+		assert.Equal(t, []string{"web"}, agent.Skills.Inline[0].Toolsets)
+	})
+
+	t.Run("valid fork skill with allowed_tools", func(t *testing.T) {
+		t.Parallel()
+		cfgStr := `version: "` + latest.Version + `"
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+    skills:
+      - name: audit
+        description: Audit the repo.
+        context: fork
+        allowed_tools:
+          - read_file
+        instructions: Inspect only.
+`
+		cfg, err := Load(t.Context(), NewBytesSource("test", []byte(cfgStr)))
+		require.NoError(t, err)
+		agent, ok := cfg.Agents.Lookup("root")
+		require.True(t, ok)
+		require.Len(t, agent.Skills.Inline, 1)
+		assert.Equal(t, []string{"read_file"}, agent.Skills.Inline[0].AllowedTools)
+	})
+
+	t.Run("toolsets on non-fork skill is rejected", func(t *testing.T) {
+		t.Parallel()
+		cfgStr := `version: "` + latest.Version + `"
+toolsets:
+  web:
+    type: fetch
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+    skills:
+      - name: research
+        description: Research a topic.
+        toolsets:
+          - web
+        instructions: Do research.
+`
+		_, err := Load(t.Context(), NewBytesSource("test", []byte(cfgStr)))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a fork skill")
+	})
+
+	t.Run("allowed_tools on non-fork skill is rejected", func(t *testing.T) {
+		t.Parallel()
+		cfgStr := `version: "` + latest.Version + `"
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+    skills:
+      - name: audit
+        description: Audit the repo.
+        allowed_tools:
+          - read_file
+        instructions: Inspect only.
+`
+		_, err := Load(t.Context(), NewBytesSource("test", []byte(cfgStr)))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not a fork skill")
+	})
+
+	t.Run("unknown toolset reference is rejected", func(t *testing.T) {
+		t.Parallel()
+		cfgStr := `version: "` + latest.Version + `"
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+    skills:
+      - name: research
+        description: Research a topic.
+        context: fork
+        toolsets:
+          - nonexistent
+        instructions: Do research.
+`
+		_, err := Load(t.Context(), NewBytesSource("test", []byte(cfgStr)))
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "non-existent toolset")
+	})
+}
+
 func TestSkillsNameFilter(t *testing.T) {
 	t.Parallel()
 

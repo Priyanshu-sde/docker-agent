@@ -76,6 +76,10 @@ func stripFrontmatter(content string) string {
 type ToolSet struct {
 	skills     []skills.Skill
 	workingDir string
+	// forkToolSets maps a fork skill's name to the additional toolsets it
+	// exposes while running in its sub-session (resolved from the skill's
+	// declared toolset names by the loader). Nil for skills without any.
+	forkToolSets map[string][]tools.ToolSet
 }
 
 func New(loadedSkills []skills.Skill, workingDir string) *ToolSet {
@@ -83,6 +87,13 @@ func New(loadedSkills []skills.Skill, workingDir string) *ToolSet {
 		skills:     loadedSkills,
 		workingDir: workingDir,
 	}
+}
+
+// SetForkToolSets records the additional toolsets each fork skill exposes
+// while running in its sub-session, keyed by skill name. Called by the loader
+// after resolving the skills' declared toolset names.
+func (s *ToolSet) SetForkToolSets(m map[string][]tools.ToolSet) {
+	s.forkToolSets = m
 }
 
 // Skills returns the loaded skills (used by the app layer for slash commands).
@@ -314,6 +325,13 @@ type PreparedSkillFork struct {
 	// Model is the optional model override declared in the SKILL.md
 	// frontmatter. Empty means "use the parent agent's current model".
 	Model string
+	// AllowedTools, when non-empty, restricts the sub-session to the parent
+	// agent's tools whose names match an entry (glob or exact). Empty means
+	// the parent agent's full tool set is inherited.
+	AllowedTools []string
+	// ToolSets holds the additional toolsets the skill exposes in its
+	// sub-session, on top of the (optionally filtered) inherited tools.
+	ToolSets []tools.ToolSet
 }
 
 // PrepareForkSubSession validates a run_skill request and loads the expanded
@@ -341,10 +359,12 @@ func (s *ToolSet) PrepareForkSubSession(ctx context.Context, args RunSkillArgs) 
 	}
 
 	return &PreparedSkillFork{
-		SkillName: args.Name,
-		Task:      args.Task,
-		Content:   content,
-		Model:     skill.Model,
+		SkillName:    args.Name,
+		Task:         args.Task,
+		Content:      content,
+		Model:        skill.Model,
+		AllowedTools: skill.AllowedTools,
+		ToolSets:     s.forkToolSets[args.Name],
 	}, nil
 }
 

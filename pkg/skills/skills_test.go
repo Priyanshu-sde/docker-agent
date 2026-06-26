@@ -160,6 +160,44 @@ Body`,
 			wantOK: true,
 		},
 		{
+			name: "context fork with toolsets",
+			content: `---
+name: tooled-fork
+description: Fork skill with assistive toolsets
+context: fork
+toolsets:
+  - web
+  - db
+---
+
+Body`,
+			want: Skill{
+				Name:        "tooled-fork",
+				Description: "Fork skill with assistive toolsets",
+				Context:     "fork",
+				Toolsets:    []string{"web", "db"},
+			},
+			wantOK: true,
+		},
+		{
+			name: "toolsets as comma-separated string",
+			content: `---
+name: csv-toolsets
+description: Fork skill with comma-separated toolsets
+context: fork
+toolsets: web, db
+---
+
+Body`,
+			want: Skill{
+				Name:        "csv-toolsets",
+				Description: "Fork skill with comma-separated toolsets",
+				Context:     "fork",
+				Toolsets:    []string{"web", "db"},
+			},
+			wantOK: true,
+		},
+		{
 			name: "model override (named)",
 			content: `---
 name: model-skill
@@ -227,6 +265,7 @@ Body`,
 				assert.Equal(t, tt.want.Compatibility, got.Compatibility)
 				assert.Equal(t, tt.want.Metadata, got.Metadata)
 				assert.Equal(t, tt.want.AllowedTools, got.AllowedTools)
+				assert.Equal(t, tt.want.Toolsets, got.Toolsets)
 				assert.Equal(t, tt.want.Context, got.Context)
 				assert.Equal(t, tt.want.Model, got.Model)
 			}

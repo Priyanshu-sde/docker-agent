@@ -1,0 +1,72 @@
+#!yaml
+# Fork-mode skills with scoped tools.
+#
+# A fork-mode skill (context: fork) runs in an isolated sub-session via the
+# run_skill tool. Two optional fields let you control which tools that
+# sub-session can use. Both apply ONLY to fork-mode skills (they are rejected
+# by config validation on non-fork skills) and work the same way whether the
+# skill is defined inline (below) or loaded from a SKILL.md file:
+#
+#   allowed_tools  An allow-list over the tools the sub-session inherits from
+#                  the parent agent. Only tools whose names match an entry are
+#                  kept; everything else is hidden. Entries support glob
+#                  patterns (e.g. "read_*"), otherwise an exact match. This
+#                  mirrors the SKILL.md `allowed-tools` frontmatter field.
+#
+#   toolsets       Names of reusable toolsets (defined in the top-level
+#                  `toolsets` section) to expose to the sub-session IN ADDITION
+#                  to the inherited tools. These bypass allowed_tools — the
+#                  skill explicitly asked for them.
+#
+# In a SKILL.md file the same fields are written in the frontmatter:
+#
+#   ---
+#   name: research
+#   description: ...
+#   context: fork
+#   allowed-tools:
+#     - fetch
+#   toolsets:
+#     - web
+#   ---
+toolsets:
+  # A reusable toolset a fork skill can pull in for its sub-session.
+  web:
+    type: fetch
+
+agents:
+  root:
+    model: openai/gpt-4o-mini
+    description: An agent that demonstrates tool-scoped fork skills.
+    instruction: |
+      You are a helpful assistant. Use the available skills when the user's
+      request matches one.
+    toolsets:
+      - type: filesystem
+      - type: shell
+    skills:
+      # Inherits the parent agent's tools but is restricted to read-only
+      # filesystem access while it runs — shell and write tools are hidden.
+      - name: audit
+        description: Review the repository layout without modifying anything.
+        context: fork
+        allowed_tools:
+          - read_file
+          - list_directory
+          - directory_tree
+        instructions: |
+          Inspect the repository structure and summarise how it is organised.
+          You can only read files; do not attempt to modify anything.
+
+      # Brings in the top-level `web` toolset (fetch) on top of the parent's
+      # tools so it can retrieve pages while researching.
+      - name: research
+        description: Research a topic using web fetches in an isolated context.
+        context: fork
+        toolsets:
+          - web
+        instructions: |
+          Research the requested topic.
+
+          - Fetch the most authoritative sources you can find.
+          - Summarise findings with links.

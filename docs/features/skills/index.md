@@ -110,7 +110,8 @@ Inline skills carry their body in the config itself, so they need no `SKILL.md` 
 | `instructions`  | Yes      | The skill body (what a `SKILL.md` would contain below its frontmatter)     |
 | `context`       | No       | Set to `fork` to run the skill as an isolated sub-agent                    |
 | `model`         | No       | Override the model used while running a fork-mode skill                    |
-| `allowed_tools` | No       | Tools the skill expects to use                                             |
+| `allowed_tools` | No       | For a fork-mode skill, restricts the sub-session to the parent tools whose names match an entry (glob or exact). See [Scoping a fork skill's tools](#scoping-a-fork-skills-tools). |
+| `toolsets`      | No       | For a fork-mode skill, names of top-level [`toolsets`]({{ '/configuration/overview/' | relative_url }}#reusable-toolsets) to expose in the sub-session on top of the inherited tools. |
 
 <div class="callout callout-info" markdown="1">
 <div class="callout-title">Inline vs. file-based skills
@@ -150,7 +151,8 @@ When asked to create a Dockerfile:
 | `description`    | Yes      | Short description shown to the agent for skill matching                     |
 | `context`        | No       | Set to `fork` to run the skill as an isolated sub-agent (see below)         |
 | `model`          | No       | Override the model used while running the skill as a sub-agent (fork only)  |
-| `allowed-tools`  | No       | List of tools the skill needs (YAML list or comma-separated string)         |
+| `allowed-tools`  | No       | For a fork-mode skill, restricts the sub-session to the parent tools whose names match an entry (YAML list or comma-separated string). See [Scoping a fork skill's tools](#scoping-a-fork-skills-tools). |
+| `toolsets`       | No       | For a fork-mode skill, names of top-level [`toolsets`]({{ '/configuration/overview/' | relative_url }}#reusable-toolsets) to expose in the sub-session (YAML list or comma-separated string). |
 | `license`        | No       | License identifier (e.g. `Apache-2.0`)                                      |
 | `compatibility`  | No       | Free-text compatibility notes                                               |
 | `metadata`       | No       | Arbitrary key-value pairs (e.g. `author`, `version`)                        |
@@ -181,7 +183,7 @@ When the agent encounters a task that matches a `context: fork` skill, it uses t
 - **Spawns a child session** with the skill content as the system prompt and the caller's task as the user message
 - **Isolates the context window** — the sub-agent has its own conversation history, so lengthy tool-call chains don't eat into the parent's token budget
 - **Folds the result** — only the sub-agent's final answer is returned to the parent as the tool result
-- **Inherits the parent's model and tools** — the sub-agent can use all tools available to the parent agent
+- **Inherits the parent's model and tools** — the sub-agent can use all tools available to the parent agent (scope this with `allowed_tools` / `toolsets`, see [Scoping a fork skill's tools](#scoping-a-fork-skills-tools))
 
 <div class="callout callout-tip" markdown="1">
 <div class="callout-title">When to use context: fork
@@ -228,6 +230,80 @@ only if no one else changed the model in the meantime. If the user
 switches the model via the TUI model picker while the fork skill is
 running, their choice is preserved (the deferred restore becomes a
 no-op).
+
+### Scoping a fork skill's tools
+
+By default a fork skill inherits the parent agent's entire tool set. Two
+optional fields let you scope what the sub-session can use. Both apply
+**only to fork-mode skills** and work the same whether the skill is
+inline or loaded from a `SKILL.md` file.
+
+`allowed_tools` (frontmatter: `allowed-tools`) is an **allow-list** over
+the inherited tools: only tools whose names match an entry are kept,
+everything else is hidden from the sub-session. Entries support glob
+patterns (e.g. `read_*`) and otherwise match exactly. This is the
+Claude-Code-compatible `allowed-tools` field, now enforced for fork
+skills rather than merely recorded.
+
+`toolsets` references reusable [top-level toolsets]({{ '/configuration/overview/' | relative_url }}#reusable-toolsets)
+by name. The referenced toolsets are exposed in the sub-session **in
+addition to** the inherited tools, and they bypass the `allowed_tools`
+filter (the skill explicitly asked for them).
+
+```yaml
+toolsets:
+  web:
+    type: fetch
+
+agents:
+  root:
+    model: openai/gpt-4o
+    instruction: You are a helpful assistant.
+    toolsets:
+      - type: filesystem
+      - type: shell
+    skills:
+      # Inherits the parent tools but is restricted to read-only filesystem
+      # access while it runs — shell and write tools are hidden.
+      - name: audit
+        description: Review the repository layout without modifying anything.
+        context: fork
+        allowed_tools:
+          - read_file
+          - list_directory
+          - directory_tree
+        instructions: Inspect the repository structure and summarise it.
+
+      # Brings in the top-level `web` toolset on top of the parent's tools.
+      - name: research
+        description: Research a topic using web fetches in an isolated context.
+        context: fork
+        toolsets:
+          - web
+        instructions: Research the requested topic and summarise with links.
+```
+
+The equivalent in a `SKILL.md` file uses frontmatter lists:
+
+<!-- yaml-lint:skip -->
+```yaml
+---
+name: research
+description: Research a topic using web fetches
+context: fork
+allowed-tools:
+  - fetch
+toolsets:
+  - web
+---
+```
+
+<div class="callout callout-info" markdown="1">
+<div class="callout-title">Fork only
+</div>
+  <p>Both fields are rejected by config validation when set on a non-fork skill, and a <code>toolsets</code> entry that doesn't resolve to a top-level toolset is a load-time error.</p>
+
+</div>
 
 ## Search Paths
 
@@ -306,6 +382,6 @@ The skill will automatically be available to any agent with skills enabled (`ski
 <div class="callout-title">See also
 </div>
   <p>Skills are enabled in the <a href="{{ '/configuration/agents/' | relative_url }}">Agent Config</a> with the <code>skills</code> property (boolean or list). For tool-based capabilities, see <a href="{{ '/concepts/tools/' | relative_url }}">Tools</a>.</p>
-  <p>Example configs: <a href="https://github.com/docker/docker-agent/blob/main/examples/skills_inline.yaml"><code>examples/skills_inline.yaml</code></a> (inline skill definition), <a href="https://github.com/docker/docker-agent/blob/main/examples/skills_filter.yaml"><code>examples/skills_filter.yaml</code></a> (filtering which skills load).</p>
+  <p>Example configs: <a href="https://github.com/docker/docker-agent/blob/main/examples/skills_inline.yaml"><code>examples/skills_inline.yaml</code></a> (inline skill definition), <a href="https://github.com/docker/docker-agent/blob/main/examples/skills_fork_toolsets.yaml"><code>examples/skills_fork_toolsets.yaml</code></a> (scoping a fork skill's tools), <a href="https://github.com/docker/docker-agent/blob/main/examples/skills_filter.yaml"><code>examples/skills_filter.yaml</code></a> (filtering which skills load).</p>
 
 </div>
