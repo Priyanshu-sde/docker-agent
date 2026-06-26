@@ -162,12 +162,29 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 	// Early check for required env vars before loading models and tools.
 	env := runConfig.EnvProvider()
 
+	// Snapshot which models are `first_available` selectors before resolution
+	// rewrites them in place, so we can prefer locally-available DMR models for
+	// any selector that falls back to Docker Model Runner.
+	firstAvailableSelectors := map[string]bool{}
+	for name, m := range cfg.Models {
+		if m.IsFirstAvailable() {
+			firstAvailableSelectors[name] = true
+		}
+	}
+
 	// Resolve `first_available` model selectors into concrete provider/model
 	// definitions now that the environment is available, so the rest of the
 	// pipeline sees regular model definitions.
 	if err := config.ResolveFirstAvailableModels(ctx, cfg, runConfig.ModelsGateway, env); err != nil {
 		return nil, err
 	}
+
+	// For selectors that fell back to Docker Model Runner, prefer a model the
+	// user already pulled over forcing an on-demand pull of the default. The
+	// returned set names selectors with no usable local model, so an
+	// initialization failure surfaces a "no model available" fallback rather
+	// than an opaque pull error.
+	dmrFallbackSelectors := config.PreferLocalDMRModels(ctx, cfg, firstAvailableSelectors, dmr.ListModels)
 
 	if modelsStore != nil {
 		config.ResolveModelAliases(ctx, cfg, modelsStore)
@@ -244,11 +261,13 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			}
 			opts = append(opts, agent.WithHarness(&harnessCfg))
 		} else {
-			models, err := getModelsForAgent(ctx, cfg, &agentConfig, autoModel, runConfig, loadOpts.providerRegistry)
+			models, err := getModelsForAgent(ctx, cfg, &agentConfig, autoModel, dmrFallbackSelectors, runConfig, loadOpts.providerRegistry)
 			if err != nil {
-				// Return auto model fallback errors and DMR not installed errors directly
-				// without wrapping to provide cleaner messages
-				if _, ok := errors.AsType[*config.AutoModelFallbackError](err); ok || errors.Is(err, dmr.ErrNotInstalled) {
+				// Return auto model fallback errors, DMR not installed errors, and
+				// DMR pull failures directly without wrapping to provide cleaner,
+				// actionable messages.
+				_, isPull := errors.AsType[*dmr.PullFailedError](err)
+				if _, ok := errors.AsType[*config.AutoModelFallbackError](err); ok || errors.Is(err, dmr.ErrNotInstalled) || isPull {
 					return nil, err
 				}
 				return nil, fmt.Errorf("failed to get models: %w", err)
@@ -388,7 +407,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 	}, nil
 }
 
-func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, autoModelFn func() latest.ModelConfig, runConfig *config.RuntimeConfig, providerRegistry *provider.Registry) ([]provider.Provider, error) {
+func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, autoModelFn func() latest.ModelConfig, dmrFallbackSelectors map[string]bool, runConfig *config.RuntimeConfig, providerRegistry *provider.Registry) ([]provider.Provider, error) {
 	var models []provider.Provider
 
 	// Obtain the singleton store once, outside the loop.
@@ -404,6 +423,13 @@ func getModelsForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentC
 			} else {
 				return nil, fmt.Errorf("model '%s' not found in configuration", name)
 			}
+		}
+		// A `first_available` selector that fell back to Docker Model Runner with
+		// no usable local model is, like `auto`, a best-effort selection: surface
+		// init failures as a "no model available" fallback rather than a raw
+		// pull error.
+		if dmrFallbackSelectors[name] {
+			isAutoModel = true
 		}
 		modelCfg.Name = name
 

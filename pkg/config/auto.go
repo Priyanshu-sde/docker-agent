@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"slices"
@@ -56,6 +57,14 @@ type AutoModelFallbackError struct {
 	Cause error
 }
 
+// pullErrorSummarizer is implemented by provider errors (e.g. DMR pull
+// failures) that already carry their own multi-line actionable guidance. When
+// such an error is the Cause, AutoModelFallbackError shows only its concise
+// summary so the two "To fix this" blocks don't stack.
+type pullErrorSummarizer interface {
+	ModelPullErrorSummary() string
+}
+
 func (e *AutoModelFallbackError) Error() string {
 	var hints []string
 	for _, p := range cloudProviders {
@@ -64,7 +73,12 @@ func (e *AutoModelFallbackError) Error() string {
 
 	var b strings.Builder
 	if e.Cause != nil {
-		fmt.Fprintf(&b, "Could not initialize the auto-selected model: %v\n\n", e.Cause)
+		var summarizer pullErrorSummarizer
+		if errors.As(e.Cause, &summarizer) {
+			fmt.Fprintf(&b, "Could not initialize the auto-selected model: %s\n\n", summarizer.ModelPullErrorSummary())
+		} else {
+			fmt.Fprintf(&b, "Could not initialize the auto-selected model: %v\n\n", e.Cause)
+		}
 	}
 	b.WriteString("No model is currently available.\n\nTo fix this, you can:\n")
 	b.WriteString("  - Pull a Docker Model Runner model, e.g. `docker model pull ai/qwen3`\n")
@@ -128,7 +142,7 @@ func AutoModelConfig(ctx context.Context, modelsGateway string, env environment.
 		// Prefer a model the user already pulled so that, when DMR is set up
 		// with models other than ai/qwen3:latest, auto-selection doesn't force
 		// a pull prompt and then fail when it's declined.
-		model = pickDMRAutoModel(ctx, model, dmrLister)
+		model, _ = PickDMRModel(ctx, model, dmrLister)
 	}
 
 	return latest.ModelConfig{
@@ -138,30 +152,34 @@ func AutoModelConfig(ctx context.Context, modelsGateway string, env environment.
 	}
 }
 
-// pickDMRAutoModel chooses which Docker Model Runner model auto-selection
-// should use. It prefers the configured default when it is already pulled
-// locally; otherwise it falls back to the first locally-available
-// (non-embedding) model. When discovery fails, finds nothing, or no lister is
-// provided, it returns defaultModel unchanged, preserving the previous
-// behavior of pulling the default on demand.
-func pickDMRAutoModel(ctx context.Context, defaultModel string, lister DMRModelLister) string {
+// PickDMRModel chooses which Docker Model Runner model a fallback selection
+// (the `auto` model or a `first_available` candidate) should use. It prefers
+// the configured default when it is already pulled locally; otherwise it falls
+// back to the first locally-available (non-embedding) model. When discovery
+// fails, finds nothing, or no lister is provided, it returns defaultModel
+// unchanged, preserving the behavior of pulling the default on demand.
+//
+// foundLocal reports whether a locally-available model was chosen. It is false
+// when defaultModel was kept because no usable local model exists, so callers
+// know an on-demand pull would be required.
+func PickDMRModel(ctx context.Context, defaultModel string, lister DMRModelLister) (model string, foundLocal bool) {
 	if lister == nil {
-		return defaultModel
+		return defaultModel, false
 	}
 
 	installed, err := lister(ctx)
 	if err != nil {
-		slog.DebugContext(ctx, "DMR model discovery failed during auto-selection, using default", "error", err, "default", defaultModel)
-		return defaultModel
+		slog.DebugContext(ctx, "DMR model discovery failed during selection, using default", "error", err, "default", defaultModel)
+		return defaultModel, false
 	}
 	if len(installed) == 0 {
-		return defaultModel
+		return defaultModel, false
 	}
 
 	// The default is already pulled: use it so behavior is unchanged for users
 	// who do have ai/qwen3:latest.
 	if slices.Contains(installed, defaultModel) {
-		return defaultModel
+		return defaultModel, true
 	}
 
 	// The default model pulled under a different tag (e.g. ai/qwen3:Q4_K_M)
@@ -169,8 +187,8 @@ func pickDMRAutoModel(ctx context.Context, defaultModel string, lister DMRModelL
 	defaultRepo := dmrModelRepo(defaultModel)
 	for _, m := range installed {
 		if dmrModelRepo(m) == defaultRepo {
-			slog.DebugContext(ctx, "DMR auto-selection using default model under a non-default tag", "model", m, "default", defaultModel)
-			return m
+			slog.DebugContext(ctx, "DMR selection using default model under a non-default tag", "model", m, "default", defaultModel)
+			return m, true
 		}
 	}
 
@@ -178,12 +196,40 @@ func pickDMRAutoModel(ctx context.Context, defaultModel string, lister DMRModelL
 	// the choice is deterministic and never lands on an embedding model.
 	for _, m := range installed {
 		if !looksLikeEmbeddingModel(m) {
-			slog.DebugContext(ctx, "DMR auto-selection using locally-available model", "model", m, "default_not_installed", defaultModel)
-			return m
+			slog.DebugContext(ctx, "DMR selection using locally-available model", "model", m, "default_not_installed", defaultModel)
+			return m, true
 		}
 	}
 
-	return defaultModel
+	return defaultModel, false
+}
+
+// PreferLocalDMRModels adjusts `first_available` selectors that resolved to a
+// Docker Model Runner model so they use a locally-pulled model instead of
+// forcing an on-demand pull of the configured default. selectorNames is the set
+// of model names that were `first_available` selectors before resolution (their
+// definitions in cfg are now concrete). cfg is mutated in place.
+//
+// It returns the set of selector names that resolved to DMR but found no usable
+// local model, so callers can treat an initialization failure for those as a
+// "no model available" fallback rather than an opaque pull error.
+func PreferLocalDMRModels(ctx context.Context, cfg *latest.Config, selectorNames map[string]bool, lister DMRModelLister) map[string]bool {
+	noLocal := map[string]bool{}
+	for name := range selectorNames {
+		mc, ok := cfg.Models[name]
+		if !ok || mc.Provider != "dmr" || mc.Model == "" {
+			continue
+		}
+		chosen, foundLocal := PickDMRModel(ctx, mc.Model, lister)
+		if chosen != mc.Model {
+			mc.Model = chosen
+			cfg.Models[name] = mc
+		}
+		if !foundLocal {
+			noLocal[name] = true
+		}
+	}
+	return noLocal
 }
 
 // dmrModelRepo returns the repository portion of a DMR model ID, dropping a
