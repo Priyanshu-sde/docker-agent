@@ -37,58 +37,39 @@ func TestParseCtrlNumberKey(t *testing.T) {
 
 	tests := []struct {
 		name string
-		key  string
+		msg  tea.KeyPressMsg
 		want int
 	}{
-		{name: "ctrl+1", key: "ctrl+1", want: 0},
-		{name: "ctrl+2", key: "ctrl+2", want: 1},
-		{name: "ctrl+5", key: "ctrl+5", want: 4},
-		{name: "ctrl+9", key: "ctrl+9", want: 8},
-		{name: "ctrl+0 (out of range)", key: "ctrl+0", want: -1},
-		{name: "no ctrl modifier", key: "1", want: -1},
-		{name: "letter key", key: "ctrl+a", want: -1},
-		{name: "empty string", key: "", want: -1},
-		{name: "ctrl+1+extra (wrong length)", key: "ctrl+1a", want: -1},
-		{name: "different prefix", key: "alt+1", want: -1},
+		{name: "ctrl+1", msg: tea.KeyPressMsg{Code: '1', Mod: tea.ModCtrl}, want: 0},
+		{name: "ctrl+2", msg: tea.KeyPressMsg{Code: '2', Mod: tea.ModCtrl}, want: 1},
+		{name: "ctrl+5", msg: tea.KeyPressMsg{Code: '5', Mod: tea.ModCtrl}, want: 4},
+		{name: "ctrl+9", msg: tea.KeyPressMsg{Code: '9', Mod: tea.ModCtrl}, want: 8},
+		{name: "ctrl+0 (out of range)", msg: tea.KeyPressMsg{Code: '0', Mod: tea.ModCtrl}, want: -1},
+		{name: "no ctrl modifier", msg: tea.KeyPressMsg{Code: '1'}, want: -1},
+		{name: "letter key", msg: tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl}, want: -1},
+		{name: "empty key", msg: tea.KeyPressMsg{}, want: -1},
+		{name: "ctrl+alt+a", msg: tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl | tea.ModAlt}, want: -1},
+		{name: "alt+1", msg: tea.KeyPressMsg{Code: '1', Mod: tea.ModAlt}, want: -1},
+		// Kitty keyboard protocol populates Text, which makes String() report
+		// the bare digit instead of "ctrl+1". The parser must still match.
+		{name: "ctrl+1 with kitty text", msg: tea.KeyPressMsg{Code: '1', Text: "1", Mod: tea.ModCtrl}, want: 0},
+		// International layout: BaseCode carries the PC-101 digit.
+		{name: "ctrl+3 via BaseCode", msg: tea.KeyPressMsg{Code: '"', BaseCode: '3', Mod: tea.ModCtrl}, want: 2},
+		// ctrl+alt+1 must not match (extra modifier).
+		{name: "ctrl+alt+1", msg: tea.KeyPressMsg{Code: '1', Mod: tea.ModCtrl | tea.ModAlt}, want: -1},
+		// Lock states (Caps/Num Lock) ride along under the Kitty protocol but
+		// must be ignored so the shortcut still fires.
+		{name: "ctrl+1 with caps lock", msg: tea.KeyPressMsg{Code: '1', Mod: tea.ModCtrl | tea.ModCapsLock}, want: 0},
+		{name: "ctrl+4 with num lock", msg: tea.KeyPressMsg{Code: '4', Mod: tea.ModCtrl | tea.ModNumLock}, want: 3},
+		// Lock state alone (no Ctrl) must not match.
+		{name: "caps lock only", msg: tea.KeyPressMsg{Code: '1', Mod: tea.ModCapsLock}, want: -1},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-
-			// Construct a KeyPressMsg whose String() reports tt.key. The simplest
-			// way is to feed the rune+mod through tea.KeyPressMsg directly when
-			// possible; for unsupported strings we synthesize via Code.
-			var msg tea.KeyPressMsg
-			switch tt.key {
-			case "ctrl+0", "ctrl+1", "ctrl+2", "ctrl+3", "ctrl+4", "ctrl+5", "ctrl+6", "ctrl+7", "ctrl+8", "ctrl+9":
-				msg = tea.KeyPressMsg{Code: rune(tt.key[5]), Mod: tea.ModCtrl}
-			case "alt+1":
-				msg = tea.KeyPressMsg{Code: '1', Mod: tea.ModAlt}
-			case "ctrl+a":
-				msg = tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl}
-			case "1":
-				msg = tea.KeyPressMsg{Code: '1'}
-			case "":
-				msg = tea.KeyPressMsg{}
-			case "ctrl+1a":
-				// Synthesize a key whose String() doesn't match the parser.
-				// parseCtrlNumberKey checks len == 6, so a 7-char string
-				// reliably falls through to -1.
-				msg = tea.KeyPressMsg{Code: 'a', Mod: tea.ModCtrl | tea.ModAlt}
-			}
-
-			got := parseCtrlNumberKey(msg)
-			// For the "ctrl+1a" synthetic case the actual String() is whatever
-			// bubbletea produces; we only require the function to return -1.
-			if tt.key == "ctrl+1a" {
-				if got != -1 {
-					t.Errorf("parseCtrlNumberKey(%q) = %d, want -1 (any non-numeric ctrl key)", msg.String(), got)
-				}
-				return
-			}
-			if got != tt.want {
-				t.Errorf("parseCtrlNumberKey(%q) = %d, want %d", msg.String(), got, tt.want)
+			if got := parseCtrlNumberKey(tt.msg); got != tt.want {
+				t.Errorf("parseCtrlNumberKey(%+v) = %d, want %d", tt.msg, got, tt.want)
 			}
 		})
 	}
