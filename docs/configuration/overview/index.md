@@ -260,7 +260,7 @@ Applies to:
 
 - `agents.<name>.toolsets[*].working_dir` (MCP, LSP)
 - `agents.<name>.toolsets[*].path` (memory, tasks)
-- `agents.<name>.toolsets[*].env` values (MCP, shell, script, LSP) — these go through `os.Expand`, not the JS evaluator, so `${env.X}` is **not** recognized here.
+- `agents.<name>.toolsets[*].env` values (MCP, shell, script, LSP)
 - The `~` prefix is also accepted in any path-like field documented as such.
 
 ```yaml
@@ -274,7 +274,7 @@ agents:
         working_dir: "$HOME/work"
 ```
 
-The `working_dir` and `path` fields additionally accept the `${env.VAR}` form as an alias for `${VAR}`, so the JS-style syntax works there too. Richer JS expressions (e.g. `${env.VAR || 'default'}`) are still **not** evaluated in path fields. The `env` values fields remain shell-only.
+The `working_dir`, `path`, and `env` value fields additionally accept the `${env.VAR}` form as an alias for `${VAR}`, so the JS-style syntax works there too. Richer JS expressions (e.g. `${env.VAR || 'default'}`) are still **not** evaluated in these fields.
 
 ### Quick reference
 
@@ -285,7 +285,9 @@ The `working_dir` and `path` fields additionally accept the `${env.VAR}` form as
 | `commands.*`                                  |     ✓      |       ✗       |  ✗  |
 | `headers`, `remote.headers`, `api_config.headers` |     ✓      |       ✗       |  ✗  |
 | `working_dir`, `path`                         |     ✓      |       ✓       |  ✓  |
-| `env` values                                  |     ✗      |       ✓       |  ✗  |
+| `env` values                                  |     ✓      |       ✓       |  ✗  |
+
+The `~` prefix is meaningful only in path-like fields (`working_dir`, `path`).
 
 When in doubt, prefer `${env.X}` for prompts and headers, and `${X}` (or `$X`) for paths.
 

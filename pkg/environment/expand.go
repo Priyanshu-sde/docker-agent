@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"slices"
+
+	"github.com/docker/docker-agent/pkg/path"
 )
 
 func ExpandAll(ctx context.Context, values []string, env Provider) ([]string, error) {
@@ -24,6 +26,10 @@ func ExpandAll(ctx context.Context, values []string, env Provider) ([]string, er
 
 func Expand(ctx context.Context, value string, env Provider) (string, error) {
 	var err error
+
+	// Accept the JS-template `${env.VAR}` form as an alias for `${VAR}` so the
+	// syntax used in prompts/headers also resolves here (issue #2615).
+	value = path.NormalizeEnvRefs(value)
 
 	expanded := os.Expand(value, func(name string) string {
 		v, found := env.Get(ctx, name)

@@ -66,11 +66,12 @@ func TestWarnExpansionMismatches_LowerCaseShellIdent(t *testing.T) {
 	assert.Contains(t, out, "shell-style")
 }
 
-func TestWarnExpansionMismatches_JSEnvInPathFieldNoLongerWarns(t *testing.T) {
+func TestWarnExpansionMismatches_JSEnvInPathAndEnvNoLongerWarns(t *testing.T) {
 	t.Parallel()
 
-	// working_dir and path flow through pkg/path.ExpandPath, which now accepts
-	// ${env.X}, so these must not warn anymore (#2615).
+	// working_dir and path flow through pkg/path.ExpandPath, and toolset env
+	// values flow through pkg/environment.Expand; both now accept ${env.X}, so
+	// none of these must warn anymore (#2615).
 	cfg := &latest.Config{
 		Agents: []latest.AgentConfig{{
 			Name: "root",
@@ -78,6 +79,9 @@ func TestWarnExpansionMismatches_JSEnvInPathFieldNoLongerWarns(t *testing.T) {
 				Type:       "mcp",
 				Command:    "x",
 				WorkingDir: "${env.HOME}/work",
+				Env: map[string]string{
+					"MEM_DIR": "${env.MEM_DIR}/db",
+				},
 			}, {
 				Type: "memory",
 				Path: "${env.MEM_DIR}/db",
@@ -92,33 +96,7 @@ func TestWarnExpansionMismatches_JSEnvInPathFieldNoLongerWarns(t *testing.T) {
 	assert.NotContains(t, out, "WARN")
 }
 
-func TestWarnExpansionMismatches_JSEnvInToolsetEnv(t *testing.T) {
-	t.Parallel()
-
-	// Toolset env values are still expanded with os.Expand, so ${env.X} there
-	// remains a silent no-op we must warn about.
-	cfg := &latest.Config{
-		Agents: []latest.AgentConfig{{
-			Name: "root",
-			Toolsets: []latest.Toolset{{
-				Type:    "mcp",
-				Command: "x",
-				Env: map[string]string{
-					"MEM_DIR": "${env.MEM_DIR}/db",
-				},
-			}},
-		}},
-	}
-
-	out := captureWarnings(t, func(ctx context.Context, logger *slog.Logger) {
-		warnExpansionMismatches(ctx, logger, cfg)
-	})
-
-	assert.Contains(t, out, "JS-style")
-	assert.Contains(t, out, "MEM_DIR")
-}
-
-func TestWarnExpansionMismatches_DoesNotLeakValueInPathField(t *testing.T) {
+func TestWarnExpansionMismatches_DoesNotLeakValueInExecField(t *testing.T) {
 	t.Parallel()
 
 	const secretToken = "supers3cret-token-DO-NOT-LOG"
@@ -126,14 +104,18 @@ func TestWarnExpansionMismatches_DoesNotLeakValueInPathField(t *testing.T) {
 		Agents: []latest.AgentConfig{{
 			Name: "root",
 			Toolsets: []latest.Toolset{{
-				Type:    "mcp",
-				Command: "x",
-				// Realistic shape: secret prefix followed by an unsupported
-				// JS-style expansion in a shell-expanded env value. We must
-				// surface the variable name so users can fix the typo, but we
-				// must not echo the secret.
-				Env: map[string]string{
-					"TOKEN": secretToken + "/${env.MEM_DIR}/db",
+				Type: "script",
+				Shell: map[string]latest.ScriptShellToolConfig{
+					"build": {
+						Cmd: "make",
+						// Realistic shape: secret prefix followed by an
+						// unsupported JS-style expansion in a verbatim-exec env
+						// value. We must surface the variable name so users can
+						// fix the typo, but we must not echo the secret.
+						Env: map[string]string{
+							"TOKEN": secretToken + "/${env.MEM_DIR}/db",
+						},
+					},
 				},
 			}},
 		}},
@@ -235,30 +217,6 @@ func TestWarnExpansionMismatches_APIConfigHeaders(t *testing.T) {
 	assert.Contains(t, out, "USER_ID")
 	assert.Contains(t, out, "TOKEN")
 	assert.Contains(t, out, "shell-style")
-}
-
-func TestWarnExpansionMismatches_ToolsetEnvJSStyle(t *testing.T) {
-	t.Parallel()
-
-	cfg := &latest.Config{
-		Agents: []latest.AgentConfig{{
-			Name: "root",
-			Toolsets: []latest.Toolset{{
-				Type:    "mcp",
-				Command: "x",
-				Env: map[string]string{
-					"TOKEN": "${env.GH_TOKEN}",
-				},
-			}},
-		}},
-	}
-
-	out := captureWarnings(t, func(ctx context.Context, logger *slog.Logger) {
-		warnExpansionMismatches(ctx, logger, cfg)
-	})
-
-	assert.Contains(t, out, "GH_TOKEN")
-	assert.Contains(t, out, "JS-style")
 }
 
 func TestWarnExpansionMismatches_ScriptShellTool(t *testing.T) {

@@ -24,13 +24,9 @@ var shellEnvVarRef = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 var jsEnvRef = regexp.MustCompile(`\$\{\s*env\.[A-Za-z_][A-Za-z0-9_]*`)
 
 // jsEnvRefStrict matches a `${env.X}` reference with no extra JS expression
-// trailing the identifier. Used to flag occurrences in shell-style fields,
-// where ScriptShellToolConfig and other path-like targets only call
-// os.Expand (no JS evaluator), so the literal `${env.X}` is passed through.
-//
-// Kept in sync with jsEnvRef in pkg/path/expand.go, which uses the same
-// pattern to normalize `${env.X}` to `${X}` in path fields. The pattern is
-// duplicated rather than shared to avoid an import cycle.
+// trailing the identifier. Used to flag occurrences in the ScriptShell and
+// hook fields (env, working_dir) that are forwarded verbatim to exec.Cmd
+// without any expansion, so the literal `${env.X}` is passed through.
 var jsEnvRefStrict = regexp.MustCompile(`\$\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*\}`)
 
 // warnExpansionMismatches scans a loaded config for fields whose contents use
@@ -39,11 +35,12 @@ var jsEnvRefStrict = regexp.MustCompile(`\$\{\s*env\.([A-Za-z_][A-Za-z0-9_]*)\s*
 //
 //   - JS template literals (`${env.X}`) for prompt/instruction/header/command
 //     fields rendered through pkg/js.
-//   - Shell-style (`$VAR` / `${VAR}` / `~`) for toolset env values and the
-//     ScriptShell/hook fields that are forwarded verbatim to exec.Cmd.
+//   - Shell-style (`$VAR` / `${VAR}` / `~`) for the ScriptShell/hook fields
+//     that are forwarded verbatim to exec.Cmd.
 //
-// Toolset path fields (working_dir, path) are not checked here: they flow
-// through pkg/path.ExpandPath, which now accepts both syntaxes (#2615).
+// Toolset path (working_dir, path) and env-value fields are not checked here:
+// they flow through pkg/path.ExpandPath / pkg/environment.Expand, both of
+// which now accept ${env.X} as an alias for ${X} (#2615).
 //
 // Mixing them up currently fails silently; we emit warnings to make the
 // problem visible without changing runtime behavior.
@@ -87,14 +84,9 @@ func warnExpansionMismatches(ctx context.Context, logger *slog.Logger, cfg *late
 				warnJSField(ctx, logger, loc, "api_config.headers."+k, v)
 			}
 
-			// Toolset env values are expanded with os.Expand (shell-style),
-			// not the JS evaluator, so a stray `${env.X}` is the silent-failure
-			// case here. working_dir and path are not checked: they flow through
-			// pkg/path.ExpandPath, which accepts both ${env.X} and ${X} (#2615).
-			for k, v := range t.Env {
-				warnPathField(ctx, logger, loc, "env."+k, v)
-			}
-
+			// Toolset env values, working_dir and path are not checked: they
+			// flow through pkg/environment.Expand / pkg/path.ExpandPath, both of
+			// which accept ${env.X} as an alias for ${X} (#2615).
 			for name, sh := range t.Shell {
 				shellLoc := loc + " shell[" + name + "]"
 				// ScriptShellToolConfig env and working_dir are forwarded
@@ -207,10 +199,11 @@ func warnJSField(ctx context.Context, logger *slog.Logger, loc, field, value str
 	}
 }
 
-// warnPathField warns when a shell-style field contains a `${env.X}`
-// reference, which is JS-template syntax that os.Expand / path.ExpandPath
-// does not recognize. The variable name is captured but the surrounding
-// value is not, since path/env values frequently contain credentials.
+// warnPathField warns when a verbatim-exec field (ScriptShell/hook env and
+// working_dir) contains a `${env.X}` reference. Those fields are forwarded
+// directly to exec.Cmd without expansion, so the reference is passed through
+// literally. The variable name is captured but the surrounding value is not,
+// since env values frequently contain credentials.
 func warnPathField(ctx context.Context, logger *slog.Logger, loc, field, value string) {
 	if value == "" || !strings.Contains(value, "${env.") {
 		return

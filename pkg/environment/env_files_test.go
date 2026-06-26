@@ -35,6 +35,17 @@ func TestExpandAll_EmptyValue(t *testing.T) {
 	assert.Equal(t, []string{""}, expanded)
 }
 
+func TestExpand_JSEnvRefAlias(t *testing.T) {
+	t.Setenv("USER", "alice")
+
+	// The JS-template ${env.X} form is accepted as an alias for ${X} (#2615).
+	for _, input := range []string{"${env.USER}", "${ env.USER }", "hi ${env.USER}!"} {
+		expanded, err := Expand(t.Context(), input, NewOsEnvProvider())
+		require.NoError(t, err)
+		assert.Contains(t, expanded, "alice")
+	}
+}
+
 func TestAbsolutePath(t *testing.T) {
 	homeDir, err := os.UserHomeDir()
 	require.NoError(t, err)
