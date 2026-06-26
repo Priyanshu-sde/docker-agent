@@ -105,7 +105,12 @@ func (t *ToolSet) callTool(ctx context.Context, _ struct{}) (*tools.ToolCallResu
 		url = t.expander.Expand(ctx, url, nil)
 	}
 
-	if err := t.open(ctx, url); err != nil {
+	// The platform launcher (open / xdg-open / rundll32) hands the URL to the
+	// OS and exits immediately; the OS then opens the browser asynchronously.
+	// exec.CommandContext kills the launcher when its context is canceled, so
+	// we strip cancellation (while keeping trace/values) to prevent a finishing
+	// or interrupted agent turn from killing the launcher mid-handoff.
+	if err := t.open(context.WithoutCancel(ctx), url); err != nil {
 		return tools.ResultError(fmt.Sprintf("failed to open %s: %v", url, err)), nil
 	}
 

@@ -85,6 +85,29 @@ func TestOpenURL_DefaultName(t *testing.T) {
 	assert.Equal(t, ToolNameOpenURL, toolsList[0].Name)
 }
 
+// TestOpenURL_OpenerNotCanceled guards against a regression where the
+// request-scoped context was forwarded straight to the launcher: a canceled
+// turn would then kill the fire-and-forget open/xdg-open/rundll32 process
+// before the OS finished handing off to the browser. The handler must strip
+// cancellation before calling the opener.
+func TestOpenURL_OpenerNotCanceled(t *testing.T) {
+	t.Parallel()
+
+	canceledCtx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	var sawErr error
+	tool := New("https://example.com", WithOpener(func(ctx context.Context, _ string) error {
+		sawErr = ctx.Err()
+		return nil
+	}))
+
+	result, err := tool.callTool(canceledCtx, struct{}{})
+	require.NoError(t, err)
+	assert.False(t, result.IsError)
+	assert.NoError(t, sawErr, "opener must receive a non-canceled context")
+}
+
 func TestCreateToolSet_RequiresURL(t *testing.T) {
 	t.Parallel()
 
