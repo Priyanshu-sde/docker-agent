@@ -35,7 +35,7 @@ func TestRuntimeClose_DoesNotCloseExternalSessionStore(t *testing.T) {
 	root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := New(tm,
+	rt, err := New(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStore{}),
 		WithSessionStore(store),

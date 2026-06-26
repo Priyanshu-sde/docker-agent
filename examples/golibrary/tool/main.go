@@ -74,7 +74,7 @@ func run(ctx context.Context) error {
 
 	calculatorTeam := team.New(team.WithAgents(calculator))
 
-	rt, err := runtime.New(calculatorTeam)
+	rt, err := runtime.New(ctx, calculatorTeam)
 	if err != nil {
 		return err
 	}

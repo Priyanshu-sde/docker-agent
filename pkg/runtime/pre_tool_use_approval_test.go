@@ -107,7 +107,7 @@ func makeJudgedRuntime(
 	tm := team.New(teamOpts...)
 
 	var err error
-	rt, err = NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err = NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 	require.NoError(t, rt.hooksRegistry.RegisterBuiltin(hookName, func(_ context.Context, in *hooks.Input, _ []string) (*hooks.Output, error) {
 		if in == nil || in.HookEventName != hooks.EventPreToolUse {
@@ -277,7 +277,7 @@ func TestPreToolUseHook_ReceivesAgentName(t *testing.T) {
 		agent.WithToolSets(newStubToolSet(nil, agentTools, nil)),
 		agent.WithHooks(preToolUseHooksConfig(hookName)),
 	)
-	rt, err := NewLocalRuntime(team.New(team.WithAgents(root)),
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)),
 		WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 

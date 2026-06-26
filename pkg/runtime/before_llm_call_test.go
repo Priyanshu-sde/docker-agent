@@ -53,7 +53,7 @@ func TestBeforeLLMCallHookFiresOncePerLoopIteration(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStore{}),
 	)
@@ -147,7 +147,7 @@ func TestMaxIterationsBuiltin_TripsAfterConfiguredLimit(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStore{}),
 	)
@@ -231,7 +231,7 @@ func TestMaxIterationsBuiltin_NoOpOnInvalidLimit(t *testing.T) {
 			)
 			tm := team.New(team.WithAgents(root))
 
-			rt, err := NewLocalRuntime(tm,
+			rt, err := NewLocalRuntime(t.Context(), tm,
 				WithSessionCompaction(false),
 				WithModelStore(mockModelStore{}),
 			)

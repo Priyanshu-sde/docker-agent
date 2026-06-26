@@ -113,7 +113,7 @@ func TestFallbackOrder(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -144,7 +144,7 @@ func TestFallbackNoRetryOnNonRetryableError(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -182,7 +182,7 @@ func TestFallbackRetriesWithBackoff(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -222,7 +222,7 @@ func TestPrimaryRetriesWithBackoff(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -259,7 +259,7 @@ func TestNoFallbackWhenPrimarySucceeds(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -301,7 +301,7 @@ func TestFallback429SkipsToNextModel(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -324,7 +324,7 @@ func TestFallbackCooldownState(t *testing.T) {
 		tm := team.New(team.WithAgents(
 			agent.New("test-agent", "test instruction", agent.WithModel(mockModel)),
 		))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		agentName := "test-agent"
@@ -401,7 +401,7 @@ func TestFallback429WithFallbacksSkipsToNextModel(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -440,7 +440,7 @@ func TestFallback429WithoutFallbacksRetriesSameModel(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithRetryOnRateLimit())
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithRetryOnRateLimit())
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -472,7 +472,7 @@ func TestFallback429WithoutFallbacksExhaustsRetries(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithRetryOnRateLimit())
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithRetryOnRateLimit())
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -509,7 +509,7 @@ func TestFallback500RetryableWithBackoff(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -546,7 +546,7 @@ func TestRateLimitGate_DisabledNoFallbacks_FailsImmediately(t *testing.T) {
 
 		tm := team.New(team.WithAgents(root))
 		// Note: WithRetryOnRateLimit() is NOT passed — default off
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -585,7 +585,7 @@ func TestRateLimitGate_EnabledNoFallbacks_RetriesSameModel(t *testing.T) {
 		)
 
 		tm := team.New(team.WithAgents(root))
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithRetryOnRateLimit())
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithRetryOnRateLimit())
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))
@@ -625,7 +625,7 @@ func TestRateLimitGate_EnabledWithFallbacks_SkipsToFallback(t *testing.T) {
 
 		tm := team.New(team.WithAgents(root))
 		// opt-in is enabled, but fallbacks are present → should still skip to fallback
-		rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithRetryOnRateLimit())
+		rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}), WithRetryOnRateLimit())
 		require.NoError(t, err)
 
 		sess := session.New(session.WithUserMessage("test"))

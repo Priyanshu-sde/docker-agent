@@ -39,7 +39,7 @@ func TestRuntimeOptsPassesRunConfigWorkingDirToRuntime(t *testing.T) {
 	loaded := &teamloader.LoadResult{Team: team.New(team.WithAgents(agt))}
 	runConfig := &config.RuntimeConfig{Config: config.Config{WorkingDir: workingDir}}
 
-	rt, err := runtime.New(loaded.Team, (&runExecFlags{}).runtimeOpts(loaded, runConfig, session.NewInMemorySessionStore(), "root")...)
+	rt, err := runtime.New(t.Context(), loaded.Team, (&runExecFlags{}).runtimeOpts(loaded, runConfig, session.NewInMemorySessionStore(), "root")...)
 	require.NoError(t, err)
 
 	localRt, ok := rt.(*runtime.LocalRuntime)

@@ -40,7 +40,7 @@ func TestWithMaxOverflowCompactions_Zero(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(true),
 		WithMaxOverflowCompactions(0),
 		WithModelStore(mockModelStoreWithLimit{limit: 100}),
@@ -61,7 +61,7 @@ func TestWithMaxOverflowCompactions_Negative(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm, WithMaxOverflowCompactions(-5))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithMaxOverflowCompactions(-5))
 	require.NoError(t, err)
 
 	require.Equal(t, 0, rt.maxOverflowCompactions, "negative caps should clamp to 0")
@@ -78,7 +78,7 @@ func TestWithMaxOverflowCompactions_Default(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(true),
 		WithModelStore(mockModelStoreWithLimit{limit: 100}),
 	)

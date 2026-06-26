@@ -90,7 +90,7 @@ func (m *mockRuntime) ExecuteMCPPrompt(context.Context, string, map[string]strin
 	return "", nil
 }
 func (m *mockRuntime) UpdateSessionTitle(context.Context, *session.Session, string) error { return nil }
-func (m *mockRuntime) TitleGenerator() *sessiontitle.Generator                            { return nil }
+func (m *mockRuntime) TitleGenerator(context.Context) *sessiontitle.Generator             { return nil }
 func (m *mockRuntime) Close() error                                                       { return nil }
 func (m *mockRuntime) Steer(context.Context, runtime.QueuedMessage) error                 { return nil }
 func (m *mockRuntime) FollowUp(context.Context, runtime.QueuedMessage) error              { return nil }

@@ -679,7 +679,7 @@ func (r *RemoteRuntime) ExecuteMCPPrompt(ctx context.Context, promptName string,
 }
 
 // TitleGenerator is not supported on remote runtimes (titles are generated server-side).
-func (r *RemoteRuntime) TitleGenerator() *sessiontitle.Generator {
+func (r *RemoteRuntime) TitleGenerator(context.Context) *sessiontitle.Generator {
 	return nil
 }
 

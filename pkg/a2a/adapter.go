@@ -93,7 +93,7 @@ func runDockerAgent(ctx agent.InvocationContext, t *team.Team, agentName string,
 		}
 
 		// Create runtime
-		rt, err := runtime.New(t,
+		rt, err := runtime.New(ctx, t,
 			runtime.WithCurrentAgent(agentName),
 			runtime.WithSessionStore(sessStore),
 			// Match the tracer scope used by `cmd/root/run.go` so

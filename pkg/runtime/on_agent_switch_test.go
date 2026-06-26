@@ -69,7 +69,7 @@ func runtimeWithRecordedAgentSwitch(t *testing.T, agentName string, opts ...agen
 	a := agent.New(agentName, "instructions", allOpts...)
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Register our recording builtin on the runtime's private registry
@@ -115,7 +115,7 @@ func TestExecuteOnAgentSwitchHooks_NoopWhenNoHookRegistered(t *testing.T) {
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Should be a successful no-op rather than a panic or error.
@@ -166,7 +166,7 @@ func TestExecuteOnAgentSwitchHooks_PopulatesFromAgentModels(t *testing.T) {
 	to := agent.New("planner", "instructions", agent.WithModel(next))
 	tm := team.New(team.WithAgents(from, to))
 
-	r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 	require.NoError(t, r.hooksRegistry.RegisterBuiltin("test_record_agent_switch", rb.hook))
 	r.buildHooksExecutors()

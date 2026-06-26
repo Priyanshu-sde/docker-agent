@@ -29,7 +29,7 @@ func TestNewLocalRuntime_DefaultsToLazyModelStore(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm)
+	rt, err := NewLocalRuntime(t.Context(), tm)
 	require.NoError(t, err)
 
 	_, ok := rt.modelsStore.(*lazyModelStore)
@@ -47,7 +47,7 @@ func TestNewLocalRuntime_WithModelStoreSkipsLazyDefault(t *testing.T) {
 	tm := team.New(team.WithAgents(root))
 
 	stub := mockModelStore{}
-	rt, err := NewLocalRuntime(tm, WithModelStore(stub))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithModelStore(stub))
 	require.NoError(t, err)
 
 	assert.Equal(t, stub, rt.modelsStore)

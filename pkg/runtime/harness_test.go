@@ -175,7 +175,7 @@ func writeHarnessScript(t *testing.T, dir, name, content string) {
 func newHarnessRuntime(t *testing.T, harnessType string) *LocalRuntime {
 	t.Helper()
 	root := agent.New("root", "You are an external coder.", agent.WithHarness(&latest.HarnessConfig{Type: harnessType}))
-	rt, err := NewLocalRuntime(team.New(team.WithAgents(root)), WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)), WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 	return rt
 }

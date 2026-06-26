@@ -779,7 +779,7 @@ func (f *runExecFlags) createLocalRuntimeAndSession(ctx context.Context, loadRes
 		return nil, nil, err
 	}
 	runtimeOpts := append(f.runtimeOpts(loadResult, &f.runConfig, sessStore, agentName), rtOpts...)
-	localRt, err := runtime.New(t, runtimeOpts...)
+	localRt, err := runtime.New(ctx, t, runtimeOpts...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating runtime: %w", err)
 	}
@@ -896,7 +896,7 @@ func (f *runExecFlags) tuiOpts() []tui.Option {
 // (no alternate screen) and sends the first/queued messages itself rather than
 // through the App's bubbletea command pipeline.
 func (f *runExecFlags) runLeanTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, cleanup func(), args []string, opts ...app.Opt) error {
-	if gen := rt.TitleGenerator(); gen != nil {
+	if gen := rt.TitleGenerator(ctx); gen != nil {
 		opts = append(opts, app.WithTitleGenerator(gen))
 	}
 	a := app.New(rt, sess, opts...)
@@ -1012,7 +1012,7 @@ func (f *runExecFlags) createSessionSpawner(agentSource config.Source, sessStore
 			return nil, nil, nil, err
 		}
 		runtimeOpts := append(f.runtimeOpts(loadResult, runConfigCopy, sessStore, agt.Name()), rtOpts...)
-		localRt, err := runtime.New(t, runtimeOpts...)
+		localRt, err := runtime.New(spawnCtx, t, runtimeOpts...)
 		if err != nil {
 			return nil, nil, nil, err
 		}
@@ -1029,7 +1029,7 @@ func (f *runExecFlags) createSessionSpawner(agentSource config.Source, sessStore
 
 		// Create the app
 		var appOpts []app.Opt
-		if gen := localRt.TitleGenerator(); gen != nil {
+		if gen := localRt.TitleGenerator(spawnCtx); gen != nil {
 			appOpts = append(appOpts, app.WithTitleGenerator(gen))
 		}
 		if ctrl != nil {

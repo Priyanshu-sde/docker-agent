@@ -60,7 +60,7 @@ func runtimeWithObserver(t *testing.T, obs EventObserver) (*LocalRuntime, *sessi
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm,
+	r, err := NewLocalRuntime(t.Context(), tm,
 		WithModelStore(mockModelStore{}),
 		WithSessionCompaction(false),
 		WithEventObserver(obs),
@@ -142,7 +142,7 @@ func TestObserver_MultipleObserversFireInRegistrationOrder(t *testing.T) {
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm,
+	r, err := NewLocalRuntime(t.Context(), tm,
 		WithModelStore(mockModelStore{}),
 		WithSessionCompaction(false),
 		WithEventObserver(tag("first")),
@@ -175,7 +175,7 @@ func TestObserver_NilOptIsIgnored(t *testing.T) {
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm,
+	r, err := NewLocalRuntime(t.Context(), tm,
 		WithModelStore(mockModelStore{}),
 		WithEventObserver(nil),
 	)

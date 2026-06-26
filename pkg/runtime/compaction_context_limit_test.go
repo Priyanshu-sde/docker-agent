@@ -114,7 +114,7 @@ func TestCompactionContextLimit_FallsBackToProviderOpts(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm, WithModelStore(errorModelStore{err: errors.New("not in catalogue")}))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithModelStore(errorModelStore{err: errors.New("not in catalogue")}))
 	require.NoError(t, err)
 
 	got := rt.compactionContextLimit(t.Context(), root)
@@ -138,7 +138,7 @@ func TestCompactionContextLimit_PrefersProviderOpts(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm, WithModelStore(mockModelStoreWithLimit{limit: 200_000}))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStoreWithLimit{limit: 200_000}))
 	require.NoError(t, err)
 
 	got := rt.compactionContextLimit(t.Context(), root)
@@ -156,7 +156,7 @@ func TestCompactionContextLimit_FallsBackToCatalogue(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm, WithModelStore(mockModelStoreWithLimit{limit: 200_000}))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStoreWithLimit{limit: 200_000}))
 	require.NoError(t, err)
 
 	got := rt.compactionContextLimit(t.Context(), root)
@@ -174,7 +174,7 @@ func TestCompactionContextLimit_NoSourcesYieldsZero(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	got := rt.compactionContextLimit(t.Context(), root)

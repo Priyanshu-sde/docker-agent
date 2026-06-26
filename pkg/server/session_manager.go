@@ -971,7 +971,7 @@ func (sm *SessionManager) runtimeForSession(ctx context.Context, sess *session.S
 		runtime.WithTracer(otel.Tracer("cagent")),
 		runtime.WithModelSwitcherConfig(modelSwitcherCfg),
 	}
-	run, err := runtime.New(t, opts...)
+	run, err := runtime.New(ctx, t, opts...)
 	if err != nil {
 		return nil, nil, err
 	}

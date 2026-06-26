@@ -65,7 +65,7 @@ func TestRunStream_NonInteractiveSessionDisablesInteractivePrompts(t *testing.T)
 			stream: newStreamBuilder().AddContent("ok").AddStopWithUsage(1, 1).Build(),
 		}
 		root := agent.New("root", "test", agent.WithModel(prov), agent.WithToolSets(probe))
-		rt, err := NewLocalRuntime(team.New(team.WithAgents(root)),
+		rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)),
 			WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 
@@ -186,7 +186,7 @@ func TestRunAgent_BackgroundOAuthMCP_FailsFastAndNotifiesModel(t *testing.T) {
 	// Interactive runtime: r.nonInteractive is false. Only the background
 	// sub-session is non-interactive — exactly the issue #3200 setup where the
 	// runtime-level check at elicitationHandler does not save us.
-	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("Test"), session.WithToolsApproved(true))

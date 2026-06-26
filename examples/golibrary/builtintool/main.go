@@ -51,7 +51,7 @@ func run(ctx context.Context) error {
 			),
 		),
 	)
-	rt, err := runtime.New(agents)
+	rt, err := runtime.New(ctx, agents)
 	if err != nil {
 		return err
 	}

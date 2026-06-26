@@ -115,7 +115,7 @@ func TestDoCompactBeforeHookDeniesSkipsCompaction(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStoreWithLimit{limit: 100_000}),
 	)
@@ -172,7 +172,7 @@ func TestDoCompactBeforeHookSuppliesSummary(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStoreWithLimit{limit: 100_000}),
 	)
@@ -248,7 +248,7 @@ func TestDoCompactAfterHookFires(t *testing.T) {
 	)
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStoreWithLimit{limit: 100_000}),
 	)
@@ -289,7 +289,7 @@ func TestDoCompactNoHooksMatchesPriorBehavior(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStoreWithLimit{limit: 100_000}),
 	)

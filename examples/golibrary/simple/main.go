@@ -47,7 +47,7 @@ func run(ctx context.Context) error {
 
 	humanTeam := team.New(team.WithAgents(human))
 
-	rt, err := runtime.New(humanTeam)
+	rt, err := runtime.New(ctx, humanTeam)
 	if err != nil {
 		return err
 	}

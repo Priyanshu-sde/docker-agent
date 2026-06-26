@@ -163,7 +163,7 @@ func run(ctx context.Context) error {
 	t := team.New(team.WithAgents(assistant))
 	defer func() { _ = t.StopToolSets(ctx) }()
 
-	rt, err := runtime.New(t)
+	rt, err := runtime.New(ctx, t)
 	if err != nil {
 		return err
 	}

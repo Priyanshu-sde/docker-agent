@@ -135,7 +135,7 @@ func TestLocalRuntime_Contract(t *testing.T) {
 		root := agent.New("root", "You are a test agent", agent.WithModel(prov))
 		tm := team.New(team.WithAgents(root))
 
-		rt, err := New(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+		rt, err := New(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 		require.NoError(t, err)
 		return rt
 	})

@@ -25,7 +25,7 @@ func TestRuntime_OpenAI_Basic(t *testing.T) {
 	team, err := teamloader.Load(ctx, agentSource, runConfig, loaderdefaults.Opts()...)
 	require.NoError(t, err)
 
-	rt, err := runtime.New(team)
+	rt, err := runtime.New(t.Context(), team)
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("What's 2+2?"))
@@ -68,7 +68,7 @@ func TestRuntime_MultiAgent_SessionReload(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { store.Close() })
 
-	rt, err := runtime.New(team, runtime.WithSessionStore(store))
+	rt, err := runtime.New(t.Context(), team, runtime.WithSessionStore(store))
 	require.NoError(t, err)
 
 	// --- Turn 1: trigger a task transfer ---
@@ -111,7 +111,7 @@ func TestRuntime_Mistral_Basic(t *testing.T) {
 	team, err := teamloader.Load(ctx, agentSource, runConfig, append(loaderdefaults.Opts(), teamloader.WithModelOverrides([]string{"mistral/mistral-small"}))...)
 	require.NoError(t, err)
 
-	rt, err := runtime.New(team)
+	rt, err := runtime.New(t.Context(), team)
 	require.NoError(t, err)
 
 	sess := session.New(session.WithUserMessage("What's 2+2?"))

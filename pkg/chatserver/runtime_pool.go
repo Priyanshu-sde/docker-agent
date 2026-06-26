@@ -1,6 +1,7 @@
 package chatserver
 
 import (
+	"context"
 	"errors"
 	"sync"
 
@@ -26,6 +27,7 @@ import (
 // runtime to a full pool is a no-op; it simply gets garbage collected.
 type runtimePool struct {
 	team    *team.Team
+	ctx     func() context.Context
 	maxIdle int
 
 	mu   sync.Mutex
@@ -38,12 +40,13 @@ type runtimePool struct {
 // cancellation in a future async path).
 var errInvalidRuntime = errors.New("failed to acquire runtime")
 
-func newRuntimePool(t *team.Team, maxIdle int) *runtimePool {
+func newRuntimePool(ctx context.Context, t *team.Team, maxIdle int) *runtimePool {
 	if maxIdle < 0 {
 		maxIdle = 0
 	}
 	return &runtimePool{
 		team:    t,
+		ctx:     func() context.Context { return context.WithoutCancel(ctx) },
 		maxIdle: maxIdle,
 		idle:    make(map[string]chan runtime.Runtime),
 	}
@@ -61,7 +64,7 @@ func (p *runtimePool) Get(agent string) (runtime.Runtime, error) {
 	// Match the tracer scope used by the CLI; without this the
 	// pooled chatserver runtimes are tracer-less so all `runtime.*`
 	// spans go silent in OpenAI-compatible chat-completions mode.
-	rt, err := runtime.New(p.team,
+	rt, err := runtime.New(p.ctx(), p.team,
 		runtime.WithCurrentAgent(agent),
 		runtime.WithTracer(otel.Tracer("cagent")),
 	)

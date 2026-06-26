@@ -28,7 +28,7 @@ func TestCompactIfNeeded_IgnoresSubSessionTokens(t *testing.T) {
 	root := agent.New("root", "agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(true),
 		WithModelStore(mockModelStoreWithLimit{limit: 100_000}))
 	require.NoError(t, err)
@@ -74,7 +74,7 @@ func TestCompactIfNeeded_TriggersOnOwnMessages(t *testing.T) {
 	root := agent.New("root", "agent", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(true),
 		WithModelStore(mockModelStoreWithLimit{limit: 100_000}))
 	require.NoError(t, err)

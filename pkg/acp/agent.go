@@ -126,7 +126,7 @@ func (a *Agent) Initialize(ctx context.Context, params acp.InitializeRequest) (a
 }
 
 // newRuntime creates a new runtime using the default agent.
-func (a *Agent) newRuntime(workingDir string) (runtime.Runtime, *agent.Agent, error) {
+func (a *Agent) newRuntime(ctx context.Context, workingDir string) (runtime.Runtime, *agent.Agent, error) {
 	if a.team == nil {
 		return nil, nil, errors.New("agent not initialized")
 	}
@@ -148,7 +148,7 @@ func (a *Agent) newRuntime(workingDir string) (runtime.Runtime, *agent.Agent, er
 		opts = append(opts, runtime.WithWorkingDir(workingDir))
 	}
 
-	rt, err := runtime.New(a.team, opts...)
+	rt, err := runtime.New(ctx, a.team, opts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -202,7 +202,7 @@ func (a *Agent) NewSession(ctx context.Context, params acp.NewSessionRequest) (a
 		return acp.NewSessionResponse{}, err
 	}
 
-	rt, defaultAgent, err := a.newRuntime(workingDir)
+	rt, defaultAgent, err := a.newRuntime(ctx, workingDir)
 	if err != nil {
 		return acp.NewSessionResponse{}, err
 	}
@@ -332,7 +332,7 @@ func (a *Agent) ResumeSession(ctx context.Context, params acp.ResumeSessionReque
 		return acp.ResumeSessionResponse{}, err
 	}
 
-	rt, _, err := a.newRuntime(sess.WorkingDir)
+	rt, _, err := a.newRuntime(ctx, sess.WorkingDir)
 	if err != nil {
 		return acp.ResumeSessionResponse{}, err
 	}

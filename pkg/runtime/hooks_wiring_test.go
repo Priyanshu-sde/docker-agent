@@ -78,7 +78,7 @@ func TestHooksExecWiresAgentFlagsToBuiltins(t *testing.T) {
 
 			a := agent.New("root", "instructions", tc.opts...)
 			tm := team.New(team.WithAgents(a))
-			r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+			r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 			require.NoError(t, err)
 
 			exec := r.hooksExec(a)
@@ -134,7 +134,7 @@ func TestModelHookFactoryIsRegistered(t *testing.T) {
 	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
-	r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	factory, ok := r.hooksRegistry.Lookup(hooks.HookTypeModel)

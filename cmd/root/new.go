@@ -65,7 +65,7 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) (commandErr 
 	t := loadResult.Team
 	defer stopToolSets(ctx, t)
 
-	rt, err := runtime.New(t,
+	rt, err := runtime.New(ctx, t,
 		runtime.WithProviderRegistry(loadResult.ProviderRegistry),
 		runtime.WithTracer(otel.Tracer(AppName)),
 	)
@@ -91,7 +91,7 @@ func (f *newFlags) runNewCommand(cmd *cobra.Command, args []string) (commandErr 
 }
 
 func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, spawner tui.SessionSpawner, cleanup func(), tuiOpts []tui.Option, opts ...app.Opt) error {
-	if gen := rt.TitleGenerator(); gen != nil {
+	if gen := rt.TitleGenerator(ctx); gen != nil {
 		opts = append(opts, app.WithTitleGenerator(gen))
 	}
 

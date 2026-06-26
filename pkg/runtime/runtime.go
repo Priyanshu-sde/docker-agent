@@ -116,7 +116,7 @@ type Runtime interface {
 
 	// TitleGenerator returns a generator for automatic session titles, or nil
 	// if the runtime does not support local title generation (e.g. remote runtimes).
-	TitleGenerator() *sessiontitle.Generator
+	TitleGenerator(ctx context.Context) *sessiontitle.Generator
 
 	// Steer enqueues a user message for urgent mid-turn injection into the
 	// running agent loop. Returns an error if the queue is full or steering
@@ -531,13 +531,13 @@ func WithHooksRegistry(reg *hooks.Registry) Opt {
 // the configured (or default in-memory) session store; pass
 // [WithSessionStore] to override and [WithEventObserver] to layer
 // additional observers (telemetry, audit, ...).
-func New(agents *team.Team, opts ...Opt) (Runtime, error) {
-	return NewLocalRuntime(agents, opts...)
+func New(ctx context.Context, agents *team.Team, opts ...Opt) (Runtime, error) {
+	return NewLocalRuntime(ctx, agents, opts...)
 }
 
 // NewLocalRuntime creates a new LocalRuntime without the persistence wrapper.
 // This is useful for testing or when persistence is handled externally.
-func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
+func NewLocalRuntime(ctx context.Context, agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 	defaultAgent, err := agents.DefaultAgent()
 	if err != nil {
 		return nil, err
@@ -644,8 +644,7 @@ func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		return nil, err
 	}
 
-	//rubocop:disable Lint/ContextConnectivity
-	if defaultAgent.Model(context.TODO()) == nil && !defaultAgent.HasHarness() {
+	if defaultAgent.Model(ctx) == nil && !defaultAgent.HasHarness() {
 		return nil, fmt.Errorf("agent %s has no valid model", defaultAgent.Name())
 	}
 
@@ -666,7 +665,7 @@ func NewLocalRuntime(agents *team.Team, opts ...Opt) (*LocalRuntime, error) {
 		r.observers = append([]EventObserver{obs}, r.observers...)
 	}
 
-	slog.Debug("Creating new runtime", "agent", r.agents.Name(), "available_agents", agents.Size())
+	slog.DebugContext(ctx, "Creating new runtime", "agent", r.agents.Name(), "available_agents", agents.Size())
 
 	return r, nil
 }
@@ -1203,16 +1202,12 @@ func (r *LocalRuntime) ExecuteMCPPrompt(ctx context.Context, promptName string, 
 }
 
 // TitleGenerator returns a title generator for automatic session title generation.
-func (r *LocalRuntime) TitleGenerator() *sessiontitle.Generator {
+func (r *LocalRuntime) TitleGenerator(ctx context.Context) *sessiontitle.Generator {
 	a := r.CurrentAgent()
 	if a == nil {
 		return nil
 	}
-	// Title-gen setup happens before any session ctx exists; the resulting
-	// generator carries its own ctx when actually invoked. context.TODO is
-	// the right marker here.
-	//rubocop:disable Lint/ContextConnectivity
-	models := a.TitleModels(context.TODO())
+	models := a.TitleModels(ctx)
 	if len(models) == 0 {
 		return nil
 	}

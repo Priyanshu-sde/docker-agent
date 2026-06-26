@@ -253,7 +253,7 @@ func providerContextLimit(p provider.Provider) int64 {
 // which avoids creating an import cycle on [pkg/runtime].
 func (r *LocalRuntime) runCompactionAgent(ctx context.Context, a *agent.Agent, sess *session.Session) error {
 	t := team.New(team.WithAgents(a))
-	rt, err := New(t, WithSessionCompaction(false))
+	rt, err := New(ctx, t, WithSessionCompaction(false))
 	if err != nil {
 		return err
 	}

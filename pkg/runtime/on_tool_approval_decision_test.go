@@ -34,7 +34,7 @@ func runtimeWithRecordedToolApproval(t *testing.T) (*LocalRuntime, *recordingBui
 	)
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	require.NoError(t, r.hooksRegistry.RegisterBuiltin("test_record_tool_approval", rb.hook))

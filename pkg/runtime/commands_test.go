@@ -75,13 +75,13 @@ func (m *mockRuntime) ExecuteMCPPrompt(context.Context, string, map[string]strin
 func (m *mockRuntime) UpdateSessionTitle(context.Context, *session.Session, string) error {
 	return nil
 }
-func (m *mockRuntime) TitleGenerator() *sessiontitle.Generator             { return nil }
-func (m *mockRuntime) Close() error                                        { return nil }
-func (m *mockRuntime) Steer(context.Context, QueuedMessage) error          { return nil }
-func (m *mockRuntime) FollowUp(context.Context, QueuedMessage) error       { return nil }
-func (m *mockRuntime) QueueStatus() QueueStatus                            { return QueueStatus{} }
-func (m *mockRuntime) TogglePause(context.Context) (bool, error)           { return false, nil }
-func (m *mockRuntime) SetAgentModel(context.Context, string, string) error { return nil }
+func (m *mockRuntime) TitleGenerator(context.Context) *sessiontitle.Generator { return nil }
+func (m *mockRuntime) Close() error                                           { return nil }
+func (m *mockRuntime) Steer(context.Context, QueuedMessage) error             { return nil }
+func (m *mockRuntime) FollowUp(context.Context, QueuedMessage) error          { return nil }
+func (m *mockRuntime) QueueStatus() QueueStatus                               { return QueueStatus{} }
+func (m *mockRuntime) TogglePause(context.Context) (bool, error)              { return false, nil }
+func (m *mockRuntime) SetAgentModel(context.Context, string, string) error    { return nil }
 func (m *mockRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
 	return "", ErrUnsupported
 }

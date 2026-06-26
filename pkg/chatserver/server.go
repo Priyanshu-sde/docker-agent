@@ -139,7 +139,7 @@ func Run(ctx context.Context, agentFilename string, opts Options, ln net.Listene
 			policy:            policy,
 			conversations:     newConversationStore(opts.ConversationsMaxSessions, conversationTTL(opts)),
 			conversationLocks: newConversationLockSet(),
-			runtimes:          newRuntimePool(t, opts.MaxIdleRuntimes),
+			runtimes:          newRuntimePool(ctx, t, opts.MaxIdleRuntimes),
 		}, opts),
 		"chatserver",
 	)

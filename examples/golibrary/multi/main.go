@@ -51,7 +51,7 @@ func run(ctx context.Context) error {
 		agent.WithSubAgents(child),
 		agent.WithToolSets(transfertask.New()),
 	)
-	rt, err := runtime.New(team.New(team.WithAgents(root, child)))
+	rt, err := runtime.New(ctx, team.New(team.WithAgents(root, child)))
 	if err != nil {
 		return err
 	}

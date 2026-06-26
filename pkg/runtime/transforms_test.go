@@ -98,7 +98,7 @@ func TestStripUnsupportedModalitiesTransform(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r, err := NewLocalRuntime(tm, WithModelStore(tc.store))
+			r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(tc.store))
 			require.NoError(t, err)
 
 			got, err := r.stripUnsupportedModalitiesTransform(t.Context(),
@@ -138,7 +138,7 @@ func TestStripUnsupportedModalitiesTransform_UsesInputModelID(t *testing.T) {
 		"multi/modal":           {Modalities: modelsdev.Modalities{Input: []string{"text", "image"}}},
 		"test/agent-pool-model": {Modalities: modelsdev.Modalities{Input: []string{"text", "image"}}},
 	}}
-	r, err := NewLocalRuntime(tm, WithModelStore(store))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(store))
 	require.NoError(t, err)
 
 	imgMsg := chat.Message{
@@ -173,7 +173,7 @@ func TestApplyBeforeLLMCallTransforms_NoTransformsIsCheap(t *testing.T) {
 	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
-	r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	// Drop the runtime-shipped strip transform so we can observe the
@@ -209,7 +209,7 @@ func TestApplyBeforeLLMCallTransforms_OrderAndChain(t *testing.T) {
 	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
-	r, err := NewLocalRuntime(tm,
+	r, err := NewLocalRuntime(t.Context(), tm,
 		WithModelStore(mockModelStore{}),
 		WithMessageTransform("tag_a", tag("tag_a")),
 		WithMessageTransform("tag_b", tag("tag_b")),
@@ -251,7 +251,7 @@ func TestApplyBeforeLLMCallTransforms_ErrorsAreSwallowed(t *testing.T) {
 	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
-	r, err := NewLocalRuntime(tm,
+	r, err := NewLocalRuntime(t.Context(), tm,
 		WithModelStore(mockModelStore{}),
 		WithMessageTransform("failing", failing),
 		WithMessageTransform("tag", tag),
@@ -286,7 +286,7 @@ func TestRunStream_StripsImagesForTextOnlyModel(t *testing.T) {
 	store := modalityModelStore{model: &modelsdev.Model{
 		Modalities: modelsdev.Modalities{Input: []string{"text"}},
 	}}
-	r, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(store))
+	r, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(store))
 	require.NoError(t, err)
 
 	sess := session.New()
@@ -323,7 +323,7 @@ func TestRunStream_TransformErrorDoesNotBreakRun(t *testing.T) {
 
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
-	r, err := NewLocalRuntime(tm,
+	r, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStore{}),
 		WithMessageTransform("failing", failing),
@@ -350,7 +350,7 @@ func TestWithMessageTransform_RejectsEmptyAndNil(t *testing.T) {
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm,
+	r, err := NewLocalRuntime(t.Context(), tm,
 		WithModelStore(mockModelStore{}),
 		WithMessageTransform("", func(_ context.Context, _ *hooks.Input, msgs []chat.Message) ([]chat.Message, error) {
 			return msgs, nil

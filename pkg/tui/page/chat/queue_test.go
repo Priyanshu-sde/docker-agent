@@ -93,10 +93,10 @@ func (queueTestRuntime) ExecuteMCPPrompt(context.Context, string, map[string]str
 func (queueTestRuntime) UpdateSessionTitle(context.Context, *session.Session, string) error {
 	return nil
 }
-func (queueTestRuntime) TitleGenerator() *sessiontitle.Generator               { return nil }
-func (queueTestRuntime) Steer(context.Context, runtime.QueuedMessage) error    { return nil }
-func (queueTestRuntime) FollowUp(context.Context, runtime.QueuedMessage) error { return nil }
-func (queueTestRuntime) SetAgentModel(context.Context, string, string) error   { return nil }
+func (queueTestRuntime) TitleGenerator(context.Context) *sessiontitle.Generator { return nil }
+func (queueTestRuntime) Steer(context.Context, runtime.QueuedMessage) error     { return nil }
+func (queueTestRuntime) FollowUp(context.Context, runtime.QueuedMessage) error  { return nil }
+func (queueTestRuntime) SetAgentModel(context.Context, string, string) error    { return nil }
 func (queueTestRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
 	return "", runtime.ErrUnsupported
 }

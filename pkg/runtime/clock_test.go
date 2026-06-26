@@ -33,7 +33,7 @@ func TestWithClock_AppliedToRuntime(t *testing.T) {
 	fixed := time.Date(2024, 1, 2, 3, 4, 5, 0, time.UTC)
 	clock := newFakeClock(fixed)
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithClock(clock.Now),
 		WithModelStore(mockModelStore{}),
 	)
@@ -49,7 +49,7 @@ func TestWithClock_NilLeavesDefault(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithClock(nil),
 		WithModelStore(mockModelStore{}),
 	)
@@ -68,7 +68,7 @@ func TestFallbackCooldown_UsesInjectedClock(t *testing.T) {
 	tm := team.New(team.WithAgents(root))
 
 	clock := newFakeClock(time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC))
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithClock(clock.Now),
 		WithModelStore(mockModelStore{}),
 	)

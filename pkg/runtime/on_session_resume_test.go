@@ -32,7 +32,7 @@ func runtimeWithRecordedSessionResume(t *testing.T) (*LocalRuntime, *recordingBu
 	)
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	require.NoError(t, r.hooksRegistry.RegisterBuiltin("test_record_session_resume", rb.hook))
@@ -72,7 +72,7 @@ func TestExecuteOnSessionResumeHooks_NoopWhenNoHookRegistered(t *testing.T) {
 	a := agent.New("root", "instructions", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(a))
 
-	r, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	r, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 
 	r.executeOnSessionResumeHooks(t.Context(), a, "s", 5, 15)

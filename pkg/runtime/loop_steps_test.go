@@ -36,7 +36,7 @@ func newTestRuntime(t *testing.T) (*LocalRuntime, *agent.Agent) {
 	prov := &mockProvider{id: "test/mock-model"}
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
-	rt, err := NewLocalRuntime(tm, WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 	return rt, root
 }
@@ -192,7 +192,7 @@ func TestHandleStreamError_OverflowWithCompactionEnabled_Retries(t *testing.T) {
 	prov := &mockProvider{id: "test/mock-model"}
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
-	rt, err := NewLocalRuntime(tm, WithModelStore(errModelStore{}))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithModelStore(errModelStore{}))
 	require.NoError(t, err)
 
 	sess := session.New()
@@ -251,7 +251,7 @@ func TestHandleStreamError_OverflowWithCompactionDisabled_Fatal(t *testing.T) {
 	prov := &mockProvider{id: "test/mock-model"}
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStore{}),
 	)

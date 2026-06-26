@@ -138,7 +138,7 @@ func New(ctx context.Context, cfg Config) (*Session, error) {
 		dagentruntime.WithSessionStore(session.NewInMemorySessionStore()),
 	}
 	runtimeOpts = append(runtimeOpts, cfg.RuntimeOptions...)
-	rt, err := dagentruntime.New(loaded.Team, runtimeOpts...)
+	rt, err := dagentruntime.New(ctx, loaded.Team, runtimeOpts...)
 	if err != nil {
 		return nil, fmt.Errorf("embeddedchat: create runtime: %w", err)
 	}

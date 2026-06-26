@@ -305,7 +305,7 @@ func TestRunStreamClosesChannelAndRestoresElicitationOnEarlyReturn(t *testing.T)
 			},
 		}),
 	)
-	rt, err := NewLocalRuntime(team.New(team.WithAgents(root)),
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)),
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStore{}),
 	)
@@ -350,7 +350,7 @@ func newElicitationTestRuntime(t *testing.T) *LocalRuntime {
 
 	prov := &mockProvider{id: "test/mock-model"}
 	root := agent.New("root", "test", agent.WithModel(prov))
-	rt, err := NewLocalRuntime(team.New(team.WithAgents(root)), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 	return rt
 }

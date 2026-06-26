@@ -208,7 +208,7 @@ func CreateToolHandler(t *team.Team, agentName string) func(context.Context, *mc
 			session.WithNonInteractive(true),
 		)
 
-		rt, err := runtime.New(t,
+		rt, err := runtime.New(ctx, t,
 			runtime.WithCurrentAgent(agentName),
 			runtime.WithNonInteractive(true),
 			// See pkg/a2a/adapter.go for rationale — without this

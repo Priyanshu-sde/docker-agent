@@ -107,7 +107,7 @@ func TestWithTelemetry_AppliedToRuntime(t *testing.T) {
 	tm := team.New(team.WithAgents(root))
 
 	rec := &recordingTelemetry{}
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithTelemetry(rec),
 		WithModelStore(mockModelStore{}),
 	)
@@ -123,7 +123,7 @@ func TestWithTelemetry_NilLeavesDefault(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithTelemetry(nil),
 		WithModelStore(mockModelStore{}),
 	)
@@ -146,7 +146,7 @@ func TestRuntime_RecordsSessionStartAndEnd(t *testing.T) {
 	root := agent.New("root", "test", agent.WithModel(prov))
 	tm := team.New(team.WithAgents(root))
 
-	rt, err := NewLocalRuntime(tm,
+	rt, err := NewLocalRuntime(t.Context(), tm,
 		WithTelemetry(rec),
 		WithSessionCompaction(false),
 		WithModelStore(mockModelStore{}),

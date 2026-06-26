@@ -59,7 +59,7 @@ func forceHandoffTeam(t *testing.T, rootStream, summarizerStream *mockStream) (*
 	root := agent.New("root", "You extract", agent.WithModel(rootProv), agent.WithForceHandoff(summarizer))
 	tm := team.New(team.WithAgents(root, summarizer))
 
-	rt, err := NewLocalRuntime(tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	rt, err := NewLocalRuntime(t.Context(), tm, WithSessionCompaction(false), WithModelStore(mockModelStore{}))
 	require.NoError(t, err)
 	return rt, sumProv
 }
