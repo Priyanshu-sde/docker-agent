@@ -108,10 +108,12 @@ func TestLoadExamples(t *testing.T) {
 			require.NoError(t, yaml.Unmarshal(data, &v))
 			require.Empty(t, v.Version, "example %s should not define a version", agentFilename)
 
-			// Use a bytes source (ParentDir == "") plus a temp WorkingDir so
-			// toolsets that write to disk (memory, RAG, cache, ...) land in
-			// the temp dir instead of the examples/ tree.
-			agentSource := config.NewBytesSource(agentFilename, data)
+			// Use a file source so the config's directory is known: examples
+			// such as instruction_file.yaml reference sibling files that are
+			// resolved relative to it at load time. A temp WorkingDir still
+			// redirects toolsets that write to disk (memory, RAG, cache, ...)
+			// away from the examples/ tree.
+			agentSource := config.NewFileSource(agentFilename)
 			runConfig := &config.RuntimeConfig{}
 			runConfig.WorkingDir = t.TempDir()
 
