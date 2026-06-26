@@ -152,6 +152,12 @@ func NewVectorStore(cfg VectorStoreConfig) *VectorStore {
 	// Set usage handler to calculate cost from models.dev and emit events with CUMULATIVE totals
 	// This matches how chat completions calculate cost in runtime.go
 	costCtx := cfg.Context
+	if costCtx == nil {
+		// Backward-compatible fallback for callers that construct VectorStoreConfig
+		// without a context provider.
+		//rubocop:disable Lint/ContextConnectivity
+		costCtx = context.Background
+	}
 	cfg.Embedder.SetUsageHandler(func(tokens int64, _ float64) {
 		cost := s.calculateCost(costCtx(), tokens)
 		s.recordUsage(tokens, cost)

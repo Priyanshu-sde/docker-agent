@@ -45,10 +45,10 @@ type RemoteRuntime struct {
 	pendingModelOverride string
 
 	// resolvedDefault caches the team's default agent name fetched from the
-	// server, so [CurrentAgentName] stays an O(1) field read after the first
-	// call when no specific agent has been selected.
-	resolvedDefault     string
-	resolvedDefaultOnce sync.Once
+	// server after a successful lookup, so [CurrentAgentName] stays an O(1)
+	// field read when no specific agent has been selected.
+	resolvedDefault   string
+	resolvedDefaultMu sync.Mutex
 }
 
 // RemoteRuntimeOption is a function for configuring the RemoteRuntime
@@ -105,12 +105,18 @@ func (r *RemoteRuntime) CurrentAgentName(ctx context.Context) string {
 	if r.currentAgent != "" {
 		return r.currentAgent
 	}
-	r.resolvedDefaultOnce.Do(func() {
-		// First call performs the remote lookup; detach cancellation so a
-		// cancelled caller cannot poison the cached default for everyone.
-		r.resolvedDefault, _ = r.resolvedAgent(context.WithoutCancel(ctx))
-	})
-	return r.resolvedDefault
+	r.resolvedDefaultMu.Lock()
+	defer r.resolvedDefaultMu.Unlock()
+	if r.resolvedDefault != "" {
+		return r.resolvedDefault
+	}
+	// First successful call performs and caches the remote lookup; detach
+	// cancellation so a cancelled caller cannot poison the cached default.
+	name, _ := r.resolvedAgent(context.WithoutCancel(ctx))
+	if name != "" {
+		r.resolvedDefault = name
+	}
+	return name
 }
 
 func (r *RemoteRuntime) CurrentAgentInfo(ctx context.Context) CurrentAgentInfo {
