@@ -55,6 +55,57 @@ agents:
 	assert.Equal(t, "OCI artifact containing test.yaml", metadata.Annotations["org.opencontainers.image.description"])
 }
 
+func TestPackageFileAsOCIToStore_InlinesInstructionFile(t *testing.T) {
+	// A config that uses instruction_file must be pushed self-contained: the
+	// file contents are inlined and the now-unresolvable reference is dropped,
+	// even when the config carries an explicit version (which normally makes
+	// the packager preserve the raw bytes).
+	dir := t.TempDir()
+	agentFilename := filepath.Join(dir, "test.yaml")
+	testContent := `version: "11"
+agents:
+  root:
+    model: auto
+    description: Test agent
+    instruction_file: instructions/root.md
+`
+	require.NoError(t, os.WriteFile(agentFilename, []byte(testContent), 0o644))
+	require.NoError(t, os.MkdirAll(filepath.Join(dir, "instructions"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "instructions", "root.md"), []byte("You are a self-contained agent."), 0o644))
+
+	store, err := content.NewStore(content.WithBaseDir(t.TempDir()))
+	require.NoError(t, err)
+
+	agentSource, err := config.Resolve(agentFilename, nil)
+	require.NoError(t, err)
+
+	tag := "test-instruction-file:v1.0.0"
+	digest, err := PackageFileAsOCIToStore(t.Context(), agentSource, tag, store)
+	require.NoError(t, err)
+	assert.NotEmpty(t, digest)
+	t.Cleanup(func() { _ = store.DeleteArtifact(digest) })
+
+	img, err := store.GetArtifactImage(tag)
+	require.NoError(t, err)
+	layers, err := img.Layers()
+	require.NoError(t, err)
+	require.Len(t, layers, 1)
+	reader, err := layers[0].Uncompressed()
+	require.NoError(t, err)
+	defer reader.Close()
+	data, err := io.ReadAll(reader)
+	require.NoError(t, err)
+
+	// The instruction is inlined and the file reference is gone.
+	assert.Contains(t, string(data), "You are a self-contained agent.")
+	assert.NotContains(t, string(data), "instruction_file")
+
+	// The pushed artifact loads without the original local file present.
+	cfg, err := config.Load(t.Context(), config.NewBytesSource("pulled.yaml", data))
+	require.NoError(t, err)
+	assert.Equal(t, "You are a self-contained agent.", cfg.Agents.First().Instruction)
+}
+
 func TestPackageFileAsOCIToStoreInvalidTag(t *testing.T) {
 	agentFilename := filepath.Join(t.TempDir(), "test.txt")
 	require.NoError(t, os.WriteFile(agentFilename, []byte("test content"), 0o644))

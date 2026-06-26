@@ -561,6 +561,10 @@
           "type": "string",
           "description": "Instructions for the agent"
         },
+        "instruction_file": {
+          "type": "string",
+          "description": "Path to a file, relative to the config file's directory, whose contents become the agent's instruction. Loaded at startup. Mutually exclusive with 'instruction'. Must be a local relative path inside the config directory (absolute paths and '..' traversal are rejected). Only supported for local file-based configs, not OCI/URL sources."
+        },
         "harness": {
           "$ref": "#/definitions/HarnessConfig",
           "description": "External coding harness to run this agent with instead of a docker-agent model provider"

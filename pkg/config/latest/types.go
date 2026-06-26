@@ -433,9 +433,18 @@ type AgentConfig struct {
 	WelcomeMessage string          `json:"welcome_message,omitempty"`
 	Toolsets       []Toolset       `json:"toolsets,omitempty"`
 	Instruction    string          `json:"instruction,omitempty"`
-	Harness        *HarnessConfig  `json:"harness,omitempty"`
-	SubAgents      []string        `json:"sub_agents,omitempty"`
-	Handoffs       []string        `json:"handoffs,omitempty"`
+	// InstructionFile names a file, relative to the config file's directory,
+	// whose contents are loaded into Instruction when the config is loaded.
+	// It keeps long behavioral prompts out of the YAML, letting infrastructure
+	// configuration and instruction content evolve in separate files. Mutually
+	// exclusive with Instruction. Only file-based config sources are supported
+	// (not OCI/URL/bytes sources, which have no directory to resolve against).
+	// The field is cleared once resolved so the in-memory config stays
+	// self-contained (see config.Load).
+	InstructionFile string         `json:"instruction_file,omitempty" yaml:"instruction_file,omitempty"`
+	Harness         *HarnessConfig `json:"harness,omitempty"`
+	SubAgents       []string       `json:"sub_agents,omitempty"`
+	Handoffs        []string       `json:"handoffs,omitempty"`
 	// ForceHandoff names an agent that unconditionally receives the
 	// conversation whenever this agent produces a final response,
 	// bypassing the LLM's tool-calling entirely. Unlike Handoffs (which

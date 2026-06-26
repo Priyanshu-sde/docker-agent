@@ -16,7 +16,8 @@ agents:
   agent_name:
     model: string # Required: model reference
     description: string # Required: what this agent does
-    instruction: string # Required: system prompt
+    instruction: string # Required (unless instruction_file): system prompt
+    instruction_file: string # Optional: load the system prompt from a file relative to this config (mutually exclusive with instruction)
     sub_agents: [list] # Optional: local or external sub-agent references
     toolsets: [list] # Optional: tool configurations (use `type: rag` for RAG sources)
     fallback: # Optional: fallback config
@@ -81,7 +82,8 @@ agents:
 | --------------------------- | ------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `model`                     | string  | ✓        | Model reference. Either inline (`openai/gpt-5`) or a named model from the `models` section.                                                                              |
 | `description`               | string  | ✓        | Brief description of the agent's purpose. Used by coordinators to decide delegation.                                                                                          |
-| `instruction`               | string  | ✓        | System prompt that defines the agent's behavior, personality, and constraints.                                                                                                |
+| `instruction`               | string  | ✓        | System prompt that defines the agent's behavior, personality, and constraints. Required unless `instruction_file` is set.                                                      |
+| `instruction_file`          | string  | ✗        | Path to a file (relative to the config file's directory) whose contents become the agent's instruction, loaded at startup. Mutually exclusive with `instruction`. Must be a local relative path inside the config directory (absolute paths and `..` traversal are rejected). Only supported for local file-based configs, not OCI/URL sources. See [External Instruction Files](#external-instruction-files) below. |
 | `sub_agents`                | array   | ✗        | List of agent names or external OCI references this agent can delegate to. Supports local agents, registry references (e.g., `agentcatalog/pirate`), and named references (`name:reference`). Automatically enables the `transfer_task` tool. Pin external OCI references to a digest (`name@sha256:…`) to skip the per-run registry lookup that tag references incur. See [External Sub-Agents]({{ '/concepts/multi-agent/#external-sub-agents-from-registries' | relative_url }}). |
 | `toolsets`                  | array   | ✗        | List of tool configurations. See [Tool Config]({{ '/configuration/tools/' | relative_url }}).                                                                                                        |
 | `fallback`                  | object  | ✗        | Automatic model failover configuration.                                                                                                                                       |
@@ -115,6 +117,41 @@ agents:
   <p>Default is <code>0</code> (unlimited). Always set <code>max_iterations</code> for agents with powerful tools like <code>shell</code> to prevent infinite loops. A value of 20–50 is typical for development agents.</p>
 
 </div>
+
+## External Instruction Files
+
+Long system prompts can be kept in their own files instead of being inlined in
+the YAML, using `instruction_file`. This separates infrastructure configuration
+(models, providers, tools) from behavioral content (the prompt), which keeps
+version-control diffs focused, reduces merge conflicts on shared configs, and
+lets instruction content be edited without risking YAML syntax errors.
+
+```yaml
+agents:
+  coordinator:
+    model: openai/gpt-5-mini
+    description: Routes work between specialist agents
+    instruction_file: instructions/coordinator.md
+    sub_agents:
+      - writer
+  writer:
+    model: openai/gpt-5-mini
+    description: Drafts and edits written content
+    instruction_file: instructions/writer.md
+```
+
+The path is resolved relative to the config file's directory and the file's
+contents are loaded as the agent's instruction when the config is loaded. Notes:
+
+- **Mutually exclusive** with `instruction`. Setting both is an error.
+- The path must be a **local relative path inside the config directory**.
+  Absolute paths and `..` traversal are rejected.
+- Only supported for **local file-based configs**, not agents loaded from OCI
+  registries or URLs. When an agent is pushed with `docker agent share push`,
+  the file contents are inlined into the pushed artifact, so the published
+  agent stays self-contained.
+
+A runnable example lives in [`examples/instruction_file.yaml`](https://github.com/docker/docker-agent/blob/main/examples/instruction_file.yaml).
 
 ## Response Cache
 

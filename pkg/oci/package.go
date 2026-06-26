@@ -1,6 +1,7 @@
 package oci
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"path/filepath"
@@ -43,9 +44,16 @@ func PackageFileAsOCIToStore(ctx context.Context, agentSource config.Source, art
 		return "", fmt.Errorf("looking for version in config file\n%s", yaml.FormatError(err, true, true))
 	}
 
-	// Make sure we push a yaml with a version (Use latest if missing)
-	if raw.Version == "" {
-		cfg.Version = latest.Version
+	// Push a self-contained artifact. Normally we preserve the author's raw
+	// bytes (keeping comments and formatting), but we must serialize the
+	// resolved config instead when either:
+	//   - the config has no version (we inject the latest one), or
+	//   - any agent uses instruction_file: its contents have already been
+	//     inlined into Instruction by config.Load, and a pulled artifact has
+	//     no local directory to resolve the original path against, so the raw
+	//     reference would be unreadable.
+	if raw.Version == "" || configUsesInstructionFile(data) {
+		cfg.Version = cmp.Or(raw.Version, latest.Version)
 		data, err = yaml.MarshalWithOptions(cfg, yaml.Indent(2))
 		if err != nil {
 			return "", fmt.Errorf("marshaling config: %w", err)
@@ -86,4 +94,29 @@ func PackageFileAsOCIToStore(ctx context.Context, agentSource config.Source, art
 	}
 
 	return digest, nil
+}
+
+// configUsesInstructionFile reports whether any agent in the raw config sets a
+// non-empty instruction_file. It is a best-effort, format-tolerant probe: a
+// parse failure (e.g. HCL) simply yields false, in which case the caller falls
+// back to its version-based decision.
+func configUsesInstructionFile(data []byte) bool {
+	var probe map[string]any
+	if err := yaml.Unmarshal(data, &probe); err != nil {
+		return false
+	}
+	agents, ok := probe["agents"].(map[string]any)
+	if !ok {
+		return false
+	}
+	for _, v := range agents {
+		agent, ok := v.(map[string]any)
+		if !ok {
+			continue
+		}
+		if path, ok := agent["instruction_file"].(string); ok && path != "" {
+			return true
+		}
+	}
+	return false
 }

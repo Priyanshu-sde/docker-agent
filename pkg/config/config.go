@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/url"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -56,6 +57,10 @@ func Load(ctx context.Context, source Source) (*latest.Config, error) {
 
 	config.Version = raw.Version
 
+	if err := resolveInstructionFiles(&config, source); err != nil {
+		return nil, err
+	}
+
 	if err := validateConfig(&config); err != nil {
 		return nil, err
 	}
@@ -63,6 +68,52 @@ func Load(ctx context.Context, source Source) (*latest.Config, error) {
 	warnExpansionMismatches(ctx, slog.Default(), &config)
 
 	return &config, nil
+}
+
+// resolveInstructionFiles replaces every agent's instruction_file reference
+// with the file's contents, loaded relative to the config file's directory.
+// Resolution happens once at load time so the rest of the pipeline (and any
+// marshalled/pushed copy of the config) only ever sees the inlined
+// Instruction; the InstructionFile field is cleared afterwards to keep the
+// loaded config self-contained.
+//
+// The reference must be a local relative path inside the config directory:
+// absolute paths and "../" traversal are rejected, and reads are confined to
+// the directory with os.OpenRoot so symlinks cannot escape it. This mirrors
+// the path-safety rules used by the HCL file() helper and fileSource.Read.
+func resolveInstructionFiles(cfg *latest.Config, source Source) error {
+	parentDir := source.ParentDir()
+
+	for i := range cfg.Agents {
+		agent := &cfg.Agents[i]
+		if agent.InstructionFile == "" {
+			continue
+		}
+		if agent.Instruction != "" {
+			return fmt.Errorf("agent %q: 'instruction' and 'instruction_file' are mutually exclusive, set only one", agent.Name)
+		}
+		if parentDir == "" {
+			return fmt.Errorf("agent %q: 'instruction_file' is only supported for local file-based configs, not OCI/URL sources", agent.Name)
+		}
+		if !filepath.IsLocal(agent.InstructionFile) {
+			return fmt.Errorf("agent %q: instruction_file %q must be a local relative path inside the config directory", agent.Name, agent.InstructionFile)
+		}
+
+		root, err := os.OpenRoot(parentDir)
+		if err != nil {
+			return fmt.Errorf("agent %q: opening config directory %q: %w", agent.Name, parentDir, err)
+		}
+		data, err := root.ReadFile(filepath.ToSlash(agent.InstructionFile))
+		_ = root.Close()
+		if err != nil {
+			return fmt.Errorf("agent %q: reading instruction_file %q: %w", agent.Name, agent.InstructionFile, err)
+		}
+
+		agent.Instruction = string(data)
+		agent.InstructionFile = ""
+	}
+
+	return nil
 }
 
 // CheckRequiredEnvVars checks which environment variables are required by the models and tools.

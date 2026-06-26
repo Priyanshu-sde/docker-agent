@@ -1,0 +1,15 @@
+agents:
+  coordinator:
+    model: openai/gpt-5-mini
+    description: Routes work between specialist agents
+    # Instead of inlining a long prompt here, point at a Markdown file kept
+    # next to the config. The path is relative to this config file's directory
+    # and its contents are loaded as the agent's instruction at startup.
+    instruction_file: instructions/coordinator.md
+    sub_agents:
+      - writer
+
+  writer:
+    model: openai/gpt-5-mini
+    description: Drafts and edits written content
+    instruction_file: instructions/writer.md
