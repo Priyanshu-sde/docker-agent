@@ -112,7 +112,13 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, spaw
 	if cleanup == nil {
 		cleanup = func() {}
 	}
-	wd, _ := os.Getwd()
+	// Prefer the session's working directory so the TUI (and features keyed
+	// off it, like /shell) operate where the tools do — e.g. the worktree
+	// created by --worktree, not the process CWD it was launched from.
+	wd := sess.WorkingDir
+	if wd == "" {
+		wd, _ = os.Getwd()
+	}
 	model := tui.New(ctx, spawner, a, wd, cleanup, tuiOpts...)
 
 	p := tea.NewProgram(model, tea.WithContext(ctx), tea.WithFilter(filter))
