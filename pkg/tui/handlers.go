@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	goruntime "runtime"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/atotto/clipboard"
@@ -526,15 +527,24 @@ func (m *appModel) handleMCPPrompt(promptName string, arguments map[string]strin
 // --- Model picker ---
 
 func (m *appModel) handleOpenModelPicker() (tea.Model, tea.Cmd) {
+	start := time.Now()
+	defer func() {
+		slog.Debug("TUI model picker open handled", "duration", time.Since(start))
+	}()
 	if !m.application.SupportsModelSwitching() {
 		return m, notification.InfoCmd("Model switching is not supported with remote runtimes")
 	}
+	loadStart := time.Now()
 	models := m.application.AvailableModels(context.Background())
+	slog.Debug("TUI model picker available models loaded", "duration", time.Since(loadStart), "models", len(models))
 	if len(models) == 0 {
 		return m, notification.InfoCmd("No models available for selection")
 	}
+	dialogStart := time.Now()
+	modelDialog := dialog.NewModelPickerDialog(models)
+	slog.Debug("TUI model picker dialog built", "duration", time.Since(dialogStart), "models", len(models))
 	return m, core.CmdHandler(dialog.OpenDialogMsg{
-		Model: dialog.NewModelPickerDialog(models),
+		Model: modelDialog,
 	})
 }
 

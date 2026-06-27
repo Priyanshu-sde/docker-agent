@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/docker/docker-agent/pkg/agent"
 	"github.com/docker/docker-agent/pkg/config/latest"
@@ -470,7 +471,9 @@ func (r *LocalRuntime) resolveModelRefs(ctx context.Context, commaSeparatedRefs 
 
 // AvailableModels implements [Runtime.AvailableModels] for LocalRuntime.
 func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
+	start := time.Now()
 	if r.modelSwitcherCfg == nil {
+		slog.DebugContext(ctx, "Runtime available models skipped; model switching not configured", "duration", time.Since(start))
 		return nil
 	}
 
@@ -482,6 +485,7 @@ func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
 
 	var choices []ModelChoice
 
+	configuredStart := time.Now()
 	// Add all configured models, marking the current agent's default
 	for name, cfg := range r.modelSwitcherCfg.Models {
 		choice := ModelChoice{
@@ -497,6 +501,7 @@ func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
 		}
 		choices = append(choices, choice)
 	}
+	configuredDuration := time.Since(configuredStart)
 
 	// Prefer live gateway discovery when a models gateway is configured:
 	// the picker then only shows the models actually served by the
@@ -504,29 +509,64 @@ func (r *LocalRuntime) AvailableModels(ctx context.Context) []ModelChoice {
 	// gateway doesn't expose /v1/models, fall back to the models.dev
 	// catalog filtered by available credentials.
 	if r.modelSwitcherCfg.ModelsGateway != "" {
-		if gatewayChoices, ok := r.buildGatewayChoices(ctx); ok {
-			return append(choices, gatewayChoices...)
+		gatewayStart := time.Now()
+		gatewayChoices, ok := r.buildGatewayChoices(ctx)
+		slog.DebugContext(ctx, "Runtime available models gateway discovery completed",
+			"duration", time.Since(gatewayStart),
+			"ok", ok,
+			"models", len(gatewayChoices),
+		)
+		if ok {
+			result := append(choices, gatewayChoices...)
+			slog.DebugContext(ctx, "Runtime available models completed",
+				"duration", time.Since(start),
+				"configured_duration", configuredDuration,
+				"configured_models", len(choices),
+				"gateway_models", len(gatewayChoices),
+				"catalog_models", 0,
+				"dmr_models", 0,
+				"models", len(result),
+			)
+			return result
 		}
 	}
 
 	// Surface models pulled locally in Docker Model Runner. They are not part
-	// of the models.dev catalog, so without this a working local DMR setup
+	// of the models.dev catalog, so without this a working local Model Runner
 	// would show nothing selectable in the picker.
-	choices = append(choices, r.buildDMRChoices(ctx)...)
+	dmrStart := time.Now()
+	dmrChoices := r.buildDMRChoices(ctx)
+	dmrDuration := time.Since(dmrStart)
+	choices = append(choices, dmrChoices...)
 
 	// Append models.dev catalog entries filtered by available credentials
+	catalogStart := time.Now()
 	catalogChoices := r.buildCatalogChoices(ctx)
+	catalogDuration := time.Since(catalogStart)
 	choices = append(choices, catalogChoices...)
 
+	slog.DebugContext(ctx, "Runtime available models completed",
+		"duration", time.Since(start),
+		"configured_duration", configuredDuration,
+		"dmr_duration", dmrDuration,
+		"catalog_duration", catalogDuration,
+		"configured_models", len(r.modelSwitcherCfg.Models),
+		"dmr_models", len(dmrChoices),
+		"catalog_models", len(catalogChoices),
+		"models", len(choices),
+	)
 	return choices
 }
 
 // buildCatalogChoices builds ModelChoice entries from the models.dev catalog,
 // filtered by supported providers and available credentials.
 func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
+	start := time.Now()
+	dbStart := time.Now()
 	db, err := r.modelsStore.GetDatabase(ctx)
+	dbDuration := time.Since(dbStart)
 	if err != nil {
-		slog.DebugContext(ctx, "Failed to get models.dev database for catalog", "error", err)
+		slog.DebugContext(ctx, "Failed to get models.dev database for catalog", "duration", time.Since(start), "database_duration", dbDuration, "error", err)
 		return nil
 	}
 
@@ -540,35 +580,50 @@ func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
 	}
 
 	// Check which providers the user has credentials for
+	providerStart := time.Now()
 	availableProviders := r.getAvailableProviders(ctx)
+	providerDuration := time.Since(providerStart)
 	if len(availableProviders) == 0 {
-		slog.DebugContext(ctx, "No provider credentials available, skipping catalog")
+		slog.DebugContext(ctx, "No provider credentials available, skipping catalog",
+			"duration", time.Since(start),
+			"database_duration", dbDuration,
+			"provider_duration", providerDuration,
+		)
 		return nil
 	}
 
+	iterateStart := time.Now()
 	var choices []ModelChoice
+	var providerCount, modelCount, skippedProvider, skippedNonText, skippedEmbedding, skippedDuplicate int
 	for providerID, prov := range db.Providers {
+		providerCount++
 		// Check if this provider is supported and user has credentials
 		dockerAgentProvider, supported := mapModelsDevProvider(providerID)
 		if !supported {
+			skippedProvider++
 			continue
 		}
 		if !availableProviders[dockerAgentProvider] {
+			skippedProvider++
 			continue
 		}
 
 		for modelID, model := range prov.Models {
+			modelCount++
 			// Skip models that don't output text (not suitable for chat)
 			if !slices.Contains(model.Modalities.Output, "text") {
+				skippedNonText++
 				continue
 			}
 			// Skip embedding models (not suitable for chat)
 			if isEmbeddingModel(model.Family, model.Name) {
+				skippedEmbedding++
 				continue
 			}
 
 			ref := dockerAgentProvider + "/" + modelID
 			if existingRefs[ref] {
+				skippedDuplicate++
 				continue
 			}
 			existingRefs[ref] = true
@@ -585,7 +640,20 @@ func (r *LocalRuntime) buildCatalogChoices(ctx context.Context) []ModelChoice {
 		}
 	}
 
-	slog.DebugContext(ctx, "Built catalog choices", "count", len(choices), "available_providers", len(availableProviders))
+	slog.DebugContext(ctx, "Built catalog choices",
+		"duration", time.Since(start),
+		"database_duration", dbDuration,
+		"provider_duration", providerDuration,
+		"iterate_duration", time.Since(iterateStart),
+		"providers", providerCount,
+		"models_seen", modelCount,
+		"models", len(choices),
+		"available_providers", len(availableProviders),
+		"skipped_provider", skippedProvider,
+		"skipped_non_text", skippedNonText,
+		"skipped_embedding", skippedEmbedding,
+		"skipped_duplicate", skippedDuplicate,
+	)
 	return choices
 }
 

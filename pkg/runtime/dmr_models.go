@@ -35,6 +35,7 @@ type dmrModelsCache struct {
 // opt-in via NewLocalRuntime.
 func (r *LocalRuntime) listDMRModels(ctx context.Context) ([]string, error) {
 	if r.dmrModelLister == nil {
+		slog.DebugContext(ctx, "DMR model discovery skipped; no lister configured")
 		return nil, nil
 	}
 
@@ -55,9 +56,11 @@ func (r *LocalRuntime) listDMRModels(ctx context.Context) ([]string, error) {
 	}
 
 	if ids, ok, err := readFresh(); ok {
+		slog.DebugContext(ctx, "DMR model discovery cache hit", "models", len(ids), "error", err)
 		return ids, err
 	}
 
+	start := time.Now()
 	v, err, _ := c.sf.Do("models", func() (any, error) {
 		// Double-check the cache now that we hold the in-flight slot: a caller
 		// that read a stale cache right before a concurrent singleflight
@@ -73,9 +76,12 @@ func (r *LocalRuntime) listDMRModels(ctx context.Context) ([]string, error) {
 		return ids, err
 	})
 	if err != nil {
+		slog.DebugContext(ctx, "DMR model discovery fetch completed", "duration", time.Since(start), "error", err)
 		return nil, err
 	}
-	return v.([]string), nil
+	ids := v.([]string)
+	slog.DebugContext(ctx, "DMR model discovery fetch completed", "duration", time.Since(start), "models", len(ids))
+	return ids, nil
 }
 
 // buildDMRChoices builds ModelChoice entries for the models currently pulled

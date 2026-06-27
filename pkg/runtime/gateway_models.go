@@ -54,9 +54,11 @@ func (r *LocalRuntime) listGatewayModels(ctx context.Context) ([]string, error) 
 	}
 
 	if ids, ok, err := readFresh(); ok {
+		slog.DebugContext(ctx, "Gateway model discovery cache hit", "models", len(ids), "error", err)
 		return ids, err
 	}
 
+	start := time.Now()
 	v, err, _ := c.sf.Do("models", func() (any, error) {
 		// Double-check the cache now that we hold the in-flight slot: a
 		// caller that read a stale cache right before a concurrent
@@ -73,9 +75,12 @@ func (r *LocalRuntime) listGatewayModels(ctx context.Context) ([]string, error) 
 		return ids, err
 	})
 	if err != nil {
+		slog.DebugContext(ctx, "Gateway model discovery fetch completed", "duration", time.Since(start), "error", err)
 		return nil, err
 	}
-	return v.([]string), nil
+	ids := v.([]string)
+	slog.DebugContext(ctx, "Gateway model discovery fetch completed", "duration", time.Since(start), "models", len(ids))
+	return ids, nil
 }
 
 // buildGatewayChoices builds ModelChoice entries from the models served by

@@ -3,9 +3,11 @@ package dialog
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/textinput"
@@ -61,6 +63,9 @@ const (
 	catalogSeparatorLabel = "Other models"
 	// customSeparatorLabel labels the separator above the custom-models group.
 	customSeparatorLabel = "Custom models"
+
+	modelPickerSlowFilterThreshold = 10 * time.Millisecond
+	modelPickerSlowRenderThreshold = 16 * time.Millisecond
 )
 
 // modelPickerLayout is the layout used by the model picker.
@@ -76,18 +81,29 @@ var modelPickerLayout = pickerLayout{
 
 // NewModelPickerDialog creates a new model picker dialog.
 func NewModelPickerDialog(models []runtime.ModelChoice) Dialog {
+	start := time.Now()
 	d := &modelPickerDialog{
 		pickerCore: newPickerCore(modelPickerLayout, "Type to search or enter custom model (provider/model)…"),
 	}
 	d.textInput.CharLimit = 100
 
 	// Sort models: config first, then catalog, then custom.
+	sortStart := time.Now()
 	sortedModels := slices.Clone(models)
 	slices.SortFunc(sortedModels, func(a, b runtime.ModelChoice) int {
 		return comparePickerSortKeys(modelSortKeys(a), modelSortKeys(b))
 	})
+	sortDuration := time.Since(sortStart)
 	d.models = sortedModels
+	filterStart := time.Now()
 	d.filterModels()
+	slog.Debug("Model picker dialog constructed",
+		"duration", time.Since(start),
+		"sort_duration", sortDuration,
+		"filter_duration", time.Since(filterStart),
+		"models", len(models),
+		"filtered", len(d.filtered),
+	)
 	return d
 }
 
@@ -288,6 +304,7 @@ func validateCustomModelSpec(spec string) error {
 }
 
 func (d *modelPickerDialog) filterModels() {
+	start := time.Now()
 	query := strings.ToLower(strings.TrimSpace(d.textInput.Value()))
 
 	// If query contains "/", show "Custom" option as well as matches
@@ -319,22 +336,37 @@ func (d *modelPickerDialog) filterModels() {
 		d.selected = max(0, len(d.filtered)-1)
 	}
 	d.scrollview.SetScrollOffset(0)
+	if duration := time.Since(start); duration > modelPickerSlowFilterThreshold {
+		slog.Debug("Model picker filter slow",
+			"duration", duration,
+			"models", len(d.models),
+			"filtered", len(d.filtered),
+			"query_length", len(query),
+		)
+	}
 }
 
 func (d *modelPickerDialog) View() string {
+	start := time.Now()
 	dialogWidth, _, contentWidth := d.dialogSize()
 	d.textInput.SetWidth(contentWidth)
 
+	buildListStart := time.Now()
 	gl := d.buildList(contentWidth)
+	buildListDuration := time.Since(buildListStart)
 	d.updateScrollviewPosition()
+	setContentStart := time.Now()
 	d.scrollview.SetContent(gl.Lines(), len(gl.Lines()))
+	setContentDuration := time.Since(setContentStart)
 
 	var scrollableContent string
+	scrollviewStart := time.Now()
 	if len(d.filtered) == 0 {
 		scrollableContent = d.renderEmptyState("No models found", contentWidth)
 	} else {
 		scrollableContent = d.scrollview.View()
 	}
+	scrollviewDuration := time.Since(scrollviewStart)
 
 	contentBuilder := NewContent(d.regionWidth(contentWidth)).
 		AddTitle("Select Model").
@@ -345,17 +377,40 @@ func (d *modelPickerDialog) View() string {
 		contentBuilder.AddContent(styles.ErrorStyle.Render("⚠ " + d.errMsg))
 	}
 
+	detailsStart := time.Now()
+	details := d.renderDetails(contentWidth)
+	detailsDuration := time.Since(detailsStart)
+	contentBuildStart := time.Now()
 	content := contentBuilder.
 		AddSeparator().
 		AddContent(d.renderColumnHeader(contentWidth)).
 		AddContent(scrollableContent).
 		AddSeparator().
-		AddContent(d.renderDetails(contentWidth)).
+		AddContent(details).
 		AddSpace().
 		AddHelpKeys("↑/↓", "navigate", "enter", "select", "esc", "cancel").
 		Build()
+	contentBuildDuration := time.Since(contentBuildStart)
 
-	return styles.DialogStyle.Width(dialogWidth).Render(content)
+	renderStart := time.Now()
+	view := styles.DialogStyle.Width(dialogWidth).Render(content)
+	renderDuration := time.Since(renderStart)
+	if duration := time.Since(start); duration > modelPickerSlowRenderThreshold {
+		slog.Debug("Model picker render slow",
+			"duration", duration,
+			"build_list_duration", buildListDuration,
+			"set_content_duration", setContentDuration,
+			"scrollview_duration", scrollviewDuration,
+			"details_duration", detailsDuration,
+			"content_build_duration", contentBuildDuration,
+			"render_duration", renderDuration,
+			"models", len(d.models),
+			"filtered", len(d.filtered),
+			"lines", len(gl.Lines()),
+			"visible_lines", d.scrollview.VisibleHeight(),
+		)
+	}
+	return view
 }
 
 // pickerRowPalette is the set of styles used to render one row of the

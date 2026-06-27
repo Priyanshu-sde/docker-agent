@@ -1005,7 +1005,9 @@ func (a *App) refreshAgentInfo(ctx context.Context) {
 // AvailableModels returns the list of models available for selection.
 // Returns nil if model switching is not supported.
 func (a *App) AvailableModels(ctx context.Context) []runtime.ModelChoice {
+	start := time.Now()
 	if !a.runtime.SupportsModelSwitching() {
+		slog.DebugContext(ctx, "App available models skipped; model switching unsupported", "duration", time.Since(start))
 		return nil
 	}
 
@@ -1016,7 +1018,22 @@ func (a *App) AvailableModels(ctx context.Context) []runtime.ModelChoice {
 		currentRef = a.session.AgentModelOverrides[agentName]
 		customRefs = a.session.CustomModelsUsed
 	}
-	return runtime.DecorateModelChoices(a.runtime.AvailableModels(ctx), currentRef, customRefs)
+
+	runtimeStart := time.Now()
+	baseModels := a.runtime.AvailableModels(ctx)
+	runtimeDuration := time.Since(runtimeStart)
+	decorateStart := time.Now()
+	models := runtime.DecorateModelChoices(baseModels, currentRef, customRefs)
+	slog.DebugContext(ctx, "App available models completed",
+		"duration", time.Since(start),
+		"runtime_duration", runtimeDuration,
+		"decorate_duration", time.Since(decorateStart),
+		"base_models", len(baseModels),
+		"models", len(models),
+		"custom_refs", len(customRefs),
+		"agent", agentName,
+	)
+	return models
 }
 
 // trackCustomModel adds a custom model to the session's history if not already present.
