@@ -324,7 +324,7 @@ func (h *shellHandler) runNativeCommand(timeoutCtx, ctx context.Context, command
 	}
 
 	formattedOutput := formatCommandOutput(timeoutCtx, ctx, cmdErr, output.String(), timeout)
-	return tools.ResultSuccess(limitOutput(formattedOutput))
+	return tools.ResultSuccess(formattedOutput)
 }
 
 func (h *shellHandler) RunShellBackground(_ context.Context, params RunShellBackgroundArgs) (*tools.ToolCallResult, error) {

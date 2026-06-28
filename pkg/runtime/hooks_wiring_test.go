@@ -13,9 +13,9 @@ import (
 
 // TestHooksExecWiresAgentFlagsToBuiltins verifies the wiring performed
 // by [LocalRuntime.buildHooksExecutors] (and the underlying
-// [builtins.ApplyAgentDefaults]): agent.AddDate / AddEnvironmentInfo /
-// AddPromptFiles flags must translate into builtin hook entries on the
-// right event:
+// [builtins.ApplyAgentDefaults]): the always-on large result limiter must
+// be present, and agent.AddDate / AddEnvironmentInfo / AddPromptFiles flags
+// must translate into builtin hook entries on the right event:
 //
 //   - AddDate           -> turn_start (re-evaluated every turn)
 //   - AddPromptFiles    -> turn_start (file may be edited mid-session)
@@ -33,16 +33,16 @@ func TestHooksExecWiresAgentFlagsToBuiltins(t *testing.T) {
 	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
 
 	cases := []struct {
-		name           string
-		opts           []agent.Opt
-		wantNoExecutor bool
-		wantTurnStart  bool
-		wantSessStart  bool
+		name            string
+		opts            []agent.Opt
+		wantOnlyLimiter bool
+		wantTurnStart   bool
+		wantSessStart   bool
 	}{
 		{
-			name:           "no flags: no implicit hooks, no executor",
-			opts:           []agent.Opt{agent.WithModel(prov)},
-			wantNoExecutor: true,
+			name:            "no flags: only large-result limiter",
+			opts:            []agent.Opt{agent.WithModel(prov)},
+			wantOnlyLimiter: true,
 		},
 		{
 			name:          "AddDate wires turn_start",
@@ -82,15 +82,19 @@ func TestHooksExecWiresAgentFlagsToBuiltins(t *testing.T) {
 			require.NoError(t, err)
 
 			exec := r.hooksExec(a)
-			if tc.wantNoExecutor {
-				assert.Nil(t, exec, "no flags must not produce an executor")
-				return
-			}
 			require.NotNil(t, exec)
 
 			// hooksExec is read-only after [LocalRuntime.buildHooksExecutors],
 			// so calling it twice returns the same pointer.
 			assert.Same(t, exec, r.hooksExec(a), "hooksExec must be stable across calls")
+
+			assert.True(t, exec.Has(hooks.EventToolResponseTransform),
+				"large-result limiter must be wired for every agent")
+			if tc.wantOnlyLimiter {
+				assert.False(t, exec.Has(hooks.EventTurnStart))
+				assert.False(t, exec.Has(hooks.EventSessionStart))
+				return
+			}
 
 			assert.Equal(t, tc.wantTurnStart, exec.Has(hooks.EventTurnStart),
 				"turn_start activation must match flags")

@@ -244,10 +244,12 @@ type Input struct {
 	LastUserMessage string `json:"last_user_message,omitempty"`
 
 	// Tool-related fields (PreToolUse, PostToolUse, PermissionRequest,
-	// ToolResponseTransform).
-	ToolName  string         `json:"tool_name,omitempty"`
-	ToolUseID string         `json:"tool_use_id,omitempty"`
-	ToolInput map[string]any `json:"tool_input,omitempty"`
+	// ToolResponseTransform). ToolCategory identifies the dispatching tool's
+	// category for builtins that target whole toolsets.
+	ToolCategory string         `json:"tool_category,omitempty"`
+	ToolName     string         `json:"tool_name,omitempty"`
+	ToolUseID    string         `json:"tool_use_id,omitempty"`
+	ToolInput    map[string]any `json:"tool_input,omitempty"`
 
 	// PostToolUse / ToolResponseTransform: the tool's textual output.
 	// On post_tool_use it carries the (already-rewritten) response a

@@ -238,10 +238,10 @@ func (t *ScriptToolSet) execute(ctx context.Context, toolConfig *latest.ScriptSh
 
 	err := cmd.Run()
 	if err != nil {
-		return tools.ResultError(fmt.Sprintf("Error executing command '%s': %s\nOutput: %s", toolConfig.Cmd, err, limitOutput(output.String()))), nil
+		return tools.ResultError(fmt.Sprintf("Error executing command '%s': %s\nOutput: %s", toolConfig.Cmd, err, output.String())), nil
 	}
 
-	return tools.ResultSuccess(limitOutput(output.String())), nil
+	return tools.ResultSuccess(output.String()), nil
 }
 
 // defaultPropertyTypes returns a copy of properties where any property

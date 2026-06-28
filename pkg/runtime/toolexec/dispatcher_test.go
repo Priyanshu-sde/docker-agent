@@ -252,8 +252,9 @@ func TestDispatcher_UserCancellationStopsBatchAndSynthesizesRemaining(t *testing
 	em := &captureEmitter{confirmed: make(chan struct{})}
 
 	tool := tools.Tool{
-		Name:    "shell",
-		Handler: func(context.Context, tools.ToolCall) (*tools.ToolCallResult, error) { panic("must not run") },
+		Name:     "shell",
+		Category: "shell",
+		Handler:  func(context.Context, tools.ToolCall) (*tools.ToolCallResult, error) { panic("must not run") },
 	}
 
 	// Cancel as soon as the dispatcher asks for confirmation on the first
@@ -456,7 +457,8 @@ func TestDispatcher_ToolResponseTransformRewritesOutput(t *testing.T) {
 	rewritten := "output with [REDACTED]"
 
 	tool := tools.Tool{
-		Name: "leaky",
+		Name:     "leaky",
+		Category: "filesystem",
 		Handler: func(context.Context, tools.ToolCall) (*tools.ToolCallResult, error) {
 			return tools.ResultSuccess(original), nil
 		},
@@ -506,7 +508,8 @@ func TestDispatcher_ToolResponseTransformIsNoOpWithoutHooks(t *testing.T) {
 	original := "untouched output"
 
 	tool := tools.Tool{
-		Name: "leaky",
+		Name:     "leaky",
+		Category: "filesystem",
 		Handler: func(context.Context, tools.ToolCall) (*tools.ToolCallResult, error) {
 			return tools.ResultSuccess(original), nil
 		},

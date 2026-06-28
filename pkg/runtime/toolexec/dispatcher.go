@@ -747,6 +747,7 @@ func (c *call) applyToolResponseTransform(ctx context.Context, payload string, i
 		return payload
 	}
 	in := NewPostToolHooksInput(c.sess, c.tc, &tools.ToolCallResult{Output: payload, IsError: isError})
+	in.ToolCategory = c.tool.Category
 	result := c.d.Hooks.Dispatch(ctx, c.a, hooks.EventToolResponseTransform, in)
 	if result == nil || result.UpdatedToolResponse == nil {
 		return payload

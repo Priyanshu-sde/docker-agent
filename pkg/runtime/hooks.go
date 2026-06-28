@@ -15,13 +15,10 @@ import (
 )
 
 // buildHooksExecutors builds a [hooks.Executor] for every agent in the
-// team that has user-configured hooks, an agent-flag setting that maps
-// to a builtin (AddDate / AddEnvironmentInfo / AddPromptFiles), an
-// [builtins.AutoInjector] supplied via [WithAutoInjector] (today the
-// snapshot controller), or a configured response cache (which
-// auto-injects a cache_response stop hook). Agents with no hooks have
-// no entry; lookups fall through to nil so callers can short-circuit
-// cheaply.
+// team. Every agent receives the always-on limit_large_tool_results
+// tool_response_transform hook; user-configured hooks, agent-flag builtins,
+// [builtins.AutoInjector]s, and response-cache hooks are layered onto that
+// base configuration.
 //
 // Called once from [NewLocalRuntime] after r.workingDir, r.env and
 // r.hooksRegistry are finalized; the resulting map is read-only for

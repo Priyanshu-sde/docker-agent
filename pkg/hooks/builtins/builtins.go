@@ -27,12 +27,16 @@
 //     tool output. Same builtin, dispatches on
 //     event so a single name covers all three
 //     legs of the feature.
+//   - limit_large_tool_results
+//     (tool_response_transform) — store oversized tool output in a temp file
+//     and replace it with a bounded tail plus notice
 //   - http_post              (any event)       — POST args[1] to args[0]
 //
 // Reference any of them from a hook YAML entry as
 // `{type: builtin, command: "<name>"}`. The runtime additionally
 // auto-injects add_date / add_environment_info / add_prompt_files /
 // redact_secrets from the matching agent flags via [ApplyAgentDefaults].
+// It also always injects limit_large_tool_results as a safety hook.
 // snapshot auto-injection lives on the controller returned by
 // [RegisterSnapshot] and is plumbed into the runtime as an
 // [AutoInjector], not as another bool on [AgentDefaults].
@@ -73,6 +77,7 @@ func Register(r *hooks.Registry) error {
 		r.RegisterBuiltin(AddRecentCommits, addRecentCommits),
 		r.RegisterBuiltin(MaxIterations, maxIterations),
 		r.RegisterBuiltin(RedactSecrets, redactSecrets),
+		r.RegisterBuiltin(LimitLargeToolResults, limitLargeToolResults),
 		r.RegisterBuiltin(HTTPPost, httpPost),
 		r.RegisterBuiltin(Unload, unload),
 	)
@@ -118,6 +123,11 @@ func ApplyAgentDefaults(cfg *hooks.Config, d AgentDefaults) *hooks.Config {
 	if cfg == nil {
 		cfg = &hooks.Config{}
 	}
+	cfg.ToolResponseTransform = append([]hooks.MatcherConfig{{
+		Matcher: "*",
+		Hooks:   []hooks.Hook{builtinHook(LimitLargeToolResults)},
+	}}, cfg.ToolResponseTransform...)
+	cfg.SessionEnd = append(cfg.SessionEnd, builtinHook(LimitLargeToolResults))
 	if d.AddDate {
 		cfg.TurnStart = append(cfg.TurnStart, builtinHook(AddDate))
 	}

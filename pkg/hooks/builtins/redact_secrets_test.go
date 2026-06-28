@@ -173,12 +173,20 @@ func TestApplyAgentDefaultsInjectsRedactSecrets(t *testing.T) {
 	assert.Equal(t, hooks.HookTypeBuiltin, cfg.BeforeLLMCall[0].Type)
 	assert.Equal(t, RedactSecrets, cfg.BeforeLLMCall[0].Command)
 
-	// Leg 3: tool_response_transform, wildcard matcher.
-	require.Len(t, cfg.ToolResponseTransform, 1)
-	assert.Equal(t, "*", cfg.ToolResponseTransform[0].Matcher)
-	require.Len(t, cfg.ToolResponseTransform[0].Hooks, 1)
-	assert.Equal(t, hooks.HookTypeBuiltin, cfg.ToolResponseTransform[0].Hooks[0].Type)
-	assert.Equal(t, RedactSecrets, cfg.ToolResponseTransform[0].Hooks[0].Command)
+	// Leg 3: tool_response_transform, wildcard matcher. The always-on
+	// large-result limiter is also installed on this event, so find the
+	// redact_secrets entry by command rather than relying on position.
+	var redactTransform *hooks.MatcherConfig
+	for i := range cfg.ToolResponseTransform {
+		if len(cfg.ToolResponseTransform[i].Hooks) == 1 && cfg.ToolResponseTransform[i].Hooks[0].Command == RedactSecrets {
+			redactTransform = &cfg.ToolResponseTransform[i]
+		}
+	}
+	require.NotNil(t, redactTransform)
+	assert.Equal(t, "*", redactTransform.Matcher)
+	require.Len(t, redactTransform.Hooks, 1)
+	assert.Equal(t, hooks.HookTypeBuiltin, redactTransform.Hooks[0].Type)
+	assert.Equal(t, RedactSecrets, redactTransform.Hooks[0].Command)
 }
 
 // TestRedactSecretsScrubsOutgoingMessages exercises the

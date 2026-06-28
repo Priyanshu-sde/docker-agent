@@ -3,6 +3,8 @@ package builtins_test
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -34,6 +36,7 @@ func TestRegisterInstallsAllBuiltins(t *testing.T) {
 		builtins.AddRecentCommits,
 		builtins.MaxIterations,
 		builtins.RedactSecrets,
+		builtins.LimitLargeToolResults,
 		builtins.HTTPPost,
 		builtins.Unload,
 	} {
@@ -183,15 +186,20 @@ func lookup(t *testing.T, name string) hooks.BuiltinFunc {
 	return fn
 }
 
-// TestApplyAgentDefaultsNilOnAllZero pins the empty-config contract:
-// with no flags set and no user-supplied hooks, ApplyAgentDefaults
-// returns nil so the runtime can skip building an Executor entirely
-// (the dispatch-zero-hooks fast path).
-func TestApplyAgentDefaultsNilOnAllZero(t *testing.T) {
+// TestApplyAgentDefaultsAlwaysInjectsLargeResultLimiter pins that the runtime
+// always mounts the large-result limiter as a tool_response_transform hook.
+func TestApplyAgentDefaultsAlwaysInjectsLargeResultLimiter(t *testing.T) {
 	t.Parallel()
 
-	assert.Nil(t, builtins.ApplyAgentDefaults(nil, builtins.AgentDefaults{}))
-	assert.Nil(t, builtins.ApplyAgentDefaults(&hooks.Config{}, builtins.AgentDefaults{}))
+	cfg := builtins.ApplyAgentDefaults(nil, builtins.AgentDefaults{})
+	require.NotNil(t, cfg)
+	require.Len(t, cfg.ToolResponseTransform, 1)
+	assert.Equal(t, "*", cfg.ToolResponseTransform[0].Matcher)
+	require.Len(t, cfg.ToolResponseTransform[0].Hooks, 1)
+	assert.Equal(t, builtins.LimitLargeToolResults, cfg.ToolResponseTransform[0].Hooks[0].Command)
+	assert.Equal(t, hooks.HookTypeBuiltin, cfg.ToolResponseTransform[0].Hooks[0].Type)
+	require.Len(t, cfg.SessionEnd, 1)
+	assert.Equal(t, builtins.LimitLargeToolResults, cfg.SessionEnd[0].Command)
 }
 
 // TestApplyAgentDefaultsInjectsExpectedEvents verifies which event each
@@ -217,6 +225,153 @@ func TestApplyAgentDefaultsInjectsExpectedEvents(t *testing.T) {
 
 	require.Len(t, cfg.SessionStart, 1, "add_environment_info must inject a session_start hook")
 	assert.Equal(t, builtins.AddEnvironmentInfo, cfg.SessionStart[0].Command)
+
+	require.Len(t, cfg.ToolResponseTransform, 1, "large-result limiter must always be injected")
+	require.Len(t, cfg.ToolResponseTransform[0].Hooks, 1)
+	assert.Equal(t, builtins.LimitLargeToolResults, cfg.ToolResponseTransform[0].Hooks[0].Command)
+	require.Len(t, cfg.SessionEnd, 1, "large-result cleanup must always be injected")
+	assert.Equal(t, builtins.LimitLargeToolResults, cfg.SessionEnd[0].Command)
+}
+
+func TestLimitLargeToolResultsStoresFullOutputAndReturnsTailNotice(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	var b strings.Builder
+	for i := range 3000 {
+		b.WriteString(strings.Repeat("x", 600))
+		b.WriteString(" line ")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteByte('\n')
+	}
+	original := b.String()
+
+	fn := lookup(t, builtins.LimitLargeToolResults)
+	out, err := fn(t.Context(), &hooks.Input{
+		HookEventName: hooks.EventToolResponseTransform,
+		ToolCategory:  "filesystem",
+		ToolResponse:  original,
+	}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.NotNil(t, out.HookSpecificOutput)
+	require.NotNil(t, out.HookSpecificOutput.UpdatedToolResponse)
+
+	updated := *out.HookSpecificOutput.UpdatedToolResponse
+	assert.Contains(t, updated, "Tool call result was too large")
+	assert.Contains(t, updated, "The full result is available in a file:")
+	assert.Contains(t, updated, "Showing the last")
+	assert.NotContains(t, updated, strings.Repeat("x", 600)+" line 0\n")
+	assert.Contains(t, updated, " line 2999\n")
+
+	stored, err := os.ReadFile(extractLargeResultPath(t, updated))
+	require.NoError(t, err)
+	assert.Equal(t, original, string(stored))
+}
+
+func TestLimitLargeToolResultsPreservesUTF8Tail(t *testing.T) {
+	payload := strings.Repeat("世", maxToolCallResultBytesForTest/len("世")+largeToolCallResultTailBytesForTest/len("世")+10)
+
+	fn := lookup(t, builtins.LimitLargeToolResults)
+	out, err := fn(t.Context(), &hooks.Input{
+		SessionID:     "utf8-session",
+		HookEventName: hooks.EventToolResponseTransform,
+		ToolCategory:  "shell",
+		ToolResponse:  payload,
+	}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.NotNil(t, out.HookSpecificOutput.UpdatedToolResponse)
+	updated := *out.HookSpecificOutput.UpdatedToolResponse
+	assert.Contains(t, updated, "世")
+	assert.Equal(t, updated, strings.ToValidUTF8(updated, ""))
+}
+
+func TestLimitLargeToolResultsCleansSessionTempDir(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	fn := lookup(t, builtins.LimitLargeToolResults)
+	out, err := fn(t.Context(), &hooks.Input{
+		SessionID:     "cleanup/session",
+		HookEventName: hooks.EventToolResponseTransform,
+		ToolCategory:  "filesystem",
+		ToolResponse:  strings.Repeat("x", maxToolCallResultBytesForTest+1),
+	}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	path := extractLargeResultPath(t, *out.HookSpecificOutput.UpdatedToolResponse)
+	_, err = os.Stat(path)
+	require.NoError(t, err)
+
+	_, err = fn(t.Context(), &hooks.Input{
+		SessionID:     "cleanup/session",
+		HookEventName: hooks.EventSessionEnd,
+	}, nil)
+	require.NoError(t, err)
+	_, err = os.Stat(path)
+	assert.True(t, os.IsNotExist(err), "session_end must clean up large-result temp files")
+}
+
+const (
+	maxToolCallResultBytesForTest       = 50 * 1024
+	largeToolCallResultTailBytesForTest = 50 * 1024
+)
+
+func TestLimitLargeToolResultsNoopsOutsideFilesystemAndShell(t *testing.T) {
+	t.Parallel()
+
+	fn := lookup(t, builtins.LimitLargeToolResults)
+	out, err := fn(t.Context(), &hooks.Input{
+		HookEventName: hooks.EventToolResponseTransform,
+		ToolCategory:  "mcp",
+		ToolResponse:  strings.Repeat("x", maxToolCallResultBytesForTest+1),
+	}, nil)
+	require.NoError(t, err)
+	assert.Nil(t, out)
+}
+
+func TestLimitLargeToolResultsTriggersOnLineCount(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+
+	payload := strings.Repeat("x\n", 2001)
+	require.LessOrEqual(t, len(payload), maxToolCallResultBytesForTest)
+
+	fn := lookup(t, builtins.LimitLargeToolResults)
+	out, err := fn(t.Context(), &hooks.Input{
+		SessionID:     "line-count-session",
+		HookEventName: hooks.EventToolResponseTransform,
+		ToolCategory:  "shell",
+		ToolResponse:  payload,
+	}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, out)
+	require.NotNil(t, out.HookSpecificOutput.UpdatedToolResponse)
+	updated := *out.HookSpecificOutput.UpdatedToolResponse
+	assert.Contains(t, updated, "Tool call result was too large")
+	assert.NotContains(t, updated, strings.Repeat("x\n", 2001))
+}
+
+func TestLimitLargeToolResultsNoopsForSmallOutput(t *testing.T) {
+	t.Parallel()
+
+	fn := lookup(t, builtins.LimitLargeToolResults)
+	out, err := fn(t.Context(), &hooks.Input{
+		HookEventName: hooks.EventToolResponseTransform,
+		ToolCategory:  "shell",
+		ToolResponse:  "small output",
+	}, nil)
+	require.NoError(t, err)
+	assert.Nil(t, out)
+}
+
+func extractLargeResultPath(t *testing.T, response string) string {
+	t.Helper()
+	const marker = "The full result is available in a file: "
+	idx := strings.Index(response, marker)
+	require.NotEqual(t, -1, idx)
+	pathStart := idx + len(marker)
+	pathEnd := strings.Index(response[pathStart:], "\n")
+	require.NotEqual(t, -1, pathEnd)
+	return response[pathStart : pathStart+pathEnd]
 }
 
 // TestRegisterSnapshotInstallsBuiltin verifies that the dedicated
