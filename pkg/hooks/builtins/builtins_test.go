@@ -316,17 +316,38 @@ const (
 	largeToolCallResultTailBytesForTest = 50 * 1024
 )
 
-func TestLimitLargeToolResultsNoopsOutsideFilesystemAndShell(t *testing.T) {
+func TestLimitLargeToolResultsNoopsForInternalCategory(t *testing.T) {
 	t.Parallel()
 
 	fn := lookup(t, builtins.LimitLargeToolResults)
 	out, err := fn(t.Context(), &hooks.Input{
 		HookEventName: hooks.EventToolResponseTransform,
-		ToolCategory:  "mcp",
+		ToolCategory:  "memory",
 		ToolResponse:  strings.Repeat("x", maxToolCallResultBytesForTest+1),
 	}, nil)
 	require.NoError(t, err)
 	assert.Nil(t, out)
+}
+
+func TestLimitLargeToolResultsCapsExternalToolCategories(t *testing.T) {
+	for _, category := range []string{"mcp", "a2a"} {
+		t.Run(category, func(t *testing.T) {
+			t.Setenv("TMPDIR", t.TempDir())
+
+			fn := lookup(t, builtins.LimitLargeToolResults)
+			out, err := fn(t.Context(), &hooks.Input{
+				SessionID:     category + "-session",
+				HookEventName: hooks.EventToolResponseTransform,
+				ToolCategory:  category,
+				ToolResponse:  strings.Repeat("x", maxToolCallResultBytesForTest+1),
+			}, nil)
+			require.NoError(t, err)
+			require.NotNil(t, out)
+			require.NotNil(t, out.HookSpecificOutput)
+			require.NotNil(t, out.HookSpecificOutput.UpdatedToolResponse)
+			assert.Contains(t, *out.HookSpecificOutput.UpdatedToolResponse, "Tool call result was too large")
+		})
+	}
 }
 
 func TestLimitLargeToolResultsTriggersOnLineCount(t *testing.T) {

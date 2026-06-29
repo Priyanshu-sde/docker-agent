@@ -25,6 +25,20 @@ const (
 	largeToolCallResultTailBytes = 50 * 1024
 )
 
+// largeResultCategories lists the tool categories whose results can be
+// arbitrarily large and are not bounded anywhere else, so they are subject
+// to the oversized-result cap. filesystem and shell are the high-output
+// built-in toolsets; mcp and a2a call external servers that impose no
+// per-result limit of their own (unlike the openapi/api toolsets, which
+// already truncate their output). Internal toolsets (memory, plan, tasks,
+// think, ...) return bounded, structured results and are left untouched.
+var largeResultCategories = map[string]bool{
+	"filesystem": true,
+	"shell":      true,
+	"mcp":        true,
+	"a2a":        true,
+}
+
 func limitLargeToolResults(ctx context.Context, in *hooks.Input, _ []string) (*hooks.Output, error) {
 	if in == nil {
 		return nil, nil
@@ -42,7 +56,7 @@ func limitLargeToolResults(ctx context.Context, in *hooks.Input, _ []string) (*h
 }
 
 func limitLargeToolResponse(ctx context.Context, in *hooks.Input) (*hooks.Output, error) {
-	if in.ToolCategory != "filesystem" && in.ToolCategory != "shell" {
+	if !largeResultCategories[in.ToolCategory] {
 		return nil, nil
 	}
 
