@@ -3,6 +3,8 @@ package hooks
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -133,6 +135,107 @@ func TestBuiltinHookEmptyNameIsRejected(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, result.Allowed)
 	assert.Contains(t, result.Message, "builtin hook requires a name")
+}
+
+// TestBuiltinHookHonorsWorkingDir pins that a builtin hook's working_dir
+// override repoints Input.Cwd before the BuiltinFunc runs — the same
+// resolution command hooks get. A relative override is joined onto the
+// executor's working directory.
+func TestBuiltinHookHonorsWorkingDir(t *testing.T) {
+	t.Parallel()
+
+	baseDir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(baseDir, "scripts"), 0o755))
+
+	registry := NewRegistry()
+	var seenCwd string
+	require.NoError(t, registry.RegisterBuiltin("capture-cwd", func(_ context.Context, in *Input, _ []string) (*Output, error) {
+		seenCwd = in.Cwd
+		return nil, nil
+	}))
+
+	exec := NewExecutorWithRegistry(&Config{SessionStart: []Hook{{
+		Type:       HookTypeBuiltin,
+		Command:    "capture-cwd",
+		WorkingDir: "scripts",
+	}}}, baseDir, nil, registry)
+
+	_, err := exec.Dispatch(t.Context(), EventSessionStart, &Input{SessionID: "s"})
+	require.NoError(t, err)
+	assert.Equal(t, filepath.Join(baseDir, "scripts"), seenCwd)
+}
+
+// TestBuiltinHookWithoutWorkingDirKeepsInputCwd pins that, absent a
+// working_dir override, a builtin sees the Input.Cwd the caller
+// supplied — the executor must not clobber it with its own working
+// directory. This matters for events like worktree_create whose cwd is
+// set explicitly by the dispatcher.
+func TestBuiltinHookWithoutWorkingDirKeepsInputCwd(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	var seenCwd string
+	require.NoError(t, registry.RegisterBuiltin("capture-cwd", func(_ context.Context, in *Input, _ []string) (*Output, error) {
+		seenCwd = in.Cwd
+		return nil, nil
+	}))
+
+	exec := NewExecutorWithRegistry(&Config{SessionStart: []Hook{{
+		Type:    HookTypeBuiltin,
+		Command: "capture-cwd",
+	}}}, t.TempDir(), nil, registry)
+
+	_, err := exec.Dispatch(t.Context(), EventSessionStart, &Input{SessionID: "s", Cwd: "/explicit/cwd"})
+	require.NoError(t, err)
+	assert.Equal(t, "/explicit/cwd", seenCwd)
+}
+
+// TestBuiltinHookHonorsEnv pins that per-hook env overrides reach the
+// BuiltinFunc through the context, merged onto the executor env, so
+// builtins that shell out can run subprocesses with per-hook variables.
+func TestBuiltinHookHonorsEnv(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	var seenEnv []string
+	require.NoError(t, registry.RegisterBuiltin("capture-env", func(ctx context.Context, _ *Input, _ []string) (*Output, error) {
+		seenEnv = EnvFromContext(ctx)
+		return nil, nil
+	}))
+
+	exec := NewExecutorWithRegistry(&Config{SessionStart: []Hook{{
+		Type:    HookTypeBuiltin,
+		Command: "capture-env",
+		Env:     map[string]string{"HOOK_VALUE": "from-hook"},
+	}}}, t.TempDir(), []string{"BASE=1"}, registry)
+
+	_, err := exec.Dispatch(t.Context(), EventSessionStart, &Input{SessionID: "s"})
+	require.NoError(t, err)
+	assert.Contains(t, seenEnv, "BASE=1")
+	assert.Contains(t, seenEnv, "HOOK_VALUE=from-hook")
+}
+
+// TestBuiltinHookWithoutEnvInheritsProcess pins that a builtin without an
+// env override sees a nil env from the context, the signal to inherit the
+// process environment (exec.Cmd's default).
+func TestBuiltinHookWithoutEnvInheritsProcess(t *testing.T) {
+	t.Parallel()
+
+	registry := NewRegistry()
+	sawEnv := true
+	require.NoError(t, registry.RegisterBuiltin("capture-env", func(ctx context.Context, _ *Input, _ []string) (*Output, error) {
+		sawEnv = EnvFromContext(ctx) != nil
+		return nil, nil
+	}))
+
+	exec := NewExecutorWithRegistry(&Config{SessionStart: []Hook{{
+		Type:    HookTypeBuiltin,
+		Command: "capture-env",
+	}}}, t.TempDir(), nil, registry)
+
+	_, err := exec.Dispatch(t.Context(), EventSessionStart, &Input{SessionID: "s"})
+	require.NoError(t, err)
+	assert.False(t, sawEnv, "nil executor env + no override must yield a nil hook env")
 }
 
 // TestBuiltinHookErrorFailsClosed documents that an error returned by the

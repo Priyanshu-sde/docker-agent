@@ -47,6 +47,30 @@ type HandlerEnv struct {
 	Env        []string
 }
 
+// hookEnvKey is the context key under which a builtin hook's resolved
+// environment is carried to the [BuiltinFunc].
+type hookEnvKey struct{}
+
+// withHookEnv returns a context carrying env. A nil env is stored as-is
+// so [EnvFromContext] reports "inherit the process environment".
+func withHookEnv(ctx context.Context, env []string) context.Context {
+	return context.WithValue(ctx, hookEnvKey{}, env)
+}
+
+// EnvFromContext returns the environment a builtin hook should use for
+// any subprocess it spawns, as "KEY=value" entries. It merges the
+// executor's environment with the hook's per-hook env overrides. A nil
+// result means "inherit the current process environment" (the default
+// for hooks without an env override), matching exec.Cmd semantics.
+//
+// Builtins that don't shell out can ignore it. Those that do should
+// pass it to exec.Cmd.Env (falling back to os.Environ() on nil only if
+// they must materialize a concrete slice).
+func EnvFromContext(ctx context.Context) []string {
+	env, _ := ctx.Value(hookEnvKey{}).([]string)
+	return env
+}
+
 // HandlerFactory builds a [Handler] for a single hook invocation.
 // Factories validate the hook (e.g. non-empty [Hook.Command]) and
 // return an error if it isn't runnable.
@@ -223,7 +247,14 @@ func (h *commandHandler) Run(ctx context.Context, input []byte) (HandlerResult, 
 // builtinFactory resolves Hook.Command in the registry's builtin table
 // and returns a [Handler] that bridges the JSON-on-stdin protocol to a
 // typed [BuiltinFunc].
-func (r *Registry) builtinFactory(_ HandlerEnv, hook Hook) (Handler, error) {
+//
+// The factory resolves the same working_dir and env overrides honored
+// by command hooks: working_dir repoints the [Input.Cwd] every builtin
+// keys off (the git/listing builtins shell out or stat relative to it),
+// and env is exposed via [HookEnv] so builtins that exec a subprocess
+// can run it with per-hook variables. Both default to the executor's
+// values when the hook leaves them unset, preserving prior behavior.
+func (r *Registry) builtinFactory(env HandlerEnv, hook Hook) (Handler, error) {
 	if hook.Command == "" {
 		return nil, errors.New("builtin hook requires a name in command")
 	}
@@ -231,12 +262,23 @@ func (r *Registry) builtinFactory(_ HandlerEnv, hook Hook) (Handler, error) {
 	if !ok {
 		return nil, fmt.Errorf("no builtin hook registered as %q", hook.Command)
 	}
-	return &builtinHandler{fn: fn, args: hook.Args}, nil
+	return &builtinHandler{
+		fn:         fn,
+		args:       hook.Args,
+		workingDir: hook.WorkingDir,
+		baseDir:    env.WorkingDir,
+		env:        hookEnv(env.Env, hook.Env),
+	}, nil
 }
 
 type builtinHandler struct {
 	fn   BuiltinFunc
 	args []string
+	// workingDir is the hook's working_dir override (possibly relative);
+	// baseDir is the executor's working directory it resolves against.
+	workingDir string
+	baseDir    string
+	env        []string
 }
 
 func (h *builtinHandler) Run(ctx context.Context, input []byte) (HandlerResult, error) {
@@ -244,6 +286,13 @@ func (h *builtinHandler) Run(ctx context.Context, input []byte) (HandlerResult, 
 	if err := json.Unmarshal(input, &in); err != nil {
 		return HandlerResult{ExitCode: -1}, fmt.Errorf("decode hook input: %w", err)
 	}
+	// A working_dir override repoints Input.Cwd, the directory every
+	// builtin keys off. With no override Input.Cwd is left as-is so
+	// callers that supply a cwd (e.g. the worktree_create event) keep it.
+	if h.workingDir != "" {
+		in.Cwd = hookWorkingDir(h.baseDir, h.workingDir)
+	}
+	ctx = withHookEnv(ctx, h.env)
 	out, err := h.fn(ctx, &in, h.args)
 	if err != nil {
 		return HandlerResult{ExitCode: -1}, err

@@ -1,12 +1,16 @@
 package builtins
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/docker-agent/pkg/hooks"
 )
 
 func TestIsGitRepo(t *testing.T) {
@@ -72,4 +76,48 @@ func TestIsGitRepo(t *testing.T) {
 			assert.Equal(t, tt.want, isGitRepo(tt.setup(t)))
 		})
 	}
+}
+
+// TestGitOutputUsesHookEnv proves the per-hook env reaches the git
+// subprocess gitOutput spawns, end to end through the executor. A
+// builtin probe reads a config key that exists only when git is handed
+// the GIT_CONFIG_* env injection carried by the hook's env override;
+// without it the key is absent and the command errors.
+func TestGitOutputUsesHookEnv(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed; skipping git-backed builtin test")
+	}
+
+	dir := t.TempDir()
+	init := exec.CommandContext(t.Context(), "git", "-C", dir, "init", "--quiet", "-b", "main")
+	out, err := init.CombinedOutput()
+	require.NoErrorf(t, err, "git init failed: %s", out)
+
+	registry := hooks.NewRegistry()
+	var got string
+	require.NoError(t, registry.RegisterBuiltin("git-config-probe", func(ctx context.Context, in *hooks.Input, _ []string) (*hooks.Output, error) {
+		v, gerr := gitOutput(ctx, in.Cwd, "config", "--get", "hook.value")
+		if gerr != nil {
+			return nil, gerr
+		}
+		got = v
+		return nil, nil
+	}))
+
+	// Injects `hook.value=from-env` into git purely through the
+	// environment, so a non-empty read proves the env was applied.
+	hookEnv := map[string]string{
+		"GIT_CONFIG_COUNT":   "1",
+		"GIT_CONFIG_KEY_0":   "hook.value",
+		"GIT_CONFIG_VALUE_0": "from-env",
+	}
+	executor := hooks.NewExecutorWithRegistry(&hooks.Config{SessionStart: []hooks.Hook{{
+		Type:    hooks.HookTypeBuiltin,
+		Command: "git-config-probe",
+		Env:     hookEnv,
+	}}}, dir, os.Environ(), registry)
+
+	_, err = executor.Dispatch(t.Context(), hooks.EventSessionStart, &hooks.Input{SessionID: "s", Cwd: dir})
+	require.NoError(t, err)
+	assert.Equal(t, "from-env", got)
 }

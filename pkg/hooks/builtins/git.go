@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/docker/docker-agent/pkg/hooks"
 )
 
 // isGitRepo checks if the given directory or one of its parents is a git
@@ -60,7 +62,12 @@ func gitOutput(ctx context.Context, dir string, args ...string) (string, error) 
 		return "", errors.New("empty working directory")
 	}
 	full := append([]string{"-C", dir}, args...)
-	out, err := exec.CommandContext(ctx, "git", full...).Output()
+	cmd := exec.CommandContext(ctx, "git", full...)
+	// Honor the hook's resolved env (executor env + per-hook overrides)
+	// when set; a nil env leaves cmd.Env nil so git inherits the process
+	// environment, preserving the prior behavior.
+	cmd.Env = hooks.EnvFromContext(ctx)
+	out, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
