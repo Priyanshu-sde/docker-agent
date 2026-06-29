@@ -61,6 +61,10 @@ var WrapErrors = &cop.Func{
 // escaped percent signs. A naive strings.Contains(format, "%w") would treat
 // the literal "%%w" (an escaped percent followed by the letter w) as a
 // wrapping verb and silence a genuinely unwrapped error.
+//
+// Flags, width, precision, and argument indices between the percent and the
+// verb letter are skipped, so forms like %-10w, %[1]w, and %3.2w are also
+// recognised as wrap verbs.
 func hasWrapVerb(format string) bool {
 	for i := 0; i < len(format); i++ {
 		if format[i] != '%' || i+1 >= len(format) {
@@ -70,11 +74,23 @@ func hasWrapVerb(format string) bool {
 			i++ // consume the escaped percent so "%%w" is not read as a verb
 			continue
 		}
-		if format[i+1] == 'w' {
+		// Skip flags, width, precision, and [n] argument indices to reach
+		// the verb letter that terminates the directive.
+		j := i + 1
+		for j < len(format) && !isLetter(format[j]) {
+			j++
+		}
+		if j < len(format) && format[j] == 'w' {
 			return true
 		}
 	}
 	return false
+}
+
+// isLetter reports whether b is an ASCII letter, the set of bytes fmt uses
+// for verbs.
+func isLetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
 }
 
 // stringLit returns the unquoted value of a string-literal expression.

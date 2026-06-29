@@ -66,3 +66,15 @@ func f(a, b error) error { return fmt.Errorf("%w and %v", a, b) }
 `
 	assert.Empty(t, coptest.RunTyped(t, WrapErrors, src))
 }
+
+// A %w verb carrying flags, width, precision, or an argument index is still a
+// wrap verb and must not be flagged.
+func TestWrapErrorsAllowsWrapVerbWithModifiers(t *testing.T) {
+	for _, format := range []string{"%[1]w", "%-10w", "%+w"} {
+		src := `package p
+import "fmt"
+func f(err error) error { return fmt.Errorf("oops: ` + format + `", err) }
+`
+		assert.Empty(t, coptest.RunTyped(t, WrapErrors, src), format)
+	}
+}
