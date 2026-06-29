@@ -396,7 +396,7 @@ func TestReadOnly_RejectsMessages(t *testing.T) {
 	t.Parallel()
 
 	sess := session.New()
-	a := app.New(queueTestRuntime{}, sess, app.WithReadOnly())
+	a := app.New(t.Context(), queueTestRuntime{}, sess, app.WithReadOnly())
 	require.True(t, a.IsReadOnly())
 
 	p := New(t.Context(), a, service.NewSessionState(sess)).(*chatPage)

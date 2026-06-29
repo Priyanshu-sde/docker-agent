@@ -111,7 +111,7 @@ func TestApp_SlashSkill_ForkContext_DispatchesToRunSkillFork(t *testing.T) {
 	sess := session.New(session.WithUserMessage("hi there"))
 	require.Equal(t, 1, sess.MessageCount())
 
-	a := New(rt, sess)
+	a := New(t.Context(), rt, sess)
 
 	// Detection.
 	skillName, task, ok := a.SkillCommandFork(ctx, "/commit please commit")
@@ -166,7 +166,7 @@ func TestApp_SlashSkill_InlineContext_StillInlines(t *testing.T) {
 	}
 
 	ctx := t.Context()
-	a := New(rt, session.New())
+	a := New(t.Context(), rt, session.New())
 
 	_, _, ok := a.SkillCommandFork(ctx, "/review the diff")
 	assert.False(t, ok)
@@ -210,7 +210,7 @@ func TestApp_SlashSkill_NonFork_E2E(t *testing.T) {
 	sess := session.New(session.WithUserMessage("hi there"))
 	require.Equal(t, 1, sess.MessageCount())
 
-	a := New(rt, sess)
+	a := New(t.Context(), rt, sess)
 
 	// Same dispatch as chat.processMessage.
 	input := "/review carefully"

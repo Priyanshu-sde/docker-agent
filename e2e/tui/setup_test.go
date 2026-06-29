@@ -76,7 +76,7 @@ func newTUI(t *testing.T, agentFile string, width, height int, tuiOpts ...tui.Op
 	if gen := rt.TitleGenerator(ctx); gen != nil {
 		appOpts = append(appOpts, app.WithTitleGenerator(gen))
 	}
-	application := app.New(rt, session.New(), appOpts...)
+	application := app.New(ctx, rt, session.New(), appOpts...)
 
 	wd, _ := os.Getwd()
 	model := tui.New(ctx, nil /* no spawner: single tab */, application, wd, func() {}, tuiOpts...)

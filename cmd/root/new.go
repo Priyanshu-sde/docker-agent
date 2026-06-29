@@ -95,7 +95,7 @@ func runTUI(ctx context.Context, rt runtime.Runtime, sess *session.Session, spaw
 		opts = append(opts, app.WithTitleGenerator(gen))
 	}
 
-	a := app.New(rt, sess, opts...)
+	a := app.New(ctx, rt, sess, opts...)
 
 	coalescer := tuiinput.NewWheelCoalescer()
 	filter := func(model tea.Model, msg tea.Msg) tea.Msg {

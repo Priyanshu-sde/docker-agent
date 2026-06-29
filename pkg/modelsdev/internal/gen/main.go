@@ -39,6 +39,9 @@ func run() error {
 		return err
 	}
 
+	// Standalone snapshot generator (its own main); the build-time root
+	// context has no parent to derive from.
+	//rubocop:disable Lint/ContextConnectivity
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 

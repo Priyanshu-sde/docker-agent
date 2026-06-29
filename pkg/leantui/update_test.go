@@ -104,7 +104,7 @@ var _ runtime.Runtime = (*cycleThinkingRuntime)(nil)
 func TestShiftTabCyclesThinkingLevel(t *testing.T) {
 	rt := &cycleThinkingRuntime{supports: true, level: effort.High}
 	m := bareModel(24)
-	m.app = app.New(rt, session.New())
+	m.app = app.New(t.Context(), rt, session.New())
 
 	m.handleKey(t.Context(), key{typ: keyShiftTab})
 
@@ -116,7 +116,7 @@ func TestShiftTabCyclesThinkingLevel(t *testing.T) {
 func TestShiftTabReportsUnsupportedThinkingLevel(t *testing.T) {
 	rt := &cycleThinkingRuntime{supports: true, err: runtime.ErrUnsupported}
 	m := bareModel(24)
-	m.app = app.New(rt, session.New())
+	m.app = app.New(t.Context(), rt, session.New())
 
 	m.handleKey(t.Context(), key{typ: keyShiftTab})
 

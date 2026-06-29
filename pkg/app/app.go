@@ -120,7 +120,7 @@ func WithSnapshotController(c builtins.SnapshotController) Opt {
 	}
 }
 
-func New(rt runtime.Runtime, sess *session.Session, opts ...Opt) *App {
+func New(ctx context.Context, rt runtime.Runtime, sess *session.Session, opts ...Opt) *App {
 	app := &App{
 		ctx:              func() context.Context { return context.WithoutCancel(ctx) },
 		runtime:          rt,

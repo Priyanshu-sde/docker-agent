@@ -17,7 +17,7 @@ func TestApp_NewSession_PreservesWorkingDir(t *testing.T) {
 	initialSess := session.New(
 		session.WithWorkingDir("/projects/myapp"),
 	)
-	app := New(rt, initialSess)
+	app := New(t.Context(), rt, initialSess)
 	require.Equal(t, "/projects/myapp", app.Session().WorkingDir)
 
 	app.NewSession()
@@ -38,7 +38,7 @@ func TestApp_NewSession_PreservesAllSessionFlags(t *testing.T) {
 		session.WithHideToolResults(true),
 		session.WithWorkingDir("/work"),
 	)
-	app := New(rt, initialSess)
+	app := New(t.Context(), rt, initialSess)
 
 	app.NewSession()
 
