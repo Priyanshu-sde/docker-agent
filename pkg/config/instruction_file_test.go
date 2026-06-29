@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/docker/docker-agent/pkg/config/latest"
 )
 
 // writeConfigDir creates a temp directory holding an agent config file named
@@ -179,4 +181,91 @@ func TestInstructionFileEmptyStringIgnored(t *testing.T) {
 	cfg, err := Load(t.Context(), NewFileSource(filepath.Join(dir, "agent.yaml")))
 	require.NoError(t, err)
 	assert.Equal(t, "inline prompt", cfg.Agents.First().Instruction)
+}
+
+// TestInstructionFileListConcatenated verifies that a list of instruction
+// files is concatenated in order, separated by a blank line.
+func TestInstructionFileListConcatenated(t *testing.T) {
+	t.Parallel()
+
+	cfgYAML := `agents:
+  root:
+    model: openai/gpt-4o
+    description: test agent
+    instruction_file:
+      - instructions/intro.md
+      - instructions/rules.md
+`
+	dir := writeConfigDir(t, cfgYAML, map[string]string{
+		"instructions/intro.md": "You are a helpful assistant.",
+		"instructions/rules.md": "Always be concise.",
+	})
+
+	cfg, err := Load(t.Context(), NewFileSource(filepath.Join(dir, "agent.yaml")))
+	require.NoError(t, err)
+
+	agent := cfg.Agents.First()
+	assert.Equal(t, "You are a helpful assistant.\n\nAlways be concise.", agent.Instruction)
+	assert.Empty(t, agent.InstructionFile)
+}
+
+// TestInstructionFileListMissingFile verifies that a missing file in the list
+// surfaces a clear error naming the offending path.
+func TestInstructionFileListMissingFile(t *testing.T) {
+	t.Parallel()
+
+	cfgYAML := `agents:
+  root:
+    model: openai/gpt-4o
+    description: test agent
+    instruction_file:
+      - instructions/intro.md
+      - instructions/missing.md
+`
+	dir := writeConfigDir(t, cfgYAML, map[string]string{
+		"instructions/intro.md": "hello",
+	})
+
+	_, err := Load(t.Context(), NewFileSource(filepath.Join(dir, "agent.yaml")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "instructions/missing.md")
+}
+
+// TestInstructionFileListRejectsTraversal verifies that path-safety checks
+// apply to every entry of the list.
+func TestInstructionFileListRejectsTraversal(t *testing.T) {
+	t.Parallel()
+
+	cfgYAML := `agents:
+  root:
+    model: openai/gpt-4o
+    description: test agent
+    instruction_file:
+      - instructions/intro.md
+      - ../secret.md
+`
+	dir := writeConfigDir(t, cfgYAML, map[string]string{
+		"instructions/intro.md": "hello",
+	})
+	require.NoError(t, os.WriteFile(filepath.Join(filepath.Dir(dir), "secret.md"), []byte("secret"), 0o644))
+
+	_, err := Load(t.Context(), NewFileSource(filepath.Join(dir, "agent.yaml")))
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "local relative path")
+	assert.Contains(t, err.Error(), "../secret.md")
+}
+
+// TestInstructionFileSingleElementRoundTrips verifies a single-element list
+// behaves like the scalar form and marshals back as a scalar.
+func TestInstructionFileSingleElementMarshalsAsScalar(t *testing.T) {
+	t.Parallel()
+
+	one := latest.InstructionFiles{"prompt.md"}
+	out, err := one.MarshalYAML()
+	require.NoError(t, err)
+	assert.Equal(t, "prompt.md", out)
+
+	data, err := one.MarshalJSON()
+	require.NoError(t, err)
+	assert.JSONEq(t, `"prompt.md"`, string(data))
 }
