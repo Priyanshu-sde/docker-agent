@@ -14,18 +14,18 @@ import (
 	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
-// newAgentPanelSidebar builds a sidebar whose current agent and roster are set,
-// ready to render the Agents panel at the given outer width.
-func newAgentPanelSidebar(t *testing.T, current string, width int, agents ...runtime.AgentDetails) *model {
+// newAgentPanelSidebar builds a sidebar whose current agent is "root" and whose
+// roster is set, ready to render the Agents panel at the given outer width.
+func newAgentPanelSidebar(t *testing.T, width int, agents ...runtime.AgentDetails) *model {
 	t.Helper()
 	sess := session.New()
 	ss := service.NewSessionState(sess)
-	ss.SetCurrentAgentName(current)
+	ss.SetCurrentAgentName("root")
 	m := New(t.Context(), ss).(*model)
 	m.sessionHasContent = true
 	m.titleGenerated = true
 	m.sessionTitle = "Test"
-	m.currentAgent = current
+	m.currentAgent = "root"
 	m.availableAgents = agents
 	m.width = width
 	m.height = 200
@@ -36,6 +36,30 @@ func newAgentPanelSidebar(t *testing.T, current string, width int, agents ...run
 func renderAgentPanel(m *model) []string {
 	out := ansi.Strip(m.agentInfo(m.contentWidth(false)))
 	return strings.Split(out, "\n")
+}
+
+const tabHeaderLines = 2 // tab title + TabStyle top padding before the body
+
+// agentBody returns the ANSI-stripped panel body lines aligned 1:1 with
+// m.agentLineOwners (populated as a side effect of rendering).
+func agentBody(m *model) (body []string) {
+	lines := renderAgentPanel(m)
+	return lines[tabHeaderLines : tabHeaderLines+len(m.agentLineOwners)]
+}
+
+// agentLines returns the two ANSI-stripped content lines owned by the named
+// agent: line1 (name + thinking + shortcut) and line2 (provider/model).
+func agentLines(m *model, name string) (line1, line2 string) {
+	body := agentBody(m)
+	for j, owner := range m.agentLineOwners {
+		if owner == name {
+			if j+1 < len(body) {
+				return body[j], body[j+1]
+			}
+			return body[j], ""
+		}
+	}
+	return "", ""
 }
 
 func TestClassifyThinking(t *testing.T) {
@@ -60,112 +84,114 @@ func TestClassifyThinking(t *testing.T) {
 	}
 }
 
-// TestCardThinkingLine covers every vocabulary case for the focus-card thinking
-// line, including the empty case (line omitted) and the token-budget formatting.
-func TestCardThinkingLine(t *testing.T) {
+// TestAgentEntryLayout verifies an agent renders as two lines: line 1 carries
+// the name, thinking badge and "^N" shortcut (no description), and line 2 the
+// provider/model.
+func TestAgentEntryLayout(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		label    string
-		contains string
-		omit     bool
-	}{
-		{"high", "thinking " + gaugePattern(4) + " high", false},
-		{"adaptive", "thinking auto adaptive", false},
-		{"8192", "thinking " + styles.TokenGlyph + " 8.2K tokens", false},
-		{"off", "thinking " + gaugePattern(0) + " off", false},
-		{"", "", true},
-	}
-	for _, c := range cases {
-		got := ansi.Strip(cardThinkingLine(c.label))
-		if c.omit {
-			assert.Emptyf(t, got, "label %q should omit the card line", c.label)
-			continue
-		}
-		assert.Equalf(t, c.contains, got, "label %q", c.label)
-	}
+	m := newAgentPanelSidebar(t, 40,
+		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "claude-opus-4-8", Description: "Executive assistant", Thinking: "high"},
+	)
+
+	line1, line2 := agentLines(m, "root")
+	require.NotEmpty(t, line1)
+	assert.Contains(t, line1, "root", "line 1 shows the agent name")
+	assert.Contains(t, line1, "^1", "line 1 shows the switch shortcut")
+	assert.Contains(t, line1, gaugePattern(4), "line 1 shows the thinking gauge")
+	assert.NotContains(t, line1, "Executive assistant", "description is not shown")
+
+	body := strings.Join(agentBody(m), "\n")
+	assert.NotContains(t, body, "Executive assistant", "description is not shown anywhere")
+	assert.Contains(t, line2, "anthropic/claude-opus-4-8", "line 2 shows the provider/model")
 }
 
-// TestCardRenderedInPlace verifies the current agent renders as a focus card at
-// its natural config-order position (not pinned to the top), with the wrapped
-// description, full model id and thinking line, while the agents before it
-// render as compact rows.
-func TestCardRenderedInPlace(t *testing.T) {
+// TestCurrentAgentMarker verifies the current agent is marked with ▶ while the
+// other agents are not, and that each agent owns exactly its two content lines
+// (separators are unowned).
+func TestCurrentAgentMarker(t *testing.T) {
 	t.Parallel()
 
-	m := newAgentPanelSidebar(t, "root", 40,
+	m := newAgentPanelSidebar(t, 40,
 		runtime.AgentDetails{Name: "first", Provider: "openai", Model: "gpt-5.4-mini", Thinking: "off"},
-		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "claude-opus-4-8", Description: "Executive assistant", Thinking: "high"},
+		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "claude-opus-4-8", Thinking: "high"},
 		runtime.AgentDetails{Name: "last", Provider: "google", Model: "gemini-flash", Thinking: "off"},
 	)
 
-	lines := renderAgentPanel(m)
+	rootLine1, _ := agentLines(m, "root")
+	firstLine1, _ := agentLines(m, "first")
+	require.NotEmpty(t, rootLine1)
+	require.NotEmpty(t, firstLine1)
+	assert.Contains(t, rootLine1, "▶", "current agent is marked with ▶")
+	assert.NotContains(t, firstLine1, "▶", "non-current agents have no marker")
 
-	// Find the compact row for "first" and the card header for "root".
-	firstRow := -1
-	cardHeader := -1
-	for i, l := range lines {
-		if strings.Contains(l, "first") && strings.Contains(l, "^1") {
-			firstRow = i
+	// Each agent owns exactly its two content lines; separators are unowned.
+	counts := map[string]int{}
+	blanks := 0
+	for _, owner := range m.agentLineOwners {
+		if owner == "" {
+			blanks++
+			continue
 		}
-		if strings.Contains(l, "▶ root") {
-			cardHeader = i
-		}
+		counts[owner]++
 	}
-	require.Positive(t, firstRow, "compact row for the first (non-current) agent should render")
-	require.Positive(t, cardHeader, "card header for the current agent should render")
-	assert.Less(t, firstRow, cardHeader, "card must render in place, after the first agent's row")
-
-	body := strings.Join(lines, "\n")
-	assert.Contains(t, body, "Executive assistant", "card shows description")
-	assert.Contains(t, body, "anthropic/claude-opus-4-8", "card shows full provider/model")
-	assert.Contains(t, body, "thinking "+gaugePattern(4)+" high", "card shows gauge+value thinking line")
+	assert.Equal(t, 2, counts["first"])
+	assert.Equal(t, 2, counts["root"])
+	assert.Equal(t, 2, counts["last"])
+	assert.Positive(t, blanks, "entries are separated by blank, unowned lines")
 }
 
-// TestCardDescriptionWrapsToTwoLinesWithEllipsis verifies a long description is
-// wrapped to at most two lines, with the second line ending in an ellipsis.
-func TestCardDescriptionWrapsToTwoLinesWithEllipsis(t *testing.T) {
+// TestShortcutAtRightmost verifies the "^N" shortcut is the last visible content
+// on the name line: nothing is rendered to the right of it.
+func TestShortcutAtRightmost(t *testing.T) {
 	t.Parallel()
 
-	long := "This is a very long agent description that certainly will not fit on a single sidebar line and must wrap onto a second line and then be truncated"
-	m := newAgentPanelSidebar(t, "root", 40,
-		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "claude-opus-4-8", Description: long, Thinking: "high"},
+	m := newAgentPanelSidebar(t, 40,
+		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
+		runtime.AgentDetails{Name: "alpha", Provider: "openai", Model: "gpt-5.4-mini", Thinking: "8192"},
 	)
 
-	lines := renderAgentPanel(m)
-
-	// Description lines are the wrapped body lines under the card.
-	var descLines []string
-	for _, l := range lines {
-		if strings.Contains(l, "This is a very long") || strings.Contains(l, "that certainly") {
-			descLines = append(descLines, l)
-		}
+	for _, name := range []string{"root", "alpha"} {
+		line1, _ := agentLines(m, name)
+		line := strings.TrimRight(line1, " ")
+		require.NotEmpty(t, line)
+		assert.Truef(t, strings.HasSuffix(line, "^1") || strings.HasSuffix(line, "^2"),
+			"line for %q must end with its shortcut, got %q", name, line)
 	}
-	require.Len(t, descLines, 2, "description must wrap to exactly two lines")
-	assert.Contains(t, descLines[1], "…", "second description line ends with an ellipsis")
 }
 
-// TestHarnessCardNoThinkingLine verifies a harness-backed current agent (empty
-// Thinking, harness type as model) shows the harness type and no thinking line.
-func TestHarnessCardNoThinkingLine(t *testing.T) {
+// TestShortcutColumnAlignment verifies the shortcuts align at a single right
+// column across name lines regardless of name length or badge width.
+func TestShortcutColumnAlignment(t *testing.T) {
 	t.Parallel()
 
-	m := newAgentPanelSidebar(t, "slack", 40,
-		runtime.AgentDetails{Name: "slack", Model: "claude-code", Description: "Slack agent", Thinking: ""},
+	m := newAgentPanelSidebar(t, 40,
+		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
+		runtime.AgentDetails{Name: "a", Provider: "openai", Model: "gpt-4o", Thinking: "off"},
+		runtime.AgentDetails{Name: "longer-name", Provider: "openai", Model: "gpt-5.4", Thinking: "8192"},
 	)
 
-	body := strings.Join(renderAgentPanel(m), "\n")
-	assert.Contains(t, body, "claude-code", "harness card shows the harness type as the model")
-	assert.NotContains(t, body, "thinking:", "harness card has no thinking line")
+	end := -1
+	for _, name := range []string{"root", "a", "longer-name"} {
+		line1, _ := agentLines(m, name)
+		line := strings.TrimRight(line1, " ")
+		w := len([]rune(line))
+		if end == -1 {
+			end = w
+		} else {
+			assert.Equalf(t, end, w, "shortcuts for %q must end in a single column", name)
+		}
+	}
 }
 
-// TestRowColumnAlignment verifies roster rows share an aligned badge column and
-// that badges render with the expected vocabulary: effort levels become the
-// fixed-width gauge while token/adaptive/off keep their text badges.
-func TestRowColumnAlignment(t *testing.T) {
+// TestThinkingBadgeVocabularyOnLine verifies the thinking badge vocabulary
+// renders on the agent's name line: effort levels become the gauge, token
+// budgets keep the token glyph, adaptive becomes "auto", and off becomes an
+// empty gauge.
+func TestThinkingBadgeVocabularyOnLine(t *testing.T) {
 	t.Parallel()
 
-	m := newAgentPanelSidebar(t, "root", 40,
+	m := newAgentPanelSidebar(t, 40,
 		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
 		runtime.AgentDetails{Name: "alpha", Provider: "openai", Model: "gpt-5.4-mini", Thinking: "off"},
 		runtime.AgentDetails{Name: "beta", Provider: "openai", Model: "gpt-5.4", Thinking: "high"},
@@ -173,103 +199,33 @@ func TestRowColumnAlignment(t *testing.T) {
 		runtime.AgentDetails{Name: "delta", Provider: "google", Model: "gemini", Thinking: "adaptive"},
 	)
 
-	lines := renderAgentPanel(m)
-
-	type rowBadge struct{ line, badge string }
-	var rows []rowBadge
-	for _, l := range lines {
-		switch {
-		case strings.Contains(l, "alpha"):
-			rows = append(rows, rowBadge{l, gaugePattern(0)}) // off → empty gauge
-		case strings.Contains(l, "beta"):
-			rows = append(rows, rowBadge{l, gaugePattern(4)}) // high → six-cell gauge
-		case strings.Contains(l, "gamma"):
-			rows = append(rows, rowBadge{l, styles.TokenGlyph + " 8.2K"})
-		case strings.Contains(l, "delta"):
-			rows = append(rows, rowBadge{l, "auto"})
-		}
+	want := map[string]string{
+		"alpha": gaugePattern(0),
+		"beta":  gaugePattern(4),
+		"gamma": styles.TokenGlyph + " 8.2K",
+		"delta": "auto",
 	}
-	require.Len(t, rows, 4, "all four non-current rows should render")
-
-	for _, r := range rows {
-		assert.Truef(t, strings.HasSuffix(strings.TrimRight(r.line, " "), r.badge), "row %q should end with badge %q", r.line, r.badge)
-	}
-
-	// Badges are right-aligned: every row is padded to the same total width, so
-	// the trimmed rows share the same rune length (badges end at one column).
-	end := -1
-	for _, r := range rows {
-		require.GreaterOrEqual(t, strings.LastIndex(r.line, r.badge), 0)
-		w := len([]rune(strings.TrimRight(r.line, " ")))
-		if end == -1 {
-			end = w
-		} else {
-			assert.Equal(t, end, w, "right-aligned badges must end in a single column")
-		}
+	for name, badge := range want {
+		line1, _ := agentLines(m, name)
+		require.NotEmptyf(t, line1, "row for %q should render", name)
+		assert.Containsf(t, line1, badge, "row %q should show badge %q", name, badge)
 	}
 }
 
-// TestRowModelLeftTruncated verifies the model column keeps its informative tail
-// (left-truncation with a leading ellipsis) when it overflows.
-func TestRowModelLeftTruncated(t *testing.T) {
+// TestModelLineLeftTruncated verifies the provider/model on line 2 keeps its
+// informative tail (left-truncation with a leading ellipsis) when it overflows.
+func TestModelLineLeftTruncated(t *testing.T) {
 	t.Parallel()
 
-	m := newAgentPanelSidebar(t, "root", 30,
+	m := newAgentPanelSidebar(t, 28,
 		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
 		runtime.AgentDetails{Name: "agent2", Provider: "anthropic", Model: "claude-sonnet-4-6", Thinking: "off"},
 	)
 
-	lines := renderAgentPanel(m)
-	var model string
-	for i, l := range lines {
-		if strings.Contains(l, "agent2") && i+1 < len(lines) {
-			model = lines[i+1] // the provider/model is the row's second line
-		}
-	}
-	require.NotEmpty(t, model)
-	assert.Contains(t, model, "…", "overflowing model is left-truncated with an ellipsis")
-	assert.Contains(t, model, "-4-6", "informative model tail survives left-truncation")
-}
-
-// TestRowDigitsRenderTokenBadge verifies a digits-only wire label produces a
-// token badge with the token glyph and formatted count.
-func TestRowDigitsRenderTokenBadge(t *testing.T) {
-	t.Parallel()
-
-	m := newAgentPanelSidebar(t, "root", 40,
-		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
-		runtime.AgentDetails{Name: "gateway", Provider: "openai", Model: "gpt-5.4", Thinking: "8192"},
-	)
-
-	body := strings.Join(renderAgentPanel(m), "\n")
-	assert.Contains(t, body, styles.TokenGlyph+" 8.2K", "digits label renders a token badge")
-}
-
-// TestHarnessRowNoBadge verifies a harness row shows the harness type as the
-// model and no thinking badge.
-func TestHarnessRowNoBadge(t *testing.T) {
-	t.Parallel()
-
-	m := newAgentPanelSidebar(t, "root", 40,
-		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
-		runtime.AgentDetails{Name: "slack", Model: "claude-code", Thinking: ""},
-	)
-
-	lines := renderAgentPanel(m)
-	var line1, line2 string
-	for i, l := range lines {
-		if strings.Contains(l, "slack") {
-			line1 = l
-			if i+1 < len(lines) {
-				line2 = lines[i+1]
-			}
-		}
-	}
-	require.NotEmpty(t, line1)
-	assert.Contains(t, line2, "claude-code", "harness row shows the harness type on its model line")
-	assert.NotContains(t, line1, styles.GaugeFilled, "harness row has no thinking gauge")
-	assert.NotContains(t, line1, styles.GaugeEmpty, "harness row has no thinking gauge")
-	assert.NotContains(t, line1, styles.TokenGlyph, "harness row has no token badge")
+	_, line2 := agentLines(m, "agent2")
+	require.NotEmpty(t, line2)
+	assert.Contains(t, line2, "…", "overflowing model is left-truncated with an ellipsis")
+	assert.Contains(t, line2, "-4-6", "informative model tail survives left-truncation")
 }
 
 // TestMoreThanNineAgentsNoShortcutBeyond9 verifies agents past the 9th get no
@@ -288,56 +244,34 @@ func TestMoreThanNineAgentsNoShortcutBeyond9(t *testing.T) {
 			Thinking: "off",
 		})
 	}
-	m := newAgentPanelSidebar(t, "root", 40, agents...)
+	m := newAgentPanelSidebar(t, 40, agents...)
 
 	body := strings.Join(renderAgentPanel(m), "\n")
 	assert.Contains(t, body, "^9", "the 9th agent keeps its shortcut")
 	assert.NotContains(t, body, "^10", "agents beyond the 9th have no shortcut")
 }
 
-// TestDegradationLadder verifies the two-line roster degrades by available
-// width: the provider/model always occupies line 2, while line 1's thinking
-// gauge collapses from the full six-cell gauge to a single cell near MinWidth.
-func TestDegradationLadder(t *testing.T) {
+// TestNameTruncatesNearMinWidth verifies that at a narrow width the gauge
+// collapses to a single cell while the model still occupies line 2.
+func TestNameTruncatesNearMinWidth(t *testing.T) {
 	t.Parallel()
 
-	makeModel := func(width int) *model {
-		return newAgentPanelSidebar(t, "root", width,
-			runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
-			runtime.AgentDetails{Name: "agent2", Provider: "anthropic", Model: "claude-sonnet-4-6", Thinking: "off"},
-		)
-	}
+	m := newAgentPanelSidebar(t, 21,
+		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
+		runtime.AgentDetails{Name: "agent2", Provider: "anthropic", Model: "claude-sonnet-4-6", Thinking: "high"},
+	)
 
-	linesFor := func(m *model, name string) (line1, line2 string) {
-		ls := renderAgentPanel(m)
-		for i, l := range ls {
-			if strings.Contains(l, name) {
-				line1 = l
-				if i+1 < len(ls) {
-					line2 = ls[i+1]
-				}
-				return line1, line2
-			}
-		}
-		return "", ""
-	}
-
-	// Wide: full empty gauge on line 1, full model on line 2.
-	w1, w2 := linesFor(makeModel(40), "agent2")
-	assert.Contains(t, w1, gaugePattern(0), "wide layout shows the full empty gauge for off")
-	assert.Contains(t, w2, "sonnet-4-6", "wide layout shows the full model on line 2")
-
-	// Near MinWidth (content < rowGlyphOnlyMinWidth): line-1 gauge collapses to a
-	// single cell; the model on line 2 truncates with a leading ellipsis.
-	n1, n2 := linesFor(makeModel(21), "agent2")
-	assert.NotContains(t, n1, gaugePattern(0), "glyph-only layout collapses the full gauge")
-	assert.Contains(t, n1, styles.GaugeEmpty, "glyph-only layout keeps a single gauge cell")
-	assert.Contains(t, n2, "…", "narrow layout left-truncates the model on line 2")
+	line1, line2 := agentLines(m, "agent2")
+	require.NotEmpty(t, line1)
+	// glyph-only step keeps a single filled gauge cell, not the full six-cell gauge.
+	assert.NotContains(t, line1, gaugePattern(4), "narrow layout collapses the full gauge")
+	assert.Contains(t, line1, styles.GaugeFilled, "narrow layout keeps a single gauge cell")
+	assert.Contains(t, line2, "…", "narrow layout left-truncates the model on line 2")
 }
 
-// TestClickZonesCardAndRow verifies that clicking a card line and clicking a row
-// line both resolve to the correct agent.
-func TestClickZonesCardAndRow(t *testing.T) {
+// TestClickZonesEveryLine verifies that clicking any rendered agent line (either
+// the name line or the model line) resolves to the correct agent.
+func TestClickZonesEveryLine(t *testing.T) {
 	t.Parallel()
 
 	sess := session.New()
@@ -351,7 +285,7 @@ func TestClickZonesCardAndRow(t *testing.T) {
 	m.currentAgent = "root"
 	m.availableAgents = []runtime.AgentDetails{
 		{Name: "first", Provider: "openai", Model: "gpt-5.4-mini", Thinking: "off"},
-		{Name: "root", Provider: "anthropic", Model: "claude-opus-4-8", Description: "Executive assistant", Thinking: "high"},
+		{Name: "root", Provider: "anthropic", Model: "claude-opus-4-8", Thinking: "high"},
 	}
 	m.width = 40
 	m.height = 200
@@ -359,42 +293,38 @@ func TestClickZonesCardAndRow(t *testing.T) {
 	_ = sb.View()
 
 	paddingLeft := m.layoutCfg.PaddingLeft
-	foundCard := false
-	foundRow := false
+	foundCurrent := false
+	foundOther := false
 	for y := range len(m.cachedLines) {
 		result, name := sb.HandleClickType(paddingLeft+2, y)
 		if result != ClickAgent {
 			continue
 		}
 		if name == "root" {
-			foundCard = true
+			foundCurrent = true
 		}
 		if name == "first" {
-			foundRow = true
+			foundOther = true
 		}
 	}
-	assert.True(t, foundCard, "clicking a card line should switch to the card's agent")
-	assert.True(t, foundRow, "clicking a row line should switch to the row's agent")
+	assert.True(t, foundCurrent, "clicking the current agent's line switches to it")
+	assert.True(t, foundOther, "clicking another agent's line switches to it")
 }
 
 // TestRosterSeparatesAgentsWithBlankLine verifies a blank separator line is
-// inserted between agent entries (so the two-line rows and the card don't blend
-// together) and that the separator carries an empty owner: a roster agent owns
-// exactly its two content lines, never the separator, so click zones stay
-// aligned.
+// inserted between agent entries and that the separator carries an empty owner,
+// so each agent owns exactly its two content lines and click zones stay aligned.
 func TestRosterSeparatesAgentsWithBlankLine(t *testing.T) {
 	t.Parallel()
 
-	m := newAgentPanelSidebar(t, "root", 40,
-		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Description: "Lead", Thinking: "high"},
+	m := newAgentPanelSidebar(t, 40,
+		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
 		runtime.AgentDetails{Name: "alpha", Provider: "openai", Model: "gpt-5.4-mini", Thinking: "off"},
 		runtime.AgentDetails{Name: "beta", Provider: "openai", Model: "gpt-5.4", Thinking: "high"},
 	)
 
 	_ = renderAgentPanel(m) // populates agentLineOwners
 
-	// Each non-current roster agent owns exactly its two content lines; the
-	// separators between entries are owned by nobody.
 	counts := map[string]int{}
 	blanks := 0
 	for _, owner := range m.agentLineOwners {
@@ -404,12 +334,13 @@ func TestRosterSeparatesAgentsWithBlankLine(t *testing.T) {
 		}
 		counts[owner]++
 	}
-	assert.Equal(t, 2, counts["alpha"], "a roster agent owns exactly its two content lines, not the separator")
-	assert.Equal(t, 2, counts["beta"], "a roster agent owns exactly its two content lines, not the separator")
+	assert.Equal(t, 2, counts["root"], "an agent owns exactly its two content lines, not the separator")
+	assert.Equal(t, 2, counts["alpha"])
+	assert.Equal(t, 2, counts["beta"])
 	assert.Positive(t, blanks, "agents are separated by blank, unowned lines")
 
-	// A blank separator immediately precedes each non-first agent's first owned
-	// line, and no separator leads the panel.
+	// The panel does not start with a separator, and a blank separator precedes
+	// the alpha entry.
 	require.NotEmpty(t, m.agentLineOwners)
 	assert.NotEmpty(t, m.agentLineOwners[0], "the panel does not start with a separator")
 	alphaStart := -1
@@ -419,6 +350,6 @@ func TestRosterSeparatesAgentsWithBlankLine(t *testing.T) {
 			break
 		}
 	}
-	require.Positive(t, alphaStart, "alpha should own lines after the card")
+	require.Positive(t, alphaStart, "alpha should own lines after root")
 	assert.Empty(t, m.agentLineOwners[alphaStart-1], "a blank separator precedes the alpha entry")
 }

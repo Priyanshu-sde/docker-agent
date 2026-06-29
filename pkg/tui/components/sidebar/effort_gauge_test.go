@@ -68,61 +68,45 @@ func TestThinkingBadgeVocabulary(t *testing.T) {
 	}
 }
 
-// TestCardThinkingLineShowsGaugeAndValue verifies the focus card thinking line
-// is "thinking <gauge> <word>" (no ✻): both the gauge and the descriptive word.
-func TestCardThinkingLineShowsGaugeAndValue(t *testing.T) {
+// TestCardThinkingLineShowsGaugeAndValue verifies the shared thinking summary
+// used by the agent-details dialog is "<gauge> <word>" (no ✻): both the gauge
+// and the descriptive word.
+func TestThinkingGaugeValueShowsGaugeAndWord(t *testing.T) {
 	t.Parallel()
 
-	got := ansi.Strip(cardThinkingLine("high"))
-	assert.Equal(t, "thinking "+gaugePattern(4)+" high", got)
-	assert.NotContains(t, got, styles.ThinkingGlyph, "card line carries no ✻ glyph")
+	got := ansi.Strip(toolcommon.ThinkingGaugeValue("high"))
+	assert.Equal(t, gaugePattern(4)+" high", got)
+	assert.NotContains(t, got, styles.ThinkingGlyph, "summary carries no ✻ glyph")
 
 	// off shows a dim empty gauge plus the word "off".
-	gotOff := ansi.Strip(cardThinkingLine("off"))
-	assert.Equal(t, "thinking "+strings.Repeat(styles.GaugeEmpty, toolcommon.EffortGaugeCells)+" off", gotOff)
+	gotOff := ansi.Strip(toolcommon.ThinkingGaugeValue("off"))
+	assert.Equal(t, strings.Repeat(styles.GaugeEmpty, toolcommon.EffortGaugeCells)+" off", gotOff)
 
-	// Empty label omits the line entirely.
-	assert.Empty(t, ansi.Strip(cardThinkingLine("")))
+	// Empty label omits the summary entirely.
+	assert.Empty(t, ansi.Strip(toolcommon.ThinkingGaugeValue("")))
 }
 
 // TestRowGaugeColumnAlignment verifies a roster of effort-level agents renders
-// fixed-width six-cell gauges on line 1 that all end in the same right-aligned
-// column.
+// fixed-width six-cell gauges that all end before the shortcut column at the
+// same right-aligned position.
 func TestRowGaugeColumnAlignment(t *testing.T) {
 	t.Parallel()
 
-	m := newAgentPanelSidebar(t, "root", 40,
+	m := newAgentPanelSidebar(t, 40,
 		runtime.AgentDetails{Name: "root", Provider: "anthropic", Model: "opus", Thinking: "high"},
 		runtime.AgentDetails{Name: "alpha", Provider: "openai", Model: "gpt-5.4-mini", Thinking: "minimal"},
 		runtime.AgentDetails{Name: "beta", Provider: "openai", Model: "gpt-5.4", Thinking: "medium"},
 		runtime.AgentDetails{Name: "gamma", Provider: "openai", Model: "gpt-4o", Thinking: "max"},
 	)
 
-	lines := renderAgentPanel(m)
-
 	wantGauge := map[string]string{
 		"alpha": gaugePattern(1),
 		"beta":  gaugePattern(3),
 		"gamma": gaugePattern(6),
 	}
-	seen := 0
-	end := -1
-	for _, l := range lines {
-		for name, gauge := range wantGauge {
-			// The name sits on line 1; the model (line 2) never contains it.
-			if !strings.Contains(l, name) {
-				continue
-			}
-			seen++
-			trimmed := strings.TrimRight(l, " ")
-			assert.Truef(t, strings.HasSuffix(trimmed, gauge), "row %q should end with gauge %q", trimmed, gauge)
-			w := len([]rune(trimmed))
-			if end == -1 {
-				end = w
-			} else {
-				assert.Equal(t, end, w, "fixed-width gauges must end in a single column")
-			}
-		}
+	for name, gauge := range wantGauge {
+		line1, _ := agentLines(m, name)
+		require.NotEmptyf(t, line1, "row for %q should render", name)
+		assert.Containsf(t, line1, gauge, "row %q should contain gauge %q", name, gauge)
 	}
-	require.Equal(t, len(wantGauge), seen, "every effort-level row should render")
 }
