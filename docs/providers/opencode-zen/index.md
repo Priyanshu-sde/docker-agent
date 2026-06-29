@@ -10,7 +10,7 @@ _Use OpenCode Zen models with docker-agent._
 
 ## Overview
 
-[OpenCode Zen](https://opencode.ai/docs/es/zen) is a curated gateway of tested and verified AI models provided by the OpenCode team. It offers pay-per-use access to a wide range of models — from GPT and Claude to open-source models — all through a single API key. Several free models are also available.
+[OpenCode Zen](https://opencode.ai/docs/zen) is a curated gateway of tested and verified AI models provided by the OpenCode team. It offers pay-per-use access to a wide range of models — from GPT and Claude to open-source models — all through a single API key. Several free models are also available.
 
 docker-agent includes built-in support for OpenCode Zen as an alias provider for OpenAI-compatible models. Anthropic and Google models are supported via custom provider definitions.
 
@@ -126,15 +126,15 @@ These models use the `/v1/messages` endpoint and require a [custom provider defi
 | Model                   | Description                   |
 | ----------------------- | ----------------------------- |
 | `claude-fable-5`        | Claude Fable 5 model          |
-| `claude-opus-4.8`       | Claude Opus 4.8 model         |
-| `claude-opus-4.7`       | Claude Opus 4.7 model         |
-| `claude-opus-4.6`       | Claude Opus 4.6 model         |
-| `claude-opus-4.5`       | Claude Opus 4.5 model         |
-| `claude-opus-4.1`       | Claude Opus 4.1 model         |
-| `claude-sonnet-4.6`     | Claude Sonnet 4.6 model       |
-| `claude-sonnet-4.5`     | Claude Sonnet 4.5 model       |
+| `claude-opus-4-8`       | Claude Opus 4.8 model         |
+| `claude-opus-4-7`       | Claude Opus 4.7 model         |
+| `claude-opus-4-6`       | Claude Opus 4.6 model         |
+| `claude-opus-4-5`       | Claude Opus 4.5 model         |
+| `claude-opus-4-1`       | Claude Opus 4.1 model         |
+| `claude-sonnet-4-6`     | Claude Sonnet 4.6 model       |
+| `claude-sonnet-4-5`     | Claude Sonnet 4.5 model       |
 | `claude-sonnet-4`       | Claude Sonnet 4 model         |
-| `claude-haiku-4.5`      | Claude Haiku 4.5 model        |
+| `claude-haiku-4-5`      | Claude Haiku 4.5 model        |
 | `qwen3.7-max`           | Qwen 3.7 Max model            |
 | `qwen3.7-plus`          | Qwen 3.7 Plus model           |
 | `qwen3.6-plus`          | Qwen 3.6 Plus model           |
@@ -152,7 +152,7 @@ providers:
 models:
   claude:
     provider: opencode-zen-claude
-    model: claude-sonnet-4.5
+    model: claude-sonnet-4-5
 
 agents:
   root:
@@ -177,7 +177,7 @@ To use a Google model:
 providers:
   opencode-zen-gemini:
     provider: google
-    base_url: https://opencode.ai/zen/v1/models
+    base_url: https://opencode.ai/zen/v1
     token_key: OPENCODE_API_KEY
 
 models:
@@ -202,7 +202,7 @@ OpenCode Zen is implemented as a built-in alias in docker-agent:
 
 The same API key works for both OpenCode Go and OpenCode Zen — they are part of the same platform. Zen uses a pay-per-use billing model, while Go uses a fixed subscription.
 
-For Anthropic-compatible models, docker-agent uses a custom provider pointing to the Anthropic client at `https://opencode.ai/zen` with the same token. For Google models, a custom provider points to the Google client at `https://opencode.ai/zen/v1/models`.
+For Anthropic-compatible models, docker-agent uses a custom provider pointing to the Anthropic client at `https://opencode.ai/zen` with the same token. For Google models, a custom provider points to the Google client at `https://opencode.ai/zen/v1`.
 
 ### Differences from OpenCode Go
 
@@ -215,7 +215,7 @@ For Anthropic-compatible models, docker-agent uses a custom provider pointing to
 
 ## Usage Limits and Pricing
 
-OpenCode Zen uses a pay-per-use model. See the [OpenCode Zen documentation](https://opencode.ai/docs/es/zen) for current pricing. Automatic top-up and monthly usage limits are available from the console.
+OpenCode Zen uses a pay-per-use model. See the [OpenCode Zen documentation](https://opencode.ai/docs/zen) for current pricing. Automatic top-up and monthly usage limits are available from the console.
 
 You can retrieve the full model catalog at any time:
 

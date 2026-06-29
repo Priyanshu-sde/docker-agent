@@ -10,7 +10,7 @@ _Use OpenCode Go models with docker-agent._
 
 ## Overview
 
-[OpenCode Go](https://opencode.ai/docs/es/go) is a low-cost subscription service ($5 first month, then $10/month) that provides reliable access to popular open-source coding models. It serves models through both OpenAI-compatible and Anthropic-compatible APIs from globally distributed endpoints.
+[OpenCode Go](https://opencode.ai/docs/go) is a low-cost subscription service ($5 first month, then $10/month) that provides reliable access to popular open-source coding models. It serves models through both OpenAI-compatible and Anthropic-compatible APIs from globally distributed endpoints.
 
 docker-agent includes built-in support for OpenCode Go as an alias provider.
 

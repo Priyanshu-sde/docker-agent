@@ -207,10 +207,13 @@ func (f *modelsListFlags) collectModels(ctx context.Context, availableProviders 
 
 	// When the user explicitly filters by provider (--provider), try fetching
 	// models directly from that provider's own API if models.dev lacks it.
-	if f.providerFilter != "" && db != nil {
+	if f.providerFilter != "" && db != nil && (f.all || availableProviders[f.providerFilter]) {
 		if _, exists := db.Providers[f.providerFilter]; !exists {
 			if provider.IsCatalogProvider(f.providerFilter) {
 				for _, m := range fetchProviderModels(ctx, f.providerFilter) {
+					if isEmbeddingModel(m, m) {
+						continue
+					}
 					ref := f.providerFilter + "/" + m
 					if seen[ref] {
 						continue
