@@ -58,6 +58,7 @@ func parseFunctionParameters(t *testing.T, schemaJSON string) map[string]any {
 }
 
 func TestEmptyMapSchemaForGemini(t *testing.T) {
+	t.Parallel()
 	schema, err := gemini.ConvertParametersToSchema(map[string]any{})
 	require.NoError(t, err)
 
@@ -67,6 +68,7 @@ func TestEmptyMapSchemaForGemini(t *testing.T) {
 }
 
 func TestEmptySchemaForGemini(t *testing.T) {
+	t.Parallel()
 	parameters := parseFunctionParameters(t, "{}")
 
 	schema, err := gemini.ConvertParametersToSchema(parameters)
@@ -78,6 +80,7 @@ func TestEmptySchemaForGemini(t *testing.T) {
 }
 
 func TestNilSchemaForGemini(t *testing.T) {
+	t.Parallel()
 	schema, err := gemini.ConvertParametersToSchema(nil)
 	require.NoError(t, err)
 
@@ -87,6 +90,7 @@ func TestNilSchemaForGemini(t *testing.T) {
 }
 
 func TestSchemaForGemini(t *testing.T) {
+	t.Parallel()
 	parameters := parseFunctionParameters(t, schemaJSON)
 
 	schema, err := gemini.ConvertParametersToSchema(parameters)
@@ -129,6 +133,7 @@ func TestSchemaForGemini(t *testing.T) {
 }
 
 func TestEmptyMapSchemaForAnthropic(t *testing.T) {
+	t.Parallel()
 	shema, err := anthropic.ConvertParametersToSchema(map[string]any{})
 	require.NoError(t, err)
 
@@ -138,6 +143,7 @@ func TestEmptyMapSchemaForAnthropic(t *testing.T) {
 }
 
 func TestNilSchemaForAnthropic(t *testing.T) {
+	t.Parallel()
 	shema, err := anthropic.ConvertParametersToSchema(nil)
 	require.NoError(t, err)
 
@@ -147,6 +153,7 @@ func TestNilSchemaForAnthropic(t *testing.T) {
 }
 
 func TestSchemaForAnthropic(t *testing.T) {
+	t.Parallel()
 	parameters := parseFunctionParameters(t, schemaJSON)
 	shema, err := anthropic.ConvertParametersToSchema(parameters)
 	require.NoError(t, err)
@@ -188,6 +195,7 @@ func TestSchemaForAnthropic(t *testing.T) {
 // OpenAI and LM Studio accept.
 // See https://github.com/docker/docker-agent/issues/278
 func TestEmptyMapSchemaForOpenai(t *testing.T) {
+	t.Parallel()
 	schema, _, err := openai.ConvertParametersToSchema(map[string]any{})
 	require.NoError(t, err)
 
@@ -197,6 +205,7 @@ func TestEmptyMapSchemaForOpenai(t *testing.T) {
 }
 
 func TestNilSchemaForOpenai(t *testing.T) {
+	t.Parallel()
 	schema, _, err := openai.ConvertParametersToSchema(nil)
 	require.NoError(t, err)
 
@@ -206,6 +215,7 @@ func TestNilSchemaForOpenai(t *testing.T) {
 }
 
 func TestSchemaForOpenai(t *testing.T) {
+	t.Parallel()
 	parameters := parseFunctionParameters(t, schemaJSON)
 
 	schema, _, err := openai.ConvertParametersToSchema(parameters)
@@ -246,6 +256,7 @@ func TestSchemaForOpenai(t *testing.T) {
 }
 
 func TestEmptyMapSchemaForDMR(t *testing.T) {
+	t.Parallel()
 	schema, err := dmr.ConvertParametersToSchema(map[string]any{})
 	require.NoError(t, err)
 
@@ -255,6 +266,7 @@ func TestEmptyMapSchemaForDMR(t *testing.T) {
 }
 
 func TestNilSchemaForDMR(t *testing.T) {
+	t.Parallel()
 	schema, err := dmr.ConvertParametersToSchema(nil)
 	require.NoError(t, err)
 
@@ -264,6 +276,7 @@ func TestNilSchemaForDMR(t *testing.T) {
 }
 
 func TestSchemaForDMR(t *testing.T) {
+	t.Parallel()
 	parameters := parseFunctionParameters(t, schemaJSON)
 
 	schema, err := dmr.ConvertParametersToSchema(parameters)

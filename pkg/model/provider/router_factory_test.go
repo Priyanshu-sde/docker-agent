@@ -17,8 +17,9 @@ import (
 // TestResolveRoutedModel_NamedReference verifies that a model name in the
 // models map is resolved to its config and dispatched through the registry.
 func TestResolveRoutedModel_NamedReference(t *testing.T) {
+	t.Parallel()
 	var capturedCfg *latest.ModelConfig
-	withFactories(t, map[string]providerFactory{
+	r := NewRegistry(map[string]providerFactory{
 		"openai": func(_ context.Context, cfg *latest.ModelConfig, _ environment.Provider, _ ...options.Opt) (Provider, error) {
 			capturedCfg = cfg
 			return &fakeProvider{id: modelsdev.NewID("openai", "captured")}, nil
@@ -29,7 +30,7 @@ func TestResolveRoutedModel_NamedReference(t *testing.T) {
 		"fast": {Provider: "openai", Model: "gpt-4o-mini"},
 	}
 
-	p, err := resolveRoutedModel(t.Context(), "fast", models, environment.NewNoEnvProvider())
+	p, err := r.resolveRoutedModel(t.Context(), "fast", models, environment.NewNoEnvProvider())
 	require.NoError(t, err)
 	require.NotNil(t, p)
 
@@ -41,15 +42,16 @@ func TestResolveRoutedModel_NamedReference(t *testing.T) {
 // TestResolveRoutedModel_InlineSpec verifies that a "provider/model" string
 // not present in the models map is parsed as an inline reference.
 func TestResolveRoutedModel_InlineSpec(t *testing.T) {
+	t.Parallel()
 	var capturedCfg *latest.ModelConfig
-	withFactories(t, map[string]providerFactory{
+	r := NewRegistry(map[string]providerFactory{
 		"openai": func(_ context.Context, cfg *latest.ModelConfig, _ environment.Provider, _ ...options.Opt) (Provider, error) {
 			capturedCfg = cfg
 			return &fakeProvider{id: modelsdev.NewID("openai", "captured")}, nil
 		},
 	})
 
-	p, err := resolveRoutedModel(t.Context(), "openai/gpt-4o", nil, environment.NewNoEnvProvider())
+	p, err := r.resolveRoutedModel(t.Context(), "openai/gpt-4o", nil, environment.NewNoEnvProvider())
 	require.NoError(t, err)
 	require.NotNil(t, p)
 
@@ -61,11 +63,12 @@ func TestResolveRoutedModel_InlineSpec(t *testing.T) {
 // TestResolveRoutedModel_InvalidInlineSpec covers the previously-unreachable
 // ParseModelRef error branch (modelSpec not in map and not parseable).
 func TestResolveRoutedModel_InvalidInlineSpec(t *testing.T) {
-	withFactories(t, map[string]providerFactory{
+	t.Parallel()
+	r := NewRegistry(map[string]providerFactory{
 		"openai": tagFactory("openai"),
 	})
 
-	_, err := resolveRoutedModel(t.Context(), "no-slash-here", nil, environment.NewNoEnvProvider())
+	_, err := r.resolveRoutedModel(t.Context(), "no-slash-here", nil, environment.NewNoEnvProvider())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid model spec")
 	assert.Contains(t, err.Error(), "no-slash-here")
@@ -74,7 +77,8 @@ func TestResolveRoutedModel_InvalidInlineSpec(t *testing.T) {
 // TestResolveRoutedModel_RecursiveRoutingRejected covers the recursion-prevention
 // branch: a routing target may not itself have routing rules.
 func TestResolveRoutedModel_RecursiveRoutingRejected(t *testing.T) {
-	withFactories(t, map[string]providerFactory{
+	t.Parallel()
+	r := NewRegistry(map[string]providerFactory{
 		"openai": tagFactory("openai"),
 	})
 
@@ -86,7 +90,7 @@ func TestResolveRoutedModel_RecursiveRoutingRejected(t *testing.T) {
 		},
 	}
 
-	_, err := resolveRoutedModel(t.Context(), "router-as-target", models, environment.NewNoEnvProvider())
+	_, err := r.resolveRoutedModel(t.Context(), "router-as-target", models, environment.NewNoEnvProvider())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "routing rules")
 	assert.Contains(t, err.Error(), "router-as-target")
@@ -95,8 +99,9 @@ func TestResolveRoutedModel_RecursiveRoutingRejected(t *testing.T) {
 // TestResolveRoutedModel_FactoryErrorPropagated_NamedRef verifies that when a
 // named model's factory fails, the error is returned to the caller.
 func TestResolveRoutedModel_FactoryErrorPropagated_NamedRef(t *testing.T) {
+	t.Parallel()
 	sentinel := errors.New("named-fail")
-	withFactories(t, map[string]providerFactory{
+	r := NewRegistry(map[string]providerFactory{
 		"openai": func(_ context.Context, _ *latest.ModelConfig, _ environment.Provider, _ ...options.Opt) (Provider, error) {
 			return nil, sentinel
 		},
@@ -106,21 +111,22 @@ func TestResolveRoutedModel_FactoryErrorPropagated_NamedRef(t *testing.T) {
 		"fast": {Provider: "openai", Model: "gpt-4o-mini"},
 	}
 
-	_, err := resolveRoutedModel(t.Context(), "fast", models, environment.NewNoEnvProvider())
+	_, err := r.resolveRoutedModel(t.Context(), "fast", models, environment.NewNoEnvProvider())
 	require.ErrorIs(t, err, sentinel)
 }
 
 // TestResolveRoutedModel_FactoryErrorPropagated_Inline verifies the same for
 // an inline "provider/model" spec.
 func TestResolveRoutedModel_FactoryErrorPropagated_Inline(t *testing.T) {
+	t.Parallel()
 	sentinel := errors.New("inline-fail")
-	withFactories(t, map[string]providerFactory{
+	r := NewRegistry(map[string]providerFactory{
 		"openai": func(_ context.Context, _ *latest.ModelConfig, _ environment.Provider, _ ...options.Opt) (Provider, error) {
 			return nil, sentinel
 		},
 	})
 
-	_, err := resolveRoutedModel(t.Context(), "openai/gpt-4o", nil, environment.NewNoEnvProvider())
+	_, err := r.resolveRoutedModel(t.Context(), "openai/gpt-4o", nil, environment.NewNoEnvProvider())
 	require.ErrorIs(t, err, sentinel)
 }
 
@@ -128,8 +134,9 @@ func TestResolveRoutedModel_FactoryErrorPropagated_Inline(t *testing.T) {
 // downstream factory unchanged. This guards against accidentally dropping
 // options (e.g. WithProviders) when extracting the closure.
 func TestResolveRoutedModel_OptionsForwarded(t *testing.T) {
+	t.Parallel()
 	var capturedOpts []options.Opt
-	withFactories(t, map[string]providerFactory{
+	r := NewRegistry(map[string]providerFactory{
 		"openai": func(_ context.Context, _ *latest.ModelConfig, _ environment.Provider, opts ...options.Opt) (Provider, error) {
 			capturedOpts = opts
 			return &fakeProvider{id: modelsdev.NewID("openai", "ok")}, nil
@@ -137,7 +144,7 @@ func TestResolveRoutedModel_OptionsForwarded(t *testing.T) {
 	})
 
 	maxTokens := int64(2048)
-	_, err := resolveRoutedModel(
+	_, err := r.resolveRoutedModel(
 		t.Context(), "openai/gpt-4o", nil, environment.NewNoEnvProvider(),
 		options.WithMaxTokens(maxTokens),
 	)

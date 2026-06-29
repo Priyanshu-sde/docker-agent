@@ -28,16 +28,6 @@ func (f *fakeProvider) CreateChatCompletionStream(_ context.Context, _ []chat.Me
 }
 func (f *fakeProvider) BaseConfig() base.Config { return base.Config{} }
 
-// withFactories installs the given factory map for the duration of a test.
-// The original map is restored via t.Cleanup so parallel tests outside the
-// caller still see the production registry.
-func withFactories(t *testing.T, factories map[string]providerFactory) {
-	t.Helper()
-	original := providerFactories
-	providerFactories = factories
-	t.Cleanup(func() { providerFactories = original })
-}
-
 func tagFactory(id string) providerFactory {
 	return func(_ context.Context, _ *latest.ModelConfig, _ environment.Provider, _ ...options.Opt) (Provider, error) {
 		return &fakeProvider{id: modelsdev.NewID("test", id)}, nil
@@ -48,7 +38,8 @@ func tagFactory(id string) providerFactory {
 // output is mapped to the right factory entry for every supported value,
 // including the OpenAI api_type aliases.
 func TestCreateDirectProvider_DispatchByType(t *testing.T) {
-	withFactories(t, map[string]providerFactory{
+	t.Parallel()
+	r := NewRegistry(map[string]providerFactory{
 		"openai":                 tagFactory("openai"),
 		"openai_chatcompletions": tagFactory("openai_chatcompletions"),
 		"openai_responses":       tagFactory("openai_responses"),
@@ -107,7 +98,8 @@ func TestCreateDirectProvider_DispatchByType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p, err := createDirectProvider(t.Context(), tt.cfg, environment.NewNoEnvProvider())
+			t.Parallel()
+			p, err := r.createDirectProvider(t.Context(), tt.cfg, environment.NewNoEnvProvider())
 			require.NoError(t, err)
 			leaf := unwrapProvider(p)
 			fp, ok := leaf.(*fakeProvider)
@@ -120,13 +112,14 @@ func TestCreateDirectProvider_DispatchByType(t *testing.T) {
 // TestCreateDirectProvider_UnknownProviderType verifies the previously
 // unreachable error branch when the resolved provider type is not registered.
 func TestCreateDirectProvider_UnknownProviderType(t *testing.T) {
-	withFactories(t, map[string]providerFactory{
+	t.Parallel()
+	r := NewRegistry(map[string]providerFactory{
 		"openai": tagFactory("openai"),
 	})
 
 	cfg := &latest.ModelConfig{Provider: "completely-unknown", Model: "x"}
 
-	_, err := createDirectProvider(t.Context(), cfg, environment.NewNoEnvProvider())
+	_, err := r.createDirectProvider(t.Context(), cfg, environment.NewNoEnvProvider())
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown provider type")
 	assert.Contains(t, err.Error(), "completely-unknown")
@@ -135,14 +128,15 @@ func TestCreateDirectProvider_UnknownProviderType(t *testing.T) {
 // TestCreateDirectProvider_FactoryError ensures errors returned by a factory
 // are propagated unchanged to the caller.
 func TestCreateDirectProvider_FactoryError(t *testing.T) {
+	t.Parallel()
 	sentinel := errors.New("boom")
-	withFactories(t, map[string]providerFactory{
+	r := NewRegistry(map[string]providerFactory{
 		"openai": func(_ context.Context, _ *latest.ModelConfig, _ environment.Provider, _ ...options.Opt) (Provider, error) {
 			return nil, sentinel
 		},
 	})
 
-	_, err := createDirectProvider(t.Context(), &latest.ModelConfig{Provider: "openai", Model: "gpt-4o"}, environment.NewNoEnvProvider())
+	_, err := r.createDirectProvider(t.Context(), &latest.ModelConfig{Provider: "openai", Model: "gpt-4o"}, environment.NewNoEnvProvider())
 	require.ErrorIs(t, err, sentinel)
 }
 
@@ -150,8 +144,9 @@ func TestCreateDirectProvider_FactoryError(t *testing.T) {
 // receives the *enhanced* config (i.e. applyProviderDefaults has run) before
 // dispatch — the BaseURL from a custom provider must be visible to the factory.
 func TestCreateDirectProvider_AppliesProviderDefaults(t *testing.T) {
+	t.Parallel()
 	var got *latest.ModelConfig
-	withFactories(t, map[string]providerFactory{
+	r := NewRegistry(map[string]providerFactory{
 		"openai_chatcompletions": func(_ context.Context, cfg *latest.ModelConfig, _ environment.Provider, _ ...options.Opt) (Provider, error) {
 			got = cfg
 			return &fakeProvider{id: modelsdev.NewID("test", "captured")}, nil
@@ -168,7 +163,7 @@ func TestCreateDirectProvider_AppliesProviderDefaults(t *testing.T) {
 
 	cfg := &latest.ModelConfig{Provider: "my_gateway", Model: "gpt-4o"}
 
-	_, err := createDirectProvider(
+	_, err := r.createDirectProvider(
 		t.Context(), cfg, environment.NewNoEnvProvider(),
 		options.WithProviders(customProviders),
 	)
