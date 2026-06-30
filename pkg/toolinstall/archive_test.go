@@ -74,9 +74,8 @@ func TestWriteRawBinary(t *testing.T) {
 	destPath := filepath.Join(destDir, "mytool")
 	content := "#!/bin/sh\necho hello"
 
-	err := writeRawBinary(strings.NewReader(content), destPath)
+	err := defaultLimits().writeRawBinary(strings.NewReader(content), destPath)
 	require.NoError(t, err)
-
 	data, err := os.ReadFile(destPath)
 	require.NoError(t, err)
 	assert.Equal(t, content, string(data))
@@ -89,7 +88,7 @@ func TestWriteRawBinary(t *testing.T) {
 func TestWriteRawBinary_ErrorOnBadPath(t *testing.T) {
 	t.Parallel()
 
-	err := writeRawBinary(strings.NewReader("data"), "/nonexistent/dir/binary")
+	err := defaultLimits().writeRawBinary(strings.NewReader("data"), "/nonexistent/dir/binary")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "creating raw binary")
 }
@@ -116,7 +115,7 @@ func TestExtractTarGz(t *testing.T) {
 	files := []PackageFile{{Name: "mytool", Src: "tool_{{.Version}}_{{.OS}}/bin/mytool"}}
 	data := templateData{Version: "1.0.0", OS: "linux", Arch: "amd64"}
 
-	require.NoError(t, extractTarGz(&buf, destDir, files, data))
+	require.NoError(t, defaultLimits().extractTarGz(&buf, destDir, files, data))
 
 	extracted, err := os.ReadFile(filepath.Join(destDir, "mytool"))
 	require.NoError(t, err)
@@ -140,7 +139,7 @@ func TestExtractZip(t *testing.T) {
 	files := []PackageFile{{Name: "mytool", Src: "tool_{{.Version}}/bin/mytool"}}
 	data := templateData{Version: "1.0.0", OS: "linux", Arch: "amd64"}
 
-	require.NoError(t, extractZip(bytes.NewReader(buf.Bytes()), int64(buf.Len()), destDir, files, data))
+	require.NoError(t, defaultLimits().extractZip(bytes.NewReader(buf.Bytes()), int64(buf.Len()), destDir, files, data))
 
 	extracted, err := os.ReadFile(filepath.Join(destDir, "mytool"))
 	require.NoError(t, err)
@@ -241,7 +240,7 @@ func TestExtractTarGz_PathTraversal(t *testing.T) {
 	destDir := t.TempDir()
 	// Map entry to a traversal dest name.
 	files := []PackageFile{{Name: "../../etc/passwd", Src: "evil"}}
-	err = extractTarGz(&buf, destDir, files, templateData{})
+	err = defaultLimits().extractTarGz(&buf, destDir, files, templateData{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errPathTraversal)
 }
@@ -262,22 +261,22 @@ func TestExtractZip_PathTraversal(t *testing.T) {
 	destDir := t.TempDir()
 	// Map entry to a traversal dest name.
 	files := []PackageFile{{Name: "../../etc/passwd", Src: "evil"}}
-	err = extractZip(bytes.NewReader(buf.Bytes()), int64(buf.Len()), destDir, files, templateData{})
+	err = defaultLimits().extractZip(bytes.NewReader(buf.Bytes()), int64(buf.Len()), destDir, files, templateData{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errPathTraversal)
 }
 
-// withFileLimit lowers the per-file extraction cap for the duration of
-// a test, restoring it on cleanup.
-func withFileLimit(t *testing.T, n int64) {
-	t.Helper()
-	prev := maxFileUncompressed
-	maxFileUncompressed = n
-	t.Cleanup(func() { maxFileUncompressed = prev })
+// limitsWithFileCap returns extraction limits with a lowered per-file cap.
+// Each test gets its own value, so tests that exercise the cap can run with
+// t.Parallel() — there is no shared global to clobber or restore.
+func limitsWithFileCap(n int64) limits {
+	l := defaultLimits()
+	l.maxFileUncompressed = n
+	return l
 }
 
 func TestExtractTarGz_TooLarge(t *testing.T) {
-	withFileLimit(t, 32)
+	t.Parallel()
 
 	var buf bytes.Buffer
 	gw := gzip.NewWriter(&buf)
@@ -297,13 +296,13 @@ func TestExtractTarGz_TooLarge(t *testing.T) {
 	require.NoError(t, gw.Close())
 
 	files := []PackageFile{{Name: "mytool", Src: "tool/bin/mytool"}}
-	err = extractTarGz(&buf, t.TempDir(), files, templateData{})
+	err = limitsWithFileCap(32).extractTarGz(&buf, t.TempDir(), files, templateData{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errExtractTooLarge)
 }
 
 func TestExtractZip_TooLarge(t *testing.T) {
-	withFileLimit(t, 32)
+	t.Parallel()
 
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
@@ -314,16 +313,16 @@ func TestExtractZip_TooLarge(t *testing.T) {
 	require.NoError(t, zw.Close())
 
 	files := []PackageFile{{Name: "mytool", Src: "tool/bin/mytool"}}
-	err = extractZip(bytes.NewReader(buf.Bytes()), int64(buf.Len()), t.TempDir(), files, templateData{})
+	err = limitsWithFileCap(32).extractZip(bytes.NewReader(buf.Bytes()), int64(buf.Len()), t.TempDir(), files, templateData{})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errExtractTooLarge)
 }
 
 func TestWriteRawBinary_TooLarge(t *testing.T) {
-	withFileLimit(t, 32)
+	t.Parallel()
 
 	dest := filepath.Join(t.TempDir(), "big")
-	err := writeRawBinary(strings.NewReader(strings.Repeat("A", 1024)), dest)
+	err := limitsWithFileCap(32).writeRawBinary(strings.NewReader(strings.Repeat("A", 1024)), dest)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, errExtractTooLarge)
 }

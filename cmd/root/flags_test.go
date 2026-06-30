@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
+	"github.com/docker/docker-agent/pkg/environment"
 	"github.com/docker/docker-agent/pkg/userconfig"
 )
 
@@ -70,26 +71,30 @@ func TestGatewayLogic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("CAGENT_MODELS_GATEWAY", tt.env) // Make sure the user doesn't have an old env set
-			t.Setenv("DOCKER_AGENT_MODELS_GATEWAY", tt.env)
+			t.Parallel()
 
-			// Mock user config loader
-			original := loadUserConfig
-			loadUserConfig = func() (*userconfig.Config, error) {
+			// Inject env via a map provider rather than t.Setenv so the
+			// test stays parallel-safe.
+			loadUserConfig := func() (*userconfig.Config, error) {
 				if tt.userConfig != nil {
 					return tt.userConfig, nil
 				}
 				return &userconfig.Config{}, nil
 			}
-			t.Cleanup(func() { loadUserConfig = original })
 
 			cmd := &cobra.Command{
 				RunE: func(*cobra.Command, []string) error {
 					return nil
 				},
 			}
-			runConfig := config.RuntimeConfig{}
-			addGatewayFlags(cmd, &runConfig)
+			env := map[string]string{}
+			if tt.env != "" {
+				env[envModelsGateway] = tt.env
+			}
+			runConfig := config.RuntimeConfig{
+				EnvProviderForTests: environment.NewMapEnvProvider(env),
+			}
+			addGatewayFlags(cmd, &runConfig, loadUserConfig)
 
 			cmd.SetArgs(tt.args)
 			err := cmd.Execute()
@@ -123,7 +128,7 @@ func TestGatewayFlags_CallsAncestorPersistentPreRunE(t *testing.T) {
 		RunE: func(*cobra.Command, []string) error { return nil },
 	}
 	runConfig := config.RuntimeConfig{}
-	addGatewayFlags(leaf, &runConfig)
+	addGatewayFlags(leaf, &runConfig, userconfig.Load)
 
 	middle.AddCommand(leaf)
 	root.AddCommand(middle)
@@ -166,7 +171,7 @@ func TestGatewayFlags_RunsParentBeforeMaterialisingEnvProvider(t *testing.T) {
 	runConfig := config.RuntimeConfig{
 		EnvProviderForTests: &recordingProvider{onGet: func() { envProviderConsulted = true }},
 	}
-	addGatewayFlags(leaf, &runConfig)
+	addGatewayFlags(leaf, &runConfig, userconfig.Load)
 	root.AddCommand(leaf)
 
 	root.SetArgs([]string{"leaf"})
@@ -285,25 +290,28 @@ func TestDefaultModelLogic(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("DOCKER_AGENT_DEFAULT_MODEL", tt.env)
+			t.Parallel()
 
-			// Mock user config loader
-			original := loadUserConfig
-			loadUserConfig = func() (*userconfig.Config, error) {
+			loadUserConfig := func() (*userconfig.Config, error) {
 				if tt.userConfig != nil {
 					return tt.userConfig, nil
 				}
 				return &userconfig.Config{}, nil
 			}
-			t.Cleanup(func() { loadUserConfig = original })
 
 			cmd := &cobra.Command{
 				RunE: func(*cobra.Command, []string) error {
 					return nil
 				},
 			}
-			runConfig := config.RuntimeConfig{}
-			addGatewayFlags(cmd, &runConfig)
+			env := map[string]string{}
+			if tt.env != "" {
+				env[envDefaultModel] = tt.env
+			}
+			runConfig := config.RuntimeConfig{
+				EnvProviderForTests: environment.NewMapEnvProvider(env),
+			}
+			addGatewayFlags(cmd, &runConfig, loadUserConfig)
 
 			cmd.SetArgs(nil)
 			err := cmd.Execute()

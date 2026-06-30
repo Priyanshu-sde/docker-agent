@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/config"
-	"github.com/docker/docker-agent/pkg/userconfig"
+	"github.com/docker/docker-agent/pkg/paths"
 )
 
 func TestModelsListCommand_DefaultOutput(t *testing.T) {
@@ -24,9 +24,10 @@ func TestModelsListCommand_DefaultOutput(t *testing.T) {
 	t.Setenv("DOCKER_AGENT_MODELS_GATEWAY", "")
 	t.Setenv("DOCKER_AGENT_DEFAULT_MODEL", "")
 
-	original := loadUserConfig
-	loadUserConfig = func() (*userconfig.Config, error) { return &userconfig.Config{}, nil }
-	t.Cleanup(func() { loadUserConfig = original })
+	// Point at an empty config dir so userconfig.Load returns an empty
+	// config without reading the developer's real ~/.config/cagent.
+	paths.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { paths.SetConfigDir("") })
 
 	var buf bytes.Buffer
 	cmd := newModelsCmd()
@@ -49,9 +50,10 @@ func TestModelsListCommand_ProviderFilter(t *testing.T) {
 	t.Setenv("DOCKER_AGENT_MODELS_GATEWAY", "")
 	t.Setenv("DOCKER_AGENT_DEFAULT_MODEL", "")
 
-	original := loadUserConfig
-	loadUserConfig = func() (*userconfig.Config, error) { return &userconfig.Config{}, nil }
-	t.Cleanup(func() { loadUserConfig = original })
+	// Point at an empty config dir so userconfig.Load returns an empty
+	// config without reading the developer's real ~/.config/cagent.
+	paths.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { paths.SetConfigDir("") })
 
 	var buf bytes.Buffer
 	cmd := newModelsCmd()
@@ -79,9 +81,10 @@ func TestModelsListCommand_JSONFormat(t *testing.T) {
 	t.Setenv("DOCKER_AGENT_MODELS_GATEWAY", "")
 	t.Setenv("DOCKER_AGENT_DEFAULT_MODEL", "")
 
-	original := loadUserConfig
-	loadUserConfig = func() (*userconfig.Config, error) { return &userconfig.Config{}, nil }
-	t.Cleanup(func() { loadUserConfig = original })
+	// Point at an empty config dir so userconfig.Load returns an empty
+	// config without reading the developer's real ~/.config/cagent.
+	paths.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { paths.SetConfigDir("") })
 
 	var buf bytes.Buffer
 	cmd := newModelsCmd()
@@ -114,9 +117,10 @@ func TestModelsListCommand_DefaultMarker(t *testing.T) {
 	t.Setenv("DOCKER_AGENT_MODELS_GATEWAY", "")
 	t.Setenv("DOCKER_AGENT_DEFAULT_MODEL", "")
 
-	original := loadUserConfig
-	loadUserConfig = func() (*userconfig.Config, error) { return &userconfig.Config{}, nil }
-	t.Cleanup(func() { loadUserConfig = original })
+	// Point at an empty config dir so userconfig.Load returns an empty
+	// config without reading the developer's real ~/.config/cagent.
+	paths.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { paths.SetConfigDir("") })
 
 	var buf bytes.Buffer
 	cmd := newModelsCmd()
@@ -307,9 +311,10 @@ func TestModelsListCommand_NoCredentials(t *testing.T) {
 	t.Setenv("DOCKER_AGENT_MODELS_GATEWAY", "")
 	t.Setenv("DOCKER_AGENT_DEFAULT_MODEL", "")
 
-	original := loadUserConfig
-	loadUserConfig = func() (*userconfig.Config, error) { return &userconfig.Config{}, nil }
-	t.Cleanup(func() { loadUserConfig = original })
+	// Point at an empty config dir so userconfig.Load returns an empty
+	// config without reading the developer's real ~/.config/cagent.
+	paths.SetConfigDir(t.TempDir())
+	t.Cleanup(func() { paths.SetConfigDir("") })
 
 	var buf bytes.Buffer
 	cmd := newModelsCmd()

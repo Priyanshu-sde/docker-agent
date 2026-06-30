@@ -21,6 +21,7 @@ import (
 	"github.com/docker/docker-agent/pkg/httpclient"
 	"github.com/docker/docker-agent/pkg/model/provider"
 	"github.com/docker/docker-agent/pkg/telemetry"
+	"github.com/docker/docker-agent/pkg/userconfig"
 )
 
 type modelsListFlags struct {
@@ -96,7 +97,7 @@ func newModelsListCmd() *cobra.Command {
 	cmd.Flags().StringVarP(&flags.providerFilter, "provider", "p", "", "Filter by provider name")
 	cmd.Flags().StringVar(&flags.format, "format", "table", "Output format: table, json")
 	cmd.Flags().BoolVarP(&flags.all, "all", "a", false, "Include models from all providers, not just those with credentials")
-	addGatewayFlags(cmd, &flags.runConfig)
+	addGatewayFlags(cmd, &flags.runConfig, userconfig.Load)
 
 	return cmd
 }

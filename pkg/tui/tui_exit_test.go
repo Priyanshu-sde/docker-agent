@@ -149,37 +149,33 @@ func newTestModel(tb testing.TB) (*appModel, *mockEditor) {
 	return m, ed
 }
 
-// neutralizeExitFunc replaces exitFunc with a no-op for the duration of the
-// test and waits for the safety-net goroutine to fire (or time out) before
-// restoring the originals. Tests using this helper must NOT use t.Parallel()
-// because exitFunc and shutdownTimeout are package globals.
-func neutralizeExitFunc(t *testing.T) {
+// neutralizeExitFunc replaces the model's exit function with a no-op for the
+// duration of the test and waits for the safety-net goroutine to fire (or time
+// out). It sets per-model fields rather than package globals, so tests using
+// it may run in parallel.
+func neutralizeExitFunc(t *testing.T, m *appModel) {
 	t.Helper()
-
-	origExitFunc := exitFunc
-	origTimeout := shutdownTimeout
 
 	fired := make(chan struct{})
 	var once sync.Once
-	exitFunc = func(int) {
+	m.exitFunc = func(int) {
 		once.Do(func() { close(fired) })
 	}
-	shutdownTimeout = 10 * time.Millisecond
+	m.shutdownTimeout = 10 * time.Millisecond
 
 	t.Cleanup(func() {
 		select {
 		case <-fired:
 		case <-time.After(200 * time.Millisecond):
 		}
-		exitFunc = origExitFunc
-		shutdownTimeout = origTimeout
 	})
 }
 
 func TestExitSessionMsg_ExitsImmediately(t *testing.T) {
-	neutralizeExitFunc(t)
+	t.Parallel()
 
 	m, ed := newTestModel(t)
+	neutralizeExitFunc(t, m)
 
 	_, cmd := m.Update(messages.ExitSessionMsg{})
 
@@ -190,9 +186,10 @@ func TestExitSessionMsg_ExitsImmediately(t *testing.T) {
 }
 
 func TestExitConfirmedMsg_ExitsImmediately(t *testing.T) {
-	neutralizeExitFunc(t)
+	t.Parallel()
 
 	m, ed := newTestModel(t)
+	neutralizeExitFunc(t, m)
 
 	_, cmd := m.Update(dialog.ExitConfirmedMsg{})
 
@@ -314,27 +311,23 @@ func initBlockingBubbletea(t *testing.T, model tea.Model) (*tea.Program, *blocki
 // channel, so Wait() blocks forever — same shape as a real renderer
 // deadlock. exitFunc must fire after shutdownTimeout.
 func TestCleanupAll_SpawnsSafetyNet(t *testing.T) {
-	origTimeout := shutdownTimeout
-	origExitFunc := exitFunc
-	t.Cleanup(func() {
-		shutdownTimeout = origTimeout
-		exitFunc = origExitFunc
-	})
-	shutdownTimeout = 200 * time.Millisecond
+	t.Parallel()
+
+	m, _ := newTestModel(t)
+	m.shutdownTimeout = 200 * time.Millisecond
 
 	exitDone := make(chan int, 1)
-	exitFunc = func(code int) {
+	m.exitFunc = func(code int) {
 		exitDone <- code
 	}
 
-	m, _ := newTestModel(t)
 	m.program = tea.NewProgram(&quitModel{})
 	m.cleanupAll()
 
 	select {
 	case code := <-exitDone:
 		assert.Equal(t, 0, code)
-	case <-time.After(shutdownTimeout + time.Second):
+	case <-time.After(m.shutdownTimeout + time.Second):
 		t.Fatal("exitFunc was not called — safety net is missing from cleanupAll")
 	}
 }
@@ -342,16 +335,13 @@ func TestCleanupAll_SpawnsSafetyNet(t *testing.T) {
 // TestCleanupAll_GracefulShutdownSkipsExit: when Wait() returns promptly,
 // the safety net must not call exitFunc.
 func TestCleanupAll_GracefulShutdownSkipsExit(t *testing.T) {
-	origTimeout := shutdownTimeout
-	origExitFunc := exitFunc
-	t.Cleanup(func() {
-		shutdownTimeout = origTimeout
-		exitFunc = origExitFunc
-	})
-	shutdownTimeout = 2 * time.Second
+	t.Parallel()
+
+	m, _ := newTestModel(t)
+	m.shutdownTimeout = 2 * time.Second
 
 	var exitCalled atomic.Bool
-	exitFunc = func(int) { exitCalled.Store(true) }
+	m.exitFunc = func(int) { exitCalled.Store(true) }
 
 	var in, out bytes.Buffer
 	p := tea.NewProgram(&quitModel{},
@@ -370,7 +360,6 @@ func TestCleanupAll_GracefulShutdownSkipsExit(t *testing.T) {
 	// initialized p.finished — otherwise Wait() races the assignment.
 	p.Send(syncMsg{})
 
-	m, _ := newTestModel(t)
 	m.program = p
 	m.cleanupAll()
 
@@ -394,22 +383,18 @@ type syncMsg struct{}
 // TestCleanupAll_NilProgramIsSafe: with no program wired, cleanupAll is a
 // no-op and exitFunc is never called.
 func TestCleanupAll_NilProgramIsSafe(t *testing.T) {
-	origTimeout := shutdownTimeout
-	origExitFunc := exitFunc
-	t.Cleanup(func() {
-		shutdownTimeout = origTimeout
-		exitFunc = origExitFunc
-	})
-	shutdownTimeout = 20 * time.Millisecond
-
-	var exitCalled atomic.Bool
-	exitFunc = func(int) { exitCalled.Store(true) }
+	t.Parallel()
 
 	m, _ := newTestModel(t)
+	m.shutdownTimeout = 20 * time.Millisecond
+
+	var exitCalled atomic.Bool
+	m.exitFunc = func(int) { exitCalled.Store(true) }
+
 	m.program = nil
 	assert.NotPanics(t, func() { m.cleanupAll() })
 
-	time.Sleep(shutdownTimeout + 50*time.Millisecond)
+	time.Sleep(m.shutdownTimeout + 50*time.Millisecond)
 	assert.False(t, exitCalled.Load(), "exitFunc must not fire without a program")
 }
 
@@ -418,21 +403,17 @@ func TestCleanupAll_NilProgramIsSafe(t *testing.T) {
 // would itself re-acquire the same mutex — a hard deadlock. Wait() never
 // returns and ReleaseTerminal would block too; exitFunc must still fire.
 func TestCleanupAll_WedgedStdoutFiresExit(t *testing.T) {
-	origTimeout := shutdownTimeout
-	origExitFunc := exitFunc
-	t.Cleanup(func() {
-		shutdownTimeout = origTimeout
-		exitFunc = origExitFunc
-	})
-	shutdownTimeout = 300 * time.Millisecond
+	t.Parallel()
+
+	m, _ := newTestModel(t)
+	m.shutdownTimeout = 300 * time.Millisecond
 
 	exitDone := make(chan struct{})
-	exitFunc = func(int) { close(exitDone) }
+	m.exitFunc = func(int) { close(exitDone) }
 
 	p, w, _ := initBlockingBubbletea(t, &quitModel{})
 	defer w.unblock()
 
-	m, _ := newTestModel(t)
 	m.program = p
 	m.cleanupAll()
 
@@ -443,7 +424,7 @@ func TestCleanupAll_WedgedStdoutFiresExit(t *testing.T) {
 
 	select {
 	case <-exitDone:
-	case <-time.After(shutdownTimeout + 2*time.Second):
+	case <-time.After(m.shutdownTimeout + 2*time.Second):
 		t.Fatal("exitFunc was not called — safety net is blocked by ReleaseTerminal")
 	}
 }
@@ -455,25 +436,21 @@ func TestCleanupAll_WedgedStdoutFiresExit(t *testing.T) {
 // fine in production where exit is os.Exit, fatal in tests where it's a
 // channel close.
 func TestCleanupAll_MultipleCallsFireExitOnce(t *testing.T) {
-	origTimeout := shutdownTimeout
-	origExitFunc := exitFunc
-	t.Cleanup(func() {
-		shutdownTimeout = origTimeout
-		exitFunc = origExitFunc
-	})
-	shutdownTimeout = 100 * time.Millisecond
-
-	var exitCount atomic.Int32
-	exitFunc = func(int) { exitCount.Add(1) }
+	t.Parallel()
 
 	m, _ := newTestModel(t)
+	m.shutdownTimeout = 100 * time.Millisecond
+
+	var exitCount atomic.Int32
+	m.exitFunc = func(int) { exitCount.Add(1) }
+
 	m.program = tea.NewProgram(&quitModel{})
 
 	m.cleanupAll()
 	m.cleanupAll()
 	m.cleanupAll()
 
-	time.Sleep(shutdownTimeout + 200*time.Millisecond)
+	time.Sleep(m.shutdownTimeout + 200*time.Millisecond)
 	assert.Equal(t, int32(1), exitCount.Load(),
 		"only the first cleanupAll should arm a safety net")
 }

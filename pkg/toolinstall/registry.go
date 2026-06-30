@@ -137,6 +137,21 @@ type Registry struct {
 	httpClient *http.Client
 	baseURL    string
 	cacheDir   string
+	// limits bounds archive extraction. The zero value means "use
+	// defaultLimits()", so Registry literals built in tests (which only
+	// set httpClient) still extract with the production bounds. Resolve
+	// it through extractor() rather than reading the field directly.
+	limits limits
+}
+
+// extractor returns the extraction limits to use, falling back to the
+// production defaults when the Registry was built without explicit limits
+// (e.g. a test literal that only sets httpClient).
+func (r *Registry) extractor() limits {
+	if r.limits == (limits{}) {
+		return defaultLimits()
+	}
+	return r.limits
 }
 
 var (

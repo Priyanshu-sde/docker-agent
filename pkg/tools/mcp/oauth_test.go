@@ -2042,9 +2042,7 @@ func TestUnmanagedOAuthFlow_DriveFlow_AbortsOnParentCtxCancellation(t *testing.T
 // level would stay held, and every subsequent message from that session
 // would return 409 / ErrSessionBusy until a process restart.
 func TestUnmanagedOAuthFlow_DriveFlow_TimesOutWhenNoReplyArrives(t *testing.T) {
-	original := unmanagedOAuthWaitTimeout
-	unmanagedOAuthWaitTimeout = 200 * time.Millisecond
-	t.Cleanup(func() { unmanagedOAuthWaitTimeout = original })
+	t.Parallel()
 
 	srv := newUnmanagedOAuthTestServer(t)
 	defer srv.Close()
@@ -2061,6 +2059,9 @@ func TestUnmanagedOAuthFlow_DriveFlow_TimesOutWhenNoReplyArrives(t *testing.T) {
 		return tools.ElicitationResult{Action: tools.ElicitationActionDecline}
 	}
 	transport, _ := newUnmanagedTestTransport(t, srv.URL, redirectURI, capture)
+	// Short per-transport wait so the timeout fires quickly; no global
+	// mutation, so this test stays parallel-safe.
+	transport.waitTimeout = 200 * time.Millisecond
 
 	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, srv.URL, strings.NewReader("{}"))
 	require.NoError(t, err)

@@ -45,13 +45,17 @@ func errorCodeFromWWWAuth(wwwAuth string) string {
 	return ""
 }
 
-// unmanagedOAuthWaitTimeout is the upper bound on how long the unmanaged
-// OAuth flow blocks waiting for a reply (elicitation result or
+// unmanagedOAuthWaitTimeout is the default upper bound on how long the
+// unmanaged OAuth flow blocks waiting for a reply (elicitation result or
 // out-of-band callback). Generous enough to accommodate a user clicking
 // through an IdP consent screen and any IdP-side prompts; small enough
 // that a silently-disconnected MCP client can't hold the per-session
 // streaming lock indefinitely.
-var unmanagedOAuthWaitTimeout = 10 * time.Minute
+//
+// oauthTransport reads this through waitTimeoutOrDefault, which lets a
+// transport carry its own shorter timeout (tests do this) without mutating
+// shared state, so those tests can run in parallel.
+const unmanagedOAuthWaitTimeout = 10 * time.Minute
 
 // oauth is a simple struct for compatibility with existing code
 type oauth struct {
@@ -301,6 +305,11 @@ type oauthTransport struct {
 	oauthHTTPClient           *http.Client
 	oauthFlowMu               sync.Mutex
 
+	// waitTimeout overrides the unmanaged-OAuth reply wait bound. Zero means
+	// use unmanagedOAuthWaitTimeout. Tests set a short value here instead of
+	// mutating a package global, so they remain parallel-safe.
+	waitTimeout time.Duration
+
 	// mu protects refreshFailedAt and lastErr* from concurrent access.
 	mu sync.Mutex
 	// refreshFailedAt tracks the last time a silent token refresh failed,
@@ -340,6 +349,15 @@ func (t *oauthTransport) oauthClient() *http.Client {
 		return t.oauthHTTPClient
 	}
 	return oauthHTTPClient
+}
+
+// waitTimeoutOrDefault returns the unmanaged-OAuth reply wait bound for this
+// transport, falling back to unmanagedOAuthWaitTimeout when unset.
+func (t *oauthTransport) waitTimeoutOrDefault() time.Duration {
+	if t.waitTimeout > 0 {
+		return t.waitTimeout
+	}
+	return unmanagedOAuthWaitTimeout
 }
 
 // handleServerRejectedToken is called when the server returned 401 for a
@@ -1294,7 +1312,8 @@ func (t *oauthTransport) handleUnmanagedOAuthFlow(ctx context.Context, authServe
 		err    error
 	}
 	elicCh := make(chan elicResult, 1)
-	elicCtx, elicCancel := context.WithTimeout(ctx, unmanagedOAuthWaitTimeout)
+	waitTimeout := t.waitTimeoutOrDefault()
+	elicCtx, elicCancel := context.WithTimeout(ctx, waitTimeout)
 	defer elicCancel()
 	go func() {
 		r, e := t.client.requestElicitation(elicCtx, &mcpsdk.ElicitParams{
@@ -1352,7 +1371,7 @@ func (t *oauthTransport) handleUnmanagedOAuthFlow(ctx context.Context, authServe
 		// lock from being held indefinitely. In practice the elicCh
 		// case below usually fires first with a deadline-exceeded
 		// error wrapped from requestElicitation.
-		return fmt.Errorf("OAuth flow timed out waiting for a reply after %s", unmanagedOAuthWaitTimeout)
+		return fmt.Errorf("OAuth flow timed out waiting for a reply after %s", waitTimeout)
 	case cb := <-callbackCh:
 		// Direct deeplink callback won. Release the in-flight
 		// elicitation goroutine; any UI the embedder showed for this

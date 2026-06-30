@@ -67,7 +67,7 @@ func TestHandleStream_Refusal(t *testing.T) {
 	evCh := make(chan Event, 64)
 	res, err := handleStream(
 		t.Context(), nil, stream, a, nil, sess, nil,
-		defaultTelemetry{}, NewChannelSink(evCh),
+		defaultTelemetry{}, NewChannelSink(evCh), defaultStreamIdleTimeout,
 	)
 	require.NoError(t, err)
 
@@ -95,7 +95,7 @@ func TestHandleStream_RefusalDropsPartialToolCalls(t *testing.T) {
 	evCh := make(chan Event, 64)
 	res, err := handleStream(
 		t.Context(), nil, stream, a, nil, sess, nil,
-		defaultTelemetry{}, NewChannelSink(evCh),
+		defaultTelemetry{}, NewChannelSink(evCh), defaultStreamIdleTimeout,
 	)
 	require.NoError(t, err)
 
@@ -122,7 +122,7 @@ func TestHandleStream_ToolCallAndStopInSameChunk(t *testing.T) {
 	evCh := make(chan Event, 64) // buffered so handleStream never blocks on Emit
 	res, err := handleStream(
 		t.Context(), nil, stream, a, nil, sess, nil,
-		defaultTelemetry{}, NewChannelSink(evCh),
+		defaultTelemetry{}, NewChannelSink(evCh), defaultStreamIdleTimeout,
 	)
 	require.NoError(t, err)
 
@@ -152,7 +152,7 @@ func TestHandleStream_ToolCallThenSeparateStop(t *testing.T) {
 	evCh := make(chan Event, 64)
 	res, err := handleStream(
 		t.Context(), nil, stream, a, nil, sess, nil,
-		defaultTelemetry{}, NewChannelSink(evCh),
+		defaultTelemetry{}, NewChannelSink(evCh), defaultStreamIdleTimeout,
 	)
 	require.NoError(t, err)
 
@@ -181,7 +181,7 @@ func TestHandleStream_WhitespaceOnlyContentStops(t *testing.T) {
 	evCh := make(chan Event, 64)
 	res, err := handleStream(
 		t.Context(), nil, stream, a, nil, sess, nil,
-		defaultTelemetry{}, NewChannelSink(evCh),
+		defaultTelemetry{}, NewChannelSink(evCh), defaultStreamIdleTimeout,
 	)
 	require.NoError(t, err)
 
@@ -215,21 +215,12 @@ func (s *stalledStream) Close() {
 	s.closeOnce.Do(func() { close(s.unblock) })
 }
 
-// withShortStreamIdleTimeout temporarily overrides defaultStreamIdleTimeout
-// to shorten it for tests. Restores the original value via t.Cleanup.
-func withShortStreamIdleTimeout(t *testing.T, d time.Duration) {
-	t.Helper()
-	orig := defaultStreamIdleTimeout
-	defaultStreamIdleTimeout = d
-	t.Cleanup(func() { defaultStreamIdleTimeout = orig })
-}
-
 // TestHandleStream_IdleTimeout verifies that handleStream returns an error
 // wrapping errStreamIdle when no SSE chunk arrives within the idle window.
 // It also checks that the provided cancelStream function is called so the
 // HTTP transport can close the underlying TCP connection.
 func TestHandleStream_IdleTimeout(t *testing.T) {
-	withShortStreamIdleTimeout(t, 50*time.Millisecond)
+	t.Parallel()
 
 	stream := newStalledStream()
 	a := agent.New("root", "test", agent.WithModel(&mockProvider{id: "test/mock-model", stream: stream}))
@@ -244,7 +235,7 @@ func TestHandleStream_IdleTimeout(t *testing.T) {
 	evCh := make(chan Event, 64)
 	res, err := handleStream(
 		t.Context(), cancelStream, stream, a, nil, sess, nil,
-		defaultTelemetry{}, NewChannelSink(evCh),
+		defaultTelemetry{}, NewChannelSink(evCh), 50*time.Millisecond,
 	)
 
 	require.Error(t, err)
@@ -257,8 +248,7 @@ func TestHandleStream_IdleTimeout(t *testing.T) {
 // promptly when the caller's context is cancelled, even while a Recv call
 // is blocked. This covers the SIGTERM / graceful-shutdown path.
 func TestHandleStream_ContextCancellation(t *testing.T) {
-	// Use a long idle timeout so only context cancellation can trigger.
-	withShortStreamIdleTimeout(t, 10*time.Minute)
+	t.Parallel()
 
 	stream := newStalledStream()
 	a := agent.New("root", "test", agent.WithModel(&mockProvider{id: "test/mock-model", stream: stream}))
@@ -275,9 +265,10 @@ func TestHandleStream_ContextCancellation(t *testing.T) {
 
 	evCh := make(chan Event, 64)
 	_, cancelStream := context.WithCancelCause(ctx)
+	// Use a long idle timeout so only context cancellation can trigger.
 	res, err := handleStream(
 		ctx, cancelStream, stream, a, nil, sess, nil,
-		defaultTelemetry{}, NewChannelSink(evCh),
+		defaultTelemetry{}, NewChannelSink(evCh), 10*time.Minute,
 	)
 
 	require.Error(t, err)

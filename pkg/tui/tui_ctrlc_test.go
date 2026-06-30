@@ -60,9 +60,10 @@ func TestCtrlC_OnOtherDialog_StacksExitConfirmation(t *testing.T) {
 }
 
 func TestCtrlC_OnExitConfirmation_ForwardsAndExits(t *testing.T) {
-	neutralizeExitFunc(t)
+	t.Parallel()
 
 	m, _ := newTestModel(t)
+	neutralizeExitFunc(t, m)
 
 	// Put the exit confirmation dialog on top first (via a regular ctrl+c).
 	_, cmd := m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})

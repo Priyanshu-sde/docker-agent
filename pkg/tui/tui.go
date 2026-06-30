@@ -69,6 +69,14 @@ type appModel struct {
 	shutdownDone <-chan struct{}
 	cleanupOnce  sync.Once
 
+	// exitFunc and shutdownTimeout override the shutdown safety net's
+	// behaviour. Both are zero by default and resolved through
+	// exitFn()/shutdownTimeoutOrDefault(), which fall back to the package
+	// defaults (os.Exit / 5s). Tests set them per-model so they can run in
+	// parallel without mutating package globals.
+	exitFunc        func(int)
+	shutdownTimeout time.Duration
+
 	supervisor *supervisor.Supervisor
 	tabBar     *tabbar.TabBar
 	tuiStore   *tuistate.Store
@@ -2545,12 +2553,31 @@ func formatWindowTitle(appName, sessionTitle string, working bool, animFrame int
 	return title
 }
 
-// exitFunc is the function called by the shutdown safety net when the
-// graceful exit times out. It defaults to os.Exit but can be replaced
-// in tests.
-var exitFunc = os.Exit
+// defaultExitFunc is the process-exit function used by the shutdown safety
+// net when the graceful exit times out. It is a package var (not a const)
+// only so the os.Exit indirection is testable at the package level; per-model
+// overrides go through appModel.exitFunc.
+var defaultExitFunc = os.Exit
 
-var shutdownTimeout = 5 * time.Second
+const defaultShutdownTimeout = 5 * time.Second
+
+// exitFn returns the exit function for this model, falling back to the
+// package default when unset.
+func (m *appModel) exitFn() func(int) {
+	if m.exitFunc != nil {
+		return m.exitFunc
+	}
+	return defaultExitFunc
+}
+
+// shutdownTimeoutOrDefault returns the shutdown grace period for this model,
+// falling back to the package default when unset.
+func (m *appModel) shutdownTimeoutOrDefault() time.Duration {
+	if m.shutdownTimeout > 0 {
+		return m.shutdownTimeout
+	}
+	return defaultShutdownTimeout
+}
 
 // cleanupManagedResources shuts down resources owned by the top-level TUI
 // lifecycle. It is safe to call from both the Bubble Tea event loop (normal
@@ -2587,8 +2614,8 @@ func (m *appModel) cleanupAll() {
 		return
 	}
 	m.program = nil
-	timeout := shutdownTimeout
-	exit := exitFunc
+	timeout := m.shutdownTimeoutOrDefault()
+	exit := m.exitFn()
 	go func() {
 		done := make(chan struct{})
 		go func() {

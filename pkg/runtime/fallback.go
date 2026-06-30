@@ -333,7 +333,7 @@ func (e *fallbackExecutor) execute(
 				}
 			}
 
-			res, err := handleStream(streamCtx, streamCancel, stream, a, agentTools, sess, m, e.telemetry, events)
+			res, err := handleStream(streamCtx, streamCancel, stream, a, agentTools, sess, m, e.telemetry, events, defaultStreamIdleTimeout)
 			streamCancel(nil) // always release the child context
 			if err != nil {
 				lastErr = err

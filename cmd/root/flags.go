@@ -26,7 +26,7 @@ const (
 )
 
 func addRuntimeConfigFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
-	addGatewayFlags(cmd, runConfig)
+	addGatewayFlags(cmd, runConfig, userconfig.Load)
 	cmd.PersistentFlags().StringSliceVar(&runConfig.EnvFiles, "env-from-file", nil, "Set environment variables from file")
 	cmd.PersistentFlags().BoolVar(&runConfig.GlobalCodeMode, "code-mode-tools", false, "Provide a single tool to call other tools via Javascript")
 	cmd.PersistentFlags().StringVar(&runConfig.WorkingDir, "working-dir", "", "Set the working directory for the session (applies to tools and relative paths)")
@@ -73,11 +73,12 @@ func canonize(endpoint string) string {
 	return strings.TrimSuffix(strings.TrimSpace(endpoint), "/")
 }
 
-// loadUserConfig is the function used to load user configuration.
-// It can be overridden in tests.
-var loadUserConfig = userconfig.Load
+// userConfigLoader loads the user configuration. Production passes
+// [userconfig.Load]; tests inject a stub so they neither touch the real
+// config file nor share a mutable package global (and can run in parallel).
+type userConfigLoader func() (*userconfig.Config, error)
 
-func addGatewayFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig) {
+func addGatewayFlags(cmd *cobra.Command, runConfig *config.RuntimeConfig, loadUserConfig userConfigLoader) {
 	cmd.PersistentFlags().StringVar(&runConfig.ModelsGateway, flagModelsGateway, "", "Set the models gateway address")
 
 	persistentPreRunE := cmd.PersistentPreRunE

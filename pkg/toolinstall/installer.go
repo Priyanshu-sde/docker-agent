@@ -125,7 +125,7 @@ func (r *Registry) installGitHubRelease(ctx context.Context, pkg *Package, versi
 
 	// Spool the asset to disk so its checksum can be verified before any of
 	// its bytes are extracted and made executable.
-	asset, err := spoolToTemp(body)
+	asset, err := r.extractor().spoolToTemp(body)
 	if err != nil {
 		return "", fmt.Errorf("downloading %s: %w", downloadURL, err)
 	}
@@ -147,11 +147,11 @@ func (r *Registry) installGitHubRelease(ctx context.Context, pkg *Package, versi
 	switch pc.Format {
 	case "raw", "":
 		// Single-binary download — write the asset directly to binaryPath.
-		if err := writeRawBinary(asset, binaryPath); err != nil {
+		if err := r.extractor().writeRawBinary(asset, binaryPath); err != nil {
 			return "", err
 		}
 	default:
-		if err := extractRelease(asset, pkgDir, pc.Format, pc.Files, pc.TemplateData); err != nil {
+		if err := r.extractor().extractRelease(asset, pkgDir, pc.Format, pc.Files, pc.TemplateData); err != nil {
 			return "", err
 		}
 	}
@@ -252,7 +252,7 @@ func resolveForPlatform(pkg *Package, version string) platformConfig {
 // start; the caller must close and remove it. The copy is bounded by
 // maxArchiveCompressed to defend against an attacker-controlled release
 // streaming an unbounded body.
-func spoolToTemp(r io.Reader) (*os.File, error) {
+func (l limits) spoolToTemp(r io.Reader) (*os.File, error) {
 	f, err := os.CreateTemp("", "cagent-asset-*")
 	if err != nil {
 		return nil, fmt.Errorf("creating temp file: %w", err)
@@ -263,12 +263,12 @@ func spoolToTemp(r io.Reader) (*os.File, error) {
 		_ = os.Remove(f.Name())
 	}
 
-	n, err := io.Copy(f, io.LimitReader(r, maxArchiveCompressed+1))
+	n, err := io.Copy(f, io.LimitReader(r, l.maxArchiveCompressed+1))
 	if err != nil {
 		cleanup()
 		return nil, fmt.Errorf("buffering asset: %w", err)
 	}
-	if n > maxArchiveCompressed {
+	if n > l.maxArchiveCompressed {
 		cleanup()
 		return nil, errExtractTooLarge
 	}

@@ -26,9 +26,10 @@ import (
 // for tens of seconds during extended thinking. The timeout only fires when
 // absolutely no bytes arrive at the SSE layer (not just no new tokens).
 //
-// This is a var rather than a const so tests can shorten it without changing
-// production behaviour.
-var defaultStreamIdleTimeout = 5 * time.Minute
+// handleStream takes the idle timeout as a parameter rather than reading this
+// constant directly, so tests can pass a short timeout without mutating shared
+// state (and can therefore run in parallel).
+const defaultStreamIdleTimeout = 5 * time.Minute
 
 // errStreamIdle is the sentinel error returned when the upstream model stream
 // produces no SSE events for longer than defaultStreamIdleTimeout. It does
@@ -61,12 +62,15 @@ type streamResult struct {
 // passed to CreateChatCompletionStream so that Go's HTTP transport closes the
 // underlying TCP connection and unblocks the stream reader goroutine.
 //
+// idleTimeout bounds the wait for the next SSE chunk; production callers pass
+// defaultStreamIdleTimeout, tests pass a short value.
+//
 // handleStream is a pure stream-aggregation routine: it does not touch
 // runtime state and can be unit-tested by feeding a mock chat.MessageStream.
 // It is intentionally a free function rather than a method on *LocalRuntime
 // so the dependency direction is explicit (the loop calls into the chunker,
 // never the reverse).
-func handleStream(ctx context.Context, cancelStream context.CancelCauseFunc, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, tel Telemetry, events EventSink) (streamResult, error) {
+func handleStream(ctx context.Context, cancelStream context.CancelCauseFunc, stream chat.MessageStream, a *agent.Agent, agentTools []tools.Tool, sess *session.Session, m *modelsdev.Model, tel Telemetry, events EventSink, idleTimeout time.Duration) (streamResult, error) {
 	// done is closed when handleStream exits (for any reason) so the reader
 	// goroutine below can detect it and stop trying to send on recvCh.
 	done := make(chan struct{})
@@ -98,7 +102,7 @@ func handleStream(ctx context.Context, cancelStream context.CancelCauseFunc, str
 		}
 	}()
 
-	idleTimer := time.NewTimer(defaultStreamIdleTimeout)
+	idleTimer := time.NewTimer(idleTimeout)
 	defer idleTimer.Stop()
 
 	var fullContent strings.Builder
@@ -174,7 +178,7 @@ mainLoop:
 				default:
 				}
 			}
-			idleTimer.Reset(defaultStreamIdleTimeout)
+			idleTimer.Reset(idleTimeout)
 
 			if errors.Is(res.err, io.EOF) {
 				break mainLoop
@@ -339,7 +343,7 @@ mainLoop:
 			slog.WarnContext(ctx, "Model stream stalled: no data received within idle timeout",
 				"agent", a.Name(),
 				"session_id", sess.ID,
-				"idle_timeout", defaultStreamIdleTimeout,
+				"idle_timeout", idleTimeout,
 			)
 			// Cancel the HTTP request context so Go's transport closes the
 			// underlying TCP connection and unblocks the reader goroutine.
@@ -347,7 +351,7 @@ mainLoop:
 				cancelStream(errStreamIdle)
 			}
 			return streamResult{Stopped: true}, fmt.Errorf("model stream stalled after %s with no data: %w",
-				defaultStreamIdleTimeout, errStreamIdle)
+				idleTimeout, errStreamIdle)
 		}
 	}
 

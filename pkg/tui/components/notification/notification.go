@@ -27,8 +27,6 @@ const (
 
 var nextID atomic.Uint64
 
-var timerDuration = defaultDuration
-
 // Type represents the type of notification
 type Type int
 
@@ -38,10 +36,6 @@ const (
 	TypeInfo
 	TypeError
 )
-
-func (t Type) autoHideDuration() time.Duration {
-	return timerDuration
-}
 
 // style returns the lipgloss style for this notification type.
 func (t Type) style() lipgloss.Style {
@@ -142,9 +136,14 @@ type Manager struct {
 	hoveredID      uint64
 	closeHoveredID uint64
 	copiedID       uint64
+	// autoHideDuration is how long a notification stays before its timer
+	// fires. Defaulted by New(); tests construct a Manager with a shorter
+	// (or zero) value so their auto-hide timers resolve promptly without
+	// mutating shared state, keeping them parallel-safe.
+	autoHideDuration time.Duration
 }
 
-func New() Manager { return Manager{} }
+func New() Manager { return Manager{autoHideDuration: defaultDuration} }
 
 // SetSize records the screen size used to position notifications.
 func (n *Manager) SetSize(width, height int) {
@@ -195,7 +194,7 @@ func (n *Manager) handleShow(msg ShowMsg) (Manager, tea.Cmd) {
 	item := notificationItem{ID: id, Text: msg.Text, Type: notifType}
 	n.items = append([]notificationItem{item}, n.items...)
 
-	return *n, makeTimerCmd(id, item.timerGen, notifType.autoHideDuration())
+	return *n, makeTimerCmd(id, item.timerGen, n.autoHideDuration)
 }
 
 func (n *Manager) handleAutoHide(msg AutoHideMsg) (Manager, tea.Cmd) {
@@ -438,7 +437,7 @@ func (n *Manager) HandleMouseMotion(x, y int) (Manager, tea.Cmd) {
 
 		if n.hoveredID != 0 {
 			if idx := n.findItemIndex(n.hoveredID); idx >= 0 {
-				cmd = makeTimerCmd(n.items[idx].ID, n.items[idx].timerGen, n.items[idx].Type.autoHideDuration())
+				cmd = makeTimerCmd(n.items[idx].ID, n.items[idx].timerGen, n.autoHideDuration)
 			}
 		}
 
