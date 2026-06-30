@@ -76,9 +76,9 @@ func TestRegisterBuiltinThemes_Integration(t *testing.T) { //nolint:paralleltest
 // TestRegisterBuiltinThemes_PackageAPI verifies the exported wrapper functions
 // use the package-wide default registry correctly.
 func TestRegisterBuiltinThemes_PackageAPI(t *testing.T) { //nolint:paralleltest // Temporarily swaps package-wide defaultRegistry.
-	previous := defaultRegistry
-	defaultRegistry = newThemeRegistry()
-	t.Cleanup(func() { defaultRegistry = previous })
+	previous := defaultRegistry.Load()
+	defaultRegistry.Store(newThemeRegistry())
+	t.Cleanup(func() { defaultRegistry.Store(previous) })
 
 	src := fstest.MapFS{
 		"themes/package-api.yaml": &fstest.MapFile{Data: []byte("name: Package API\n")},

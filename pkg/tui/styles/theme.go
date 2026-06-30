@@ -61,8 +61,14 @@ func newThemeRegistry() *themeRegistry {
 	return &themeRegistry{cache: make(map[string]*themeCacheEntry)}
 }
 
-// defaultRegistry backs the package-level theme API.
-var defaultRegistry = newThemeRegistry()
+// defaultRegistry backs the package-level theme API. It is an atomic pointer so
+// tests can swap in an isolated registry without racing package-level callers
+// that read it through the exported wrapper functions.
+var defaultRegistry = func() *atomic.Pointer[themeRegistry] {
+	p := &atomic.Pointer[themeRegistry]{}
+	p.Store(newThemeRegistry())
+	return p
+}()
 
 // RegisterBuiltinThemes adds an additional source of built-in themes from fsys.
 // It must contain theme files at "themes/<ref>.yaml" (or .yml) — the same layout
@@ -83,7 +89,7 @@ var defaultRegistry = newThemeRegistry()
 // Call this at startup, before applying any persisted theme, so that a persisted
 // selection naming a registered theme resolves.
 func RegisterBuiltinThemes(fsys fs.FS) error {
-	return defaultRegistry.RegisterBuiltinThemes(fsys)
+	return defaultRegistry.Load().RegisterBuiltinThemes(fsys)
 }
 
 func (r *themeRegistry) RegisterBuiltinThemes(fsys fs.FS) error {
@@ -173,7 +179,7 @@ func (r *themeRegistry) readRegisteredThemeData(ref string) ([]byte, bool) {
 // InvalidateThemeCache clears the theme cache for a specific ref, or all if ref is empty.
 // This is primarily for testing; the cache is mtime-aware so it auto-invalidates on file changes.
 func InvalidateThemeCache(ref string) {
-	defaultRegistry.InvalidateThemeCache(ref)
+	defaultRegistry.Load().InvalidateThemeCache(ref)
 }
 
 func (r *themeRegistry) InvalidateThemeCache(ref string) {
@@ -355,7 +361,7 @@ const UserThemePrefix = "user:"
 // User themes with names matching built-in themes are prefixed with "user:" to distinguish them.
 // The "default" theme is always listed first for UX purposes.
 func ListThemeRefs() ([]string, error) {
-	return defaultRegistry.ListThemeRefs()
+	return defaultRegistry.Load().ListThemeRefs()
 }
 
 func (r *themeRegistry) ListThemeRefs() ([]string, error) {
@@ -399,7 +405,7 @@ func (r *themeRegistry) ListThemeRefs() ([]string, error) {
 // listBuiltinThemeRefs returns the list of built-in theme references from embedded files.
 // Results are cached since built-in themes never change at runtime.
 func listBuiltinThemeRefs() ([]string, error) {
-	return defaultRegistry.listBuiltinThemeRefs()
+	return defaultRegistry.Load().listBuiltinThemeRefs()
 }
 
 func (r *themeRegistry) listBuiltinThemeRefs() ([]string, error) {
@@ -553,7 +559,7 @@ func listThemeRefsFrom(dir string) ([]string, error) {
 // The cache is mtime-aware: user themes are re-parsed only when the file's modTime changes.
 // If a user theme file exists but fails to parse, an error is returned (no silent fallback).
 func LoadTheme(ref string) (*Theme, error) {
-	return defaultRegistry.LoadTheme(ref)
+	return defaultRegistry.Load().LoadTheme(ref)
 }
 
 func (r *themeRegistry) LoadTheme(ref string) (*Theme, error) {
@@ -575,6 +581,14 @@ func (r *themeRegistry) LoadTheme(ref string) (*Theme, error) {
 	}
 
 	for {
+		// Snapshot the generation before classifying the theme, so a registration
+		// that changes the built-in/user classification (and bumps the generation)
+		// while we load forces the store-time check below to retry rather than
+		// caching a stale classification under the fresh generation.
+		r.cacheMu.RLock()
+		generation := r.generation
+		r.cacheMu.RUnlock()
+
 		// Determine if this should load from built-in or user themes
 		isBuiltin := !forceUserTheme && r.IsBuiltinTheme(baseRef)
 
@@ -587,7 +601,6 @@ func (r *themeRegistry) LoadTheme(ref string) (*Theme, error) {
 
 		// Check the cache (use the full ref as cache key to distinguish user:nord from nord)
 		r.cacheMu.RLock()
-		generation := r.generation
 		cached, hasCached := r.cache[ref]
 		r.cacheMu.RUnlock()
 
@@ -683,7 +696,7 @@ func validateThemeRef(ref string) error {
 
 // loadBuiltinTheme loads a built-in theme from embedded files.
 func loadBuiltinTheme(ref string) (*Theme, error) {
-	return defaultRegistry.loadBuiltinTheme(ref)
+	return defaultRegistry.Load().loadBuiltinTheme(ref)
 }
 
 func (r *themeRegistry) loadBuiltinTheme(ref string) (*Theme, error) {
@@ -719,7 +732,7 @@ func (r *themeRegistry) loadBuiltinTheme(ref string) (*Theme, error) {
 // IsBuiltinTheme returns true if the given theme reference is a built-in theme.
 // Refs prefixed with "user:" are always considered user themes, not built-in.
 func IsBuiltinTheme(ref string) bool {
-	return defaultRegistry.IsBuiltinTheme(ref)
+	return defaultRegistry.Load().IsBuiltinTheme(ref)
 }
 
 func (r *themeRegistry) IsBuiltinTheme(ref string) bool {
