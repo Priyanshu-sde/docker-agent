@@ -180,11 +180,19 @@ func RunLLM(ctx context.Context, args LLMArgs) (result *Result, err error) {
 	if args.ContextLimit <= 0 {
 		return nil, errors.New("compactor: ContextLimit must be > 0")
 	}
-	if args.Agent.Model(ctx) == nil {
+	// A dedicated compaction model (when configured) generates the summary;
+	// otherwise the summary runs on the agent's own model. ContextLimit was
+	// resolved against this same model by the runtime, so the token budgets
+	// below are scaled to the window that will actually serve the call.
+	baseModel := args.Agent.CompactionModel()
+	if baseModel == nil {
+		baseModel = args.Agent.Model(ctx)
+	}
+	if baseModel == nil {
 		return nil, errors.New("compactor: agent has no model")
 	}
 
-	summaryModel := provider.CloneWithOptions(ctx, args.Agent.Model(ctx),
+	summaryModel := provider.CloneWithOptions(ctx, baseModel,
 		options.WithStructuredOutput(nil),
 		options.WithMaxTokens(summaryTokenBudget(args.ContextLimit)),
 	)

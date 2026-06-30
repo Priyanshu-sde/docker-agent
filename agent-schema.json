@@ -1605,6 +1605,14 @@
             "fast"
           ]
         },
+        "compaction_model": {
+          "type": "string",
+          "description": "Model used to summarize the conversation when this model's session is compacted (manual /compact, the proactive threshold trigger, or post-overflow recovery). The summary call ingests the whole conversation and is the slowest, most expensive call in a session; pointing this at a smaller/faster model makes compaction cheaper and more reliable without changing the model that runs the conversation. Value can be a model name from the models section or an inline 'provider/model' spec. When omitted, compaction reuses the agent's own model. If the compaction model has a smaller context window than the primary, compaction is triggered against the smaller window so the summary call can always ingest the conversation it must compact.",
+          "examples": [
+            "openai/gpt-4o-mini",
+            "fast"
+          ]
+        },
         "capabilities": {
           "$ref": "#/definitions/CapabilitiesConfig",
           "description": "Explicit attachment capability override for models the models.dev catalogue does not describe correctly (custom OpenAI-compatible providers, local models like Ollama, or dropped model versions). When set, the declared flags are authoritative and no models.dev lookup is performed; when omitted, capabilities are detected automatically. Without it, such models fall back to text-only and their image/PDF attachments are silently dropped."

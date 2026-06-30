@@ -487,7 +487,13 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 		// only when context_size isn't supplied; we keep the explicit call
 		// here because m is also passed to [computeMessageCost] for
 		// per-turn cost computation.
-		contextLimit := r.resolveContextLimit(ctx, model, modelID)
+		// resolveContextLimit yields the primary model's window; effectiveContextLimit
+		// caps it to the dedicated compaction model's (smaller) window when one is
+		// configured, so the session operates within a budget the summary call can
+		// always ingest. The capped value drives both the proactive compaction
+		// trigger and the UI context gauge (issue #3241); it equals the primary
+		// window unless a smaller compaction model is configured.
+		contextLimit := r.effectiveContextLimit(ctx, a, r.resolveContextLimit(ctx, model, modelID))
 		if contextLimit > 0 && r.sessionCompaction && compaction.ShouldCompact(sess.InputTokens, sess.OutputTokens, 0, contextLimit) {
 			r.compactWithReason(ctx, sess, "", compactionReasonThreshold, sink)
 		}
@@ -1052,6 +1058,9 @@ func (r *LocalRuntime) compactIfNeeded(
 	messageCountBefore int,
 	events EventSink,
 ) {
+	// contextLimit is the effective budget (primary window, capped to a smaller
+	// dedicated compaction model's window when configured) computed by
+	// runStreamLoop, so this site fires consistently with the pre-turn trigger.
 	if !r.sessionCompaction || contextLimit <= 0 {
 		return
 	}

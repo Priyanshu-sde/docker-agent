@@ -161,23 +161,61 @@ func summaryFromHook(sess *session.Session, a *agent.Agent, pre *hooks.Result, c
 	}
 }
 
-// compactionContextLimit returns the agent's model context limit, or 0
-// when it can't be resolved. Failure is non-fatal: a before_compaction
-// hook may supply its own summary and never need the model definition.
-// The LLM strategy itself enforces ContextLimit > 0.
+// compactionContextLimit returns the context-window limit of the model that
+// generates the summary: the dedicated compaction model when one is
+// configured, otherwise the agent's own model. Returns 0 when it can't be
+// resolved. Failure is non-fatal: a before_compaction hook may supply its own
+// summary and never need the model definition. The LLM strategy itself
+// enforces ContextLimit > 0.
 //
 // See [LocalRuntime.resolveContextLimit] for the resolution order; we
 // pass the cloned summary-call provider so its provider_opts (which
 // match the underlying model) are considered.
 func (r *LocalRuntime) compactionContextLimit(ctx context.Context, a *agent.Agent) int64 {
-	if a == nil || a.Model(ctx) == nil {
+	if a == nil {
 		return 0
 	}
-	summaryModel := provider.CloneWithOptions(ctx, a.Model(ctx),
+	model := a.CompactionModel()
+	if model == nil {
+		model = a.Model(ctx)
+	}
+	if model == nil {
+		return 0
+	}
+	summaryModel := provider.CloneWithOptions(ctx, model,
 		options.WithStructuredOutput(nil),
 		options.WithMaxTokens(compactor.MaxSummaryTokens),
 	)
 	return r.resolveContextLimit(ctx, summaryModel, summaryModel.ID())
+}
+
+// effectiveContextLimit returns the context budget the running session
+// operates within: the primary model's window, capped by the dedicated
+// compaction model's (smaller) window when one is configured. It drives both
+// the proactive compaction trigger and the UI context gauge, so the gauge
+// fills to ~90% right as compaction fires and the summary call can always
+// ingest the conversation it must compact. This is the maintainers' resolution
+// for issue #3241 for the case where the dedicated compaction model has the
+// smaller context window.
+//
+// With no dedicated compaction model it is simply primaryLimit (behaviour
+// unchanged). A non-positive compaction limit (an unresolvable compaction-model
+// definition) falls back to primaryLimit so a misconfigured compaction model
+// never suppresses compaction; conversely, when only the compaction model's
+// window is resolvable (e.g. a local primary absent from the catalogue), that
+// window is used so compaction still runs.
+func (r *LocalRuntime) effectiveContextLimit(ctx context.Context, a *agent.Agent, primaryLimit int64) int64 {
+	if a == nil || a.CompactionModel() == nil {
+		return primaryLimit
+	}
+	compactionLimit := r.compactionContextLimit(ctx, a)
+	if compactionLimit <= 0 {
+		return primaryLimit
+	}
+	if primaryLimit <= 0 {
+		return compactionLimit
+	}
+	return min(primaryLimit, compactionLimit)
 }
 
 // resolveContextLimit resolves the effective context window size for a

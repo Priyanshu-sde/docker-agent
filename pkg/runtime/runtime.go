@@ -1459,7 +1459,7 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, sess *session.Sessio
 	// sub-sessions won't emit their own events, so the parent must include
 	// their costs.
 	if sess != nil && (sess.InputTokens > 0 || sess.OutputTokens > 0) {
-		contextLimit := r.resolveContextLimit(ctx, a.Model(ctx), modelID)
+		contextLimit := r.effectiveContextLimit(ctx, a, r.resolveContextLimit(ctx, a.Model(ctx), modelID))
 		usage := SessionUsage(sess, contextLimit)
 		usage.Cost = sess.TotalCost()
 
@@ -1783,7 +1783,7 @@ func (r *LocalRuntime) compactWithReason(ctx context.Context, sess *session.Sess
 	// compaction: tokens drop to the summary size, context % drops, and
 	// cost increases by the summary generation cost.
 	modelID := r.getEffectiveModelID(ctx, a)
-	contextLimit := r.resolveContextLimit(ctx, a.Model(ctx), modelID)
+	contextLimit := r.effectiveContextLimit(ctx, a, r.resolveContextLimit(ctx, a.Model(ctx), modelID))
 	events.Emit(NewTokenUsageEvent(sess.ID, a.Name(), SessionUsage(sess, contextLimit)))
 }
 
