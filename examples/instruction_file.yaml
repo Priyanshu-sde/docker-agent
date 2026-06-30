@@ -12,4 +12,9 @@ agents:
   writer:
     model: openai/gpt-5-mini
     description: Drafts and edits written content
-    instruction_file: instructions/writer.md
+    # instruction_file also accepts a list of files. Their contents are
+    # concatenated in order (separated by a blank line), so a shared preamble
+    # can be reused across agents while each appends its own specifics.
+    instruction_file:
+      - instructions/shared-preamble.md
+      - instructions/writer.md

@@ -424,6 +424,74 @@ type HarnessConfig struct {
 	Thinking bool `json:"thinking,omitempty"`
 }
 
+// InstructionFiles holds one or more instruction file paths. It accepts both
+// a single string (`instruction_file: prompt.md`) and a list of strings
+// (`instruction_file: [intro.md, rules.md]`) in YAML and JSON. Empty strings
+// are dropped on decode, so `instruction_file: ""` and `instruction_file: [""]`
+// both decode to nil (treated as absent). A single path is marshalled back as
+// a scalar, and an empty value is omitted entirely, so configs round-trip
+// unchanged.
+type InstructionFiles []string
+
+func (f *InstructionFiles) unmarshal(scalar, list func(any) error) error {
+	var one string
+	if err := scalar(&one); err == nil {
+		*f = nonEmptyInstructionFiles(one)
+		return nil
+	}
+	var many []string
+	if err := list(&many); err != nil {
+		return errors.New("instruction_file must be a string or a list of strings")
+	}
+	*f = nonEmptyInstructionFiles(many...)
+	return nil
+}
+
+// nonEmptyInstructionFiles returns the given paths with empty strings dropped,
+// or nil when nothing remains. This keeps the list form consistent with the
+// scalar form, where `instruction_file: ""` is treated as absent rather than a
+// path to resolve.
+func nonEmptyInstructionFiles(paths ...string) InstructionFiles {
+	var out InstructionFiles
+	for _, p := range paths {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func (f *InstructionFiles) UnmarshalYAML(unmarshal func(any) error) error {
+	return f.unmarshal(unmarshal, unmarshal)
+}
+
+func (f InstructionFiles) MarshalYAML() (any, error) {
+	if len(f) == 0 {
+		return nil, nil
+	}
+	if len(f) == 1 {
+		return f[0], nil
+	}
+	return []string(f), nil
+}
+
+func (f *InstructionFiles) UnmarshalJSON(data []byte) error {
+	return f.unmarshal(
+		func(v any) error { return json.Unmarshal(data, v) },
+		func(v any) error { return json.Unmarshal(data, v) },
+	)
+}
+
+func (f InstructionFiles) MarshalJSON() ([]byte, error) {
+	if len(f) == 0 {
+		return json.Marshal(nil)
+	}
+	if len(f) == 1 {
+		return json.Marshal(f[0])
+	}
+	return json.Marshal([]string(f))
+}
+
 // AgentConfig represents a single agent configuration
 type AgentConfig struct {
 	Name           string
@@ -433,18 +501,21 @@ type AgentConfig struct {
 	WelcomeMessage string          `json:"welcome_message,omitempty"`
 	Toolsets       []Toolset       `json:"toolsets,omitempty"`
 	Instruction    string          `json:"instruction,omitempty"`
-	// InstructionFile names a file, relative to the config file's directory,
-	// whose contents are loaded into Instruction when the config is loaded.
-	// It keeps long behavioral prompts out of the YAML, letting infrastructure
-	// configuration and instruction content evolve in separate files. Mutually
-	// exclusive with Instruction. Only file-based config sources are supported
-	// (not OCI/URL/bytes sources, which have no directory to resolve against).
-	// The field is cleared once resolved so the in-memory config stays
-	// self-contained (see config.Load).
-	InstructionFile string         `json:"instruction_file,omitempty" yaml:"instruction_file,omitempty"`
-	Harness         *HarnessConfig `json:"harness,omitempty"`
-	SubAgents       []string       `json:"sub_agents,omitempty"`
-	Handoffs        []string       `json:"handoffs,omitempty"`
+	// InstructionFile names one or more files, relative to the config file's
+	// directory, whose contents are loaded into Instruction when the config is
+	// loaded. It accepts either a single path (`instruction_file: prompt.md`)
+	// or a list (`instruction_file: [intro.md, rules.md]`); when several files
+	// are given their contents are concatenated in order, separated by a blank
+	// line. It keeps long behavioral prompts out of the YAML, letting
+	// infrastructure configuration and instruction content evolve in separate
+	// files. Mutually exclusive with Instruction. Only file-based config
+	// sources are supported (not OCI/URL/bytes sources, which have no directory
+	// to resolve against). The field is cleared once resolved so the in-memory
+	// config stays self-contained (see config.Load).
+	InstructionFile InstructionFiles `json:"instruction_file,omitempty" yaml:"instruction_file,omitempty"`
+	Harness         *HarnessConfig   `json:"harness,omitempty"`
+	SubAgents       []string         `json:"sub_agents,omitempty"`
+	Handoffs        []string         `json:"handoffs,omitempty"`
 	// ForceHandoff names an agent that unconditionally receives the
 	// conversation whenever this agent produces a final response,
 	// bypassing the LLM's tool-calling entirely. Unlike Handoffs (which

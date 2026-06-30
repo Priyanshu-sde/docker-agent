@@ -562,8 +562,18 @@
           "description": "Instructions for the agent"
         },
         "instruction_file": {
-          "type": "string",
-          "description": "Path to a file, relative to the config file's directory, whose contents become the agent's instruction. Loaded at startup. Mutually exclusive with 'instruction'. Must be a local relative path inside the config directory (absolute paths and '..' traversal are rejected). Only supported for local file-based configs, not OCI/URL sources."
+          "description": "Path(s) to a file or files, relative to the config file's directory, whose contents become the agent's instruction. Accepts a single string or a list of strings; when several files are given their contents are concatenated in order, separated by a blank line. Loaded at startup. Mutually exclusive with 'instruction'. Each path must be a local relative path inside the config directory (absolute paths and '..' traversal are rejected). Only supported for local file-based configs, not OCI/URL sources.",
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          ]
         },
         "harness": {
           "$ref": "#/definitions/HarnessConfig",

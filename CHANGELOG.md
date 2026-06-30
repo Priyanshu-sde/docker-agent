@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 
 
+## [Unreleased]
+
+## What's New
+
+- Extends the agent `instruction_file` field to accept a list of files in addition to a single path; when several files are listed, their contents are concatenated in order (separated by a blank line)
+
+
 ## [v1.90.0] - 2026-06-29
 
 This release adds support for OpenCode Go and OpenCode Zen providers and improves error handling for stream truncation during model inference.
