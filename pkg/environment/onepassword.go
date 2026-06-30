@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 )
 
 // onePasswordPrefix marks an environment value as a 1Password secret reference
@@ -19,6 +20,12 @@ type OnePasswordProvider struct {
 	// resolve turns a "op://..." reference into its secret value. It is a field
 	// so tests can inject a fake resolver without relying on the `op` binary.
 	resolve func(ctx context.Context, reference string) (string, bool)
+
+	// cache memoizes resolved references so the same secret is not looked up
+	// (and the `op` CLI not spawned) repeatedly. Failed resolutions are cached
+	// as an empty string too, since they are equally deterministic per run.
+	mu    sync.Mutex
+	cache map[string]string
 }
 
 type OnePasswordNotAvailableError struct{}
@@ -35,6 +42,7 @@ func NewOnePasswordProvider(provider Provider) Provider {
 	return &OnePasswordProvider{
 		provider: provider,
 		resolve:  resolveOnePasswordReference,
+		cache:    make(map[string]string),
 	}
 }
 
@@ -54,11 +62,29 @@ func (p *OnePasswordProvider) Get(ctx context.Context, name string) (string, boo
 		return value, found
 	}
 
-	resolved, ok := p.resolve(ctx, value)
-	if !ok {
-		slog.WarnContext(ctx, "Failed to resolve 1Password secret reference", "name", name)
-		return "", false
+	// Always report the variable as found: returning the raw "op://" reference
+	// would leak it to downstream providers, so an unresolved reference becomes
+	// an empty value instead.
+	return p.resolveCached(ctx, value), true
+}
+
+func (p *OnePasswordProvider) resolveCached(ctx context.Context, reference string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.cache == nil {
+		p.cache = make(map[string]string)
+	}
+	if resolved, ok := p.cache[reference]; ok {
+		return resolved
 	}
 
-	return resolved, true
+	resolved, ok := p.resolve(ctx, reference)
+	if !ok {
+		slog.WarnContext(ctx, "Failed to resolve 1Password secret reference; using empty value", "reference", reference)
+		resolved = ""
+	}
+
+	p.cache[reference] = resolved
+	return resolved
 }

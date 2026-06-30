@@ -41,13 +41,14 @@ func TestOnePasswordProvider_Get(t *testing.T) {
 			wantFound: false,
 		},
 		{
-			name:   "failed resolution reports not found",
+			name:   "failed resolution yields empty value but stays found",
 			stored: map[string]string{"API_KEY": "op://vault/item/field"},
 			resolve: func(context.Context, string) (string, bool) {
 				return "", false
 			},
 			lookup:    "API_KEY",
-			wantFound: false,
+			wantValue: "",
+			wantFound: true,
 		},
 	}
 
@@ -77,6 +78,48 @@ func TestOnePasswordProvider_Get(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOnePasswordProvider_CachesResolvedReferences(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	provider := &OnePasswordProvider{
+		provider: NewMapEnvProvider(map[string]string{"API_KEY": "op://vault/item/field"}),
+		resolve: func(context.Context, string) (string, bool) {
+			calls++
+			return "resolved-secret", true
+		},
+	}
+
+	for range 3 {
+		value, found := provider.Get(t.Context(), "API_KEY")
+		assert.True(t, found)
+		assert.Equal(t, "resolved-secret", value)
+	}
+
+	assert.Equal(t, 1, calls, "reference should only be resolved once")
+}
+
+func TestOnePasswordProvider_CachesFailedResolutions(t *testing.T) {
+	t.Parallel()
+
+	var calls int
+	provider := &OnePasswordProvider{
+		provider: NewMapEnvProvider(map[string]string{"API_KEY": "op://vault/item/field"}),
+		resolve: func(context.Context, string) (string, bool) {
+			calls++
+			return "", false
+		},
+	}
+
+	for range 3 {
+		value, found := provider.Get(t.Context(), "API_KEY")
+		assert.True(t, found)
+		assert.Empty(t, value)
+	}
+
+	assert.Equal(t, 1, calls, "failed resolution should only be attempted once")
 }
 
 func TestNewOnePasswordProvider_AlwaysWraps(t *testing.T) {
