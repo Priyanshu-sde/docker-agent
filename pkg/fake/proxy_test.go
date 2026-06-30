@@ -119,6 +119,42 @@ func TestTargetURLForHost(t *testing.T) {
 	}
 }
 
+func TestTargetURLForHost_RewritesRequestURL(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		host string
+		path string
+		want string
+	}{
+		{
+			name: "OpenAI",
+			host: "https://api.openai.com/v1",
+			path: "/v1/chat/completions?stream=true",
+			want: "https://api.openai.com/v1/chat/completions?stream=true",
+		},
+		{
+			name: "OpenRouter preserves API prefix",
+			host: "https://openrouter.ai/api/v1",
+			path: "/v1/chat/completions?stream=true",
+			want: "https://openrouter.ai/api/v1/chat/completions?stream=true",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			fn := TargetURLForHost(tt.host)
+			require.NotNil(t, fn)
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tt.path, http.NoBody)
+			assert.Equal(t, tt.want, fn(req))
+		})
+	}
+}
+
 // slowReader is a reader that blocks until the context is canceled or data is written
 type slowReader struct {
 	data   chan []byte

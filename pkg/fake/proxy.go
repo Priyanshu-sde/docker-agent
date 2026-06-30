@@ -291,7 +291,7 @@ func TargetURLForHost(host string) func(req *http.Request) string {
 		}
 	case "https://openrouter.ai/api/v1":
 		return func(req *http.Request) string {
-			return "https://openrouter.ai" + req.URL.Redacted()
+			return "https://openrouter.ai/api" + req.URL.Redacted()
 		}
 	default:
 		return nil
