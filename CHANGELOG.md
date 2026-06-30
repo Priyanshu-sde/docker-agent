@@ -3,6 +3,30 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.93.0] - 2026-06-30
+
+This release adds OpenRouter as a built-in provider, introduces per-model gateway bypass support, and allows a dedicated model for session compaction, alongside several internal refactoring improvements.
+
+## What's New
+- Adds OpenRouter as a first-class built-in provider; when `OPENROUTER_API_KEY` is set, the provider is auto-detected and its base URL resolved automatically
+- Adds a `compaction_model` field to allow a dedicated model for session summary generation, separate from the primary agent model
+- Adds a `bypass_models_gateway` boolean field on a per-model basis, allowing specific models to connect directly to their provider instead of routing through the configured models gateway
+
+## Technical Changes
+- Replaces mutex usage with atomic types (`atomic.Bool`, `atomic.Pointer`) for single mutable fields in several structs
+- Replaces package-level global variables with explicit parameters or struct fields to enable parallel-safe testing across several packages (`toolinstall`, `runtime`, `mcp`, `notification`, `tui`, `cmd/root`)
+- Adds a concurrency group to the PR review trigger CI workflow to prevent duplicate reviews for the same PR
+### Pull Requests
+
+- [#3330](https://github.com/docker/docker-agent/pull/3330) - refactor: replace single-variable mutexes with atomic types
+- [#3331](https://github.com/docker/docker-agent/pull/3331) - docs: update CHANGELOG.md for v1.92.0
+- [#3332](https://github.com/docker/docker-agent/pull/3332) - refactor: replace test-overridden globals with parallel-safe injection
+- [#3334](https://github.com/docker/docker-agent/pull/3334) - ci: add concurrency group to pr-review-trigger to prevent duplicate reviews
+- [#3335](https://github.com/docker/docker-agent/pull/3335) - feat(compaction): allow a dedicated model for session summary generation
+- [#3337](https://github.com/docker/docker-agent/pull/3337) - feat: add OpenRouter provider
+- [#3338](https://github.com/docker/docker-agent/pull/3338) - feat: add per-model bypass_models_gateway option
+
+
 ## [v1.92.0] - 2026-06-30
 
 This release adds session context referencing and 1Password secret caching, fixes silent failures on empty/reasoning-only agent turns, and resolves environment variable substitution in model configuration fields.
@@ -4113,3 +4137,5 @@ This release improves the terminal user interface with better error handling and
 [v1.91.0]: https://github.com/docker/docker-agent/releases/tag/v1.91.0
 
 [v1.92.0]: https://github.com/docker/docker-agent/releases/tag/v1.92.0
+
+[v1.93.0]: https://github.com/docker/docker-agent/releases/tag/v1.93.0
