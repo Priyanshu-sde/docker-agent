@@ -82,7 +82,7 @@ func (f *mcpFlags) runAttach(ctx context.Context) error {
 	if target == "latest" {
 		target = ""
 	}
-	rec, err := runregistry.Find(target)
+	rec, err := runregistry.Default().Find(target)
 	if err != nil {
 		return err
 	}

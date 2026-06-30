@@ -36,7 +36,7 @@ func (f *runExecFlags) startAttachedServer(ctx context.Context, out *cli.Printer
 	}
 	context.AfterFunc(ctx, func() { _ = ln.Close() })
 
-	cleanup, err := runregistry.Write(runregistry.Record{
+	cleanup, err := runregistry.Default().Write(runregistry.Record{
 		PID:       os.Getpid(),
 		Addr:      "http://" + ln.Addr().String(),
 		SessionID: sess.ID,

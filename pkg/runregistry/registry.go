@@ -29,9 +29,30 @@ type Record struct {
 	StartedAt time.Time `json:"started_at"`
 }
 
+// Registry persists and queries run records stored as per-pid JSON files under
+// a single directory. Construct one with [New] or [Default]; methods carry no
+// shared mutable state, so distinct instances (e.g. one per test) are fully
+// independent and safe to use concurrently.
+type Registry struct {
+	dir string
+	// alive reports whether a pid is live; overridable so tests need not rely
+	// on real process state.
+	alive func(pid int) bool
+}
+
+// New returns a Registry that stores records under dir.
+func New(dir string) *Registry {
+	return &Registry{dir: dir, alive: pidAlive}
+}
+
+// Default returns a Registry rooted at the user's data dir (<data dir>/runs).
+func Default() *Registry {
+	return New(filepath.Join(paths.GetDataDir(), "runs"))
+}
+
 // Dir is the directory holding run records.
-func Dir() string {
-	return filepath.Join(paths.GetDataDir(), "runs")
+func (r *Registry) Dir() string {
+	return r.dir
 }
 
 // Write atomically persists a record for the current process and returns a
@@ -41,12 +62,12 @@ func Dir() string {
 // enumerate live PIDs/addresses by listing it. Individual records are still
 // written with 0o600 for the same reason. Writes go through a sibling temp
 // file + rename so concurrent readers never see torn JSON.
-func Write(rec Record) (func(), error) {
-	if err := os.MkdirAll(Dir(), 0o700); err != nil {
+func (r *Registry) Write(rec Record) (func(), error) {
+	if err := os.MkdirAll(r.dir, 0o700); err != nil {
 		return nil, fmt.Errorf("creating run registry dir: %w", err)
 	}
 
-	path := filepath.Join(Dir(), strconv.Itoa(rec.PID)+".json")
+	path := filepath.Join(r.dir, strconv.Itoa(rec.PID)+".json")
 	buf, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
 		return nil, err
@@ -92,8 +113,8 @@ func writeAtomic(path string, data []byte, perm os.FileMode) error {
 
 // List returns every record currently registered. Stale records (whose pid is
 // no longer alive) are skipped and best-effort removed.
-func List() ([]Record, error) {
-	entries, err := os.ReadDir(Dir())
+func (r *Registry) List() ([]Record, error) {
+	entries, err := os.ReadDir(r.dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
@@ -106,7 +127,7 @@ func List() ([]Record, error) {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
 			continue
 		}
-		path := filepath.Join(Dir(), e.Name())
+		path := filepath.Join(r.dir, e.Name())
 		buf, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -115,7 +136,7 @@ func List() ([]Record, error) {
 		if err := json.Unmarshal(buf, &rec); err != nil {
 			continue
 		}
-		if !pidAlive(rec.PID) {
+		if !r.alive(rec.PID) {
 			_ = os.Remove(path)
 			continue
 		}
@@ -125,8 +146,8 @@ func List() ([]Record, error) {
 }
 
 // Latest returns the most recently started live record, or false when none.
-func Latest() (Record, bool, error) {
-	records, err := List()
+func (r *Registry) Latest() (Record, bool, error) {
+	records, err := r.List()
 	if err != nil || len(records) == 0 {
 		return Record{}, false, err
 	}
@@ -149,10 +170,10 @@ var ErrNoRun = errors.New("no live docker-agent run found; start one with: docke
 // exact equality and only falls back to substring matching when no record
 // matches exactly; ambiguous substring matches return an error so callers
 // don't act on the wrong session.
-func Find(target string) (Record, error) {
+func (r *Registry) Find(target string) (Record, error) {
 	target = strings.TrimSpace(target)
 	if target == "" {
-		rec, ok, err := Latest()
+		rec, ok, err := r.Latest()
 		if err != nil {
 			return Record{}, err
 		}
@@ -162,7 +183,7 @@ func Find(target string) (Record, error) {
 		return rec, nil
 	}
 
-	records, err := List()
+	records, err := r.List()
 	if err != nil {
 		return Record{}, err
 	}

@@ -11,24 +11,33 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/docker/docker-agent/pkg/paths"
 )
 
+// newTestRegistry returns a Registry rooted at an isolated temp dir whose pids
+// are all considered alive. Because it shares no process-global state, every
+// test that uses it can run with t.Parallel().
+func newTestRegistry(t *testing.T) *Registry {
+	t.Helper()
+	r := New(filepath.Join(t.TempDir(), "runs"))
+	r.alive = func(int) bool { return true }
+	return r
+}
+
 func TestWriteAndList_RoundTrip(t *testing.T) {
-	withTempDataDir(t)
+	t.Parallel()
+	r := newTestRegistry(t)
 
 	rec := Record{
-		PID:       os.Getpid(),
+		PID:       1234,
 		Addr:      "http://127.0.0.1:1234",
 		SessionID: "sess-1",
 		Agent:     "root",
 		StartedAt: time.Now(),
 	}
-	cleanup, err := Write(rec)
+	cleanup, err := r.Write(rec)
 	require.NoError(t, err)
 
-	records, err := List()
+	records, err := r.List()
 	require.NoError(t, err)
 	require.Len(t, records, 1)
 	assert.Equal(t, rec.SessionID, records[0].SessionID)
@@ -37,7 +46,7 @@ func TestWriteAndList_RoundTrip(t *testing.T) {
 	cleanup()
 	cleanup() // safe to call twice
 
-	records, err = List()
+	records, err = r.List()
 	require.NoError(t, err)
 	assert.Empty(t, records)
 }
@@ -46,13 +55,14 @@ func TestWriteAndList_RoundTrip(t *testing.T) {
 // directory is created with 0o700 so other local users cannot enumerate
 // running PIDs/addresses by listing it.
 func TestWrite_RestrictsDirectoryPermissions(t *testing.T) {
+	t.Parallel()
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix mode bits are not enforced on Windows")
 	}
-	withTempDataDir(t)
+	r := newTestRegistry(t)
 
-	cleanup, err := Write(Record{
-		PID:       os.Getpid(),
+	cleanup, err := r.Write(Record{
+		PID:       1,
 		Addr:      "http://127.0.0.1:1",
 		SessionID: "s",
 		StartedAt: time.Now(),
@@ -60,93 +70,95 @@ func TestWrite_RestrictsDirectoryPermissions(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(cleanup)
 
-	info, err := os.Stat(Dir())
+	info, err := os.Stat(r.Dir())
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), "registry dir must not be world- or group-readable")
 }
 
 func TestList_DropsStaleRecords(t *testing.T) {
-	withTempDataDir(t)
+	t.Parallel()
+	r := newTestRegistry(t)
+	r.alive = func(pid int) bool { return pid != 999999 }
 
-	writeRecord(t, "999999.json", Record{
+	writeRecord(t, r, "999999.json", Record{
 		PID: 999999, Addr: "x", SessionID: "y",
 		StartedAt: time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC),
 	})
 
-	records, err := List()
+	records, err := r.List()
 	require.NoError(t, err)
 	assert.Empty(t, records)
 
-	_, err = os.Stat(filepath.Join(Dir(), "999999.json"))
+	_, err = os.Stat(filepath.Join(r.Dir(), "999999.json"))
 	assert.True(t, os.IsNotExist(err))
 }
 
 func TestLatest_PicksMostRecent(t *testing.T) {
-	withTempDataDir(t)
+	t.Parallel()
+	r := newTestRegistry(t)
 
-	pid := os.Getpid()
-	writeRecord(t, "1.json", Record{PID: pid, Addr: "http://a", SessionID: "old", StartedAt: time.Now().Add(-time.Hour)})
-	writeRecord(t, "2.json", Record{PID: pid, Addr: "http://b", SessionID: "new", StartedAt: time.Now()})
+	writeRecord(t, r, "1.json", Record{PID: 1, Addr: "http://a", SessionID: "old", StartedAt: time.Now().Add(-time.Hour)})
+	writeRecord(t, r, "2.json", Record{PID: 2, Addr: "http://b", SessionID: "new", StartedAt: time.Now()})
 
-	rec, ok, err := Latest()
+	rec, ok, err := r.Latest()
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "new", rec.SessionID)
 }
 
 func TestFind(t *testing.T) {
-	withTempDataDir(t)
+	t.Parallel()
+	r := newTestRegistry(t)
 
-	pid := os.Getpid()
-	writeRecord(t, "1.json", Record{PID: pid, Addr: "http://127.0.0.1:1111", SessionID: "alpha", StartedAt: time.Now().Add(-time.Hour)})
-	writeRecord(t, "2.json", Record{PID: pid, Addr: "http://127.0.0.1:2222", SessionID: "beta", StartedAt: time.Now()})
+	writeRecord(t, r, "1111.json", Record{PID: 1111, Addr: "http://127.0.0.1:1111", SessionID: "alpha", StartedAt: time.Now().Add(-time.Hour)})
+	writeRecord(t, r, "2222.json", Record{PID: 2222, Addr: "http://127.0.0.1:2222", SessionID: "beta", StartedAt: time.Now()})
 
 	t.Run("empty target returns latest", func(t *testing.T) {
-		rec, err := Find("")
+		rec, err := r.Find("")
 		require.NoError(t, err)
 		assert.Equal(t, "beta", rec.SessionID)
 	})
 
 	t.Run("by pid", func(t *testing.T) {
-		rec, err := Find(strconv.Itoa(pid))
+		rec, err := r.Find(strconv.Itoa(1111))
 		require.NoError(t, err)
-		assert.Equal(t, pid, rec.PID)
+		assert.Equal(t, 1111, rec.PID)
 	})
 
 	t.Run("by addr", func(t *testing.T) {
-		rec, err := Find("http://127.0.0.1:1111")
+		rec, err := r.Find("http://127.0.0.1:1111")
 		require.NoError(t, err)
 		assert.Equal(t, "alpha", rec.SessionID)
 	})
 
 	t.Run("by addr trims trailing slash", func(t *testing.T) {
-		rec, err := Find("http://127.0.0.1:2222/")
+		rec, err := r.Find("http://127.0.0.1:2222/")
 		require.NoError(t, err)
 		assert.Equal(t, "beta", rec.SessionID)
 	})
 
 	t.Run("by session id exact", func(t *testing.T) {
-		rec, err := Find("alpha")
+		rec, err := r.Find("alpha")
 		require.NoError(t, err)
 		assert.Equal(t, "alpha", rec.SessionID)
 	})
 
 	t.Run("unknown pid errors", func(t *testing.T) {
-		_, err := Find("999999999")
+		_, err := r.Find("999999999")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no live run with pid")
 		assert.ErrorIs(t, err, ErrNoRun)
 	})
 
 	t.Run("unknown addr errors", func(t *testing.T) {
-		_, err := Find("http://nope")
+		_, err := r.Find("http://nope")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no live run at")
 		assert.ErrorIs(t, err, ErrNoRun)
 	})
 
 	t.Run("unknown session id errors", func(t *testing.T) {
-		_, err := Find("zzz")
+		_, err := r.Find("zzz")
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "no live run matches")
 		assert.ErrorIs(t, err, ErrNoRun)
@@ -154,13 +166,13 @@ func TestFind(t *testing.T) {
 }
 
 func TestFind_AmbiguousSessionID(t *testing.T) {
-	withTempDataDir(t)
+	t.Parallel()
+	r := newTestRegistry(t)
 
-	pid := os.Getpid()
-	writeRecord(t, "1.json", Record{PID: pid, Addr: "http://a", SessionID: "shared-1", StartedAt: time.Now()})
-	writeRecord(t, "2.json", Record{PID: pid, Addr: "http://b", SessionID: "shared-2", StartedAt: time.Now()})
+	writeRecord(t, r, "1.json", Record{PID: 1, Addr: "http://a", SessionID: "shared-1", StartedAt: time.Now()})
+	writeRecord(t, r, "2.json", Record{PID: 2, Addr: "http://b", SessionID: "shared-2", StartedAt: time.Now()})
 
-	_, err := Find("shared")
+	_, err := r.Find("shared")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "ambiguous")
 }
@@ -169,37 +181,32 @@ func TestFind_AmbiguousSessionID(t *testing.T) {
 // exact session-id match was reported as ambiguous because a longer id
 // contained it as a substring.
 func TestFind_ExactMatchBeatsSubstring(t *testing.T) {
-	withTempDataDir(t)
+	t.Parallel()
+	r := newTestRegistry(t)
 
-	pid := os.Getpid()
-	writeRecord(t, "1.json", Record{PID: pid, Addr: "http://a", SessionID: "abc", StartedAt: time.Now()})
-	writeRecord(t, "2.json", Record{PID: pid, Addr: "http://b", SessionID: "abcd", StartedAt: time.Now()})
+	writeRecord(t, r, "1.json", Record{PID: 1, Addr: "http://a", SessionID: "abc", StartedAt: time.Now()})
+	writeRecord(t, r, "2.json", Record{PID: 2, Addr: "http://b", SessionID: "abcd", StartedAt: time.Now()})
 
-	rec, err := Find("abc")
+	rec, err := r.Find("abc")
 	require.NoError(t, err)
 	assert.Equal(t, "abc", rec.SessionID)
 }
 
 func TestFind_EmptyRegistry(t *testing.T) {
-	withTempDataDir(t)
+	t.Parallel()
+	r := newTestRegistry(t)
 
-	_, err := Find("")
+	_, err := r.Find("")
 	require.ErrorIs(t, err, ErrNoRun)
 
-	_, err = Find("123")
+	_, err = r.Find("123")
 	require.ErrorIs(t, err, ErrNoRun)
 }
 
-func withTempDataDir(t *testing.T) {
+func writeRecord(t *testing.T, r *Registry, name string, rec Record) {
 	t.Helper()
-	paths.SetDataDir(t.TempDir())
-	t.Cleanup(func() { paths.SetDataDir("") })
-}
-
-func writeRecord(t *testing.T, name string, rec Record) {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(Dir(), 0o755))
+	require.NoError(t, os.MkdirAll(r.Dir(), 0o755))
 	buf, err := json.Marshal(rec)
 	require.NoError(t, err)
-	require.NoError(t, os.WriteFile(filepath.Join(Dir(), name), buf, 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(r.Dir(), name), buf, 0o600))
 }
