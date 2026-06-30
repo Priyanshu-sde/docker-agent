@@ -217,3 +217,58 @@ func TestCreateDirectProvider_BypassModelsGateway(t *testing.T) {
 		})
 	}
 }
+
+// TestNewWithModels_BypassModelsGatewayRouting verifies that a routing model
+// with bypass_models_gateway propagates the bypass to its fallback and routed
+// targets (the router itself makes no HTTP calls).
+func TestNewWithModels_BypassModelsGatewayRouting(t *testing.T) {
+	t.Parallel()
+
+	const gateway = "https://gateway.example.com"
+
+	tests := []struct {
+		name        string
+		bypass      bool
+		wantGateway string
+	}{
+		{name: "router bypass clears gateway for children", bypass: true, wantGateway: ""},
+		{name: "router without bypass keeps gateway for children", bypass: false, wantGateway: gateway},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			var gateways []string
+			r := NewRegistry(map[string]providerFactory{
+				"openai": func(_ context.Context, _ *latest.ModelConfig, _ environment.Provider, opts ...options.Opt) (Provider, error) {
+					var probe options.ModelOptions
+					for _, opt := range opts {
+						if opt != nil {
+							opt(&probe)
+						}
+					}
+					gateways = append(gateways, probe.Gateway())
+					return &fakeProvider{id: modelsdev.NewID("openai", "captured")}, nil
+				},
+			})
+
+			cfg := &latest.ModelConfig{
+				Provider:            "openai",
+				Model:               "gpt-4o",
+				BypassModelsGateway: tt.bypass,
+				Routing:             []latest.RoutingRule{{Model: "openai/gpt-4o-mini", Examples: []string{"hi"}}},
+			}
+
+			_, err := r.NewWithModels(
+				t.Context(), cfg, nil, environment.NewNoEnvProvider(),
+				options.WithGateway(gateway),
+			)
+			require.NoError(t, err)
+			// One call for the fallback, one for the routed target.
+			require.Len(t, gateways, 2)
+			for _, g := range gateways {
+				assert.Equal(t, tt.wantGateway, g)
+			}
+		})
+	}
+}

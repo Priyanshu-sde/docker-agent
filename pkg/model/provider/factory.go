@@ -33,6 +33,22 @@ func (r *Registry) New(ctx context.Context, cfg *latest.ModelConfig, env environ
 func (r *Registry) NewWithModels(ctx context.Context, cfg *latest.ModelConfig, models map[string]latest.ModelConfig, env environment.Provider, opts ...options.Opt) (Provider, error) {
 	slog.DebugContext(ctx, "Creating model provider", "type", cfg.Provider, "model", cfg.Model)
 	if len(cfg.Routing) > 0 {
+		// A router makes no HTTP calls itself; its fallback and routed targets
+		// do. When the router model opts out of the gateway, propagate the
+		// bypass to every child so the whole routing subtree dials directly.
+		// Routed targets that are named models can still set their own flag.
+		if cfg.BypassModelsGateway {
+			var globalOptions options.ModelOptions
+			for _, opt := range opts {
+				if opt != nil {
+					opt(&globalOptions)
+				}
+			}
+			if globalOptions.Gateway() != "" {
+				slog.DebugContext(ctx, "Bypassing models gateway for routing model", "provider", cfg.Provider, "model", cfg.Model)
+				opts = append(opts, options.WithGateway(""))
+			}
+		}
 		p, err := r.createRuleBasedRouter(ctx, cfg, models, env, opts...)
 		if err != nil {
 			return nil, err

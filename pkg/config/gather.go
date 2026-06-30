@@ -63,9 +63,10 @@ func GatherEnvVarsForModels(ctx context.Context, cfg *latest.Config, env environ
 }
 
 // gatherEnvVarsForModels collects the env vars required by model-backed agents.
-// When bypassOnly is true, only models that set bypass_models_gateway are
-// inspected — used to require direct provider credentials for those models even
-// when a models gateway would otherwise supply credentials for the rest.
+// When bypassOnly is true, only the leaf models that effectively dial their
+// provider directly (bypassing the models gateway) are inspected — used to
+// require direct provider credentials for those models even when a models
+// gateway would otherwise supply credentials for the rest.
 func gatherEnvVarsForModels(ctx context.Context, cfg *latest.Config, env environment.Provider, bypassOnly bool) []string {
 	requiredEnv := map[string]bool{}
 
@@ -77,10 +78,7 @@ func gatherEnvVarsForModels(ctx context.Context, cfg *latest.Config, env environ
 		modelNames := strings.SplitSeq(agent.Model, ",")
 		for modelName := range modelNames {
 			modelName = strings.TrimSpace(modelName)
-			if bypassOnly && !cfg.Models[modelName].BypassModelsGateway {
-				continue
-			}
-			gatherEnvVarsForModel(ctx, cfg, modelName, requiredEnv, env)
+			gatherEnvVarsForModel(ctx, cfg, modelName, requiredEnv, env, bypassOnly)
 		}
 	}
 
@@ -89,22 +87,38 @@ func gatherEnvVarsForModels(ctx context.Context, cfg *latest.Config, env environ
 
 // gatherEnvVarsForModel collects required environment variables for a single model,
 // including any models referenced in its routing rules.
-func gatherEnvVarsForModel(ctx context.Context, cfg *latest.Config, modelName string, requiredEnv map[string]bool, env environment.Provider) {
+//
+// When bypassOnly is true, a leaf's credentials are collected only when that
+// leaf effectively bypasses the gateway. A routing model bypasses its whole
+// subtree (the runtime propagates the flag to the fallback and every routed
+// target), and a routed named model can additionally opt in on its own.
+func gatherEnvVarsForModel(ctx context.Context, cfg *latest.Config, modelName string, requiredEnv map[string]bool, env environment.Provider, bypassOnly bool) {
 	model := cfg.Models[modelName]
+	rootBypassed := model.BypassModelsGateway
 
-	// Add env vars for the model itself
-	addEnvVarsForModelConfig(ctx, &model, cfg.Providers, requiredEnv, env)
+	// The model's own provider/model is a leaf: either the model itself or, for
+	// a router, its fallback model. It bypasses iff the model bypasses.
+	if !bypassOnly || rootBypassed {
+		addEnvVarsForModelConfig(ctx, &model, cfg.Providers, requiredEnv, env)
+	}
 
-	// If the model has routing rules, also check all referenced models
+	// If the model has routing rules, also check all referenced models.
 	for _, rule := range model.Routing {
 		ruleModelName := rule.Model
 		if ruleModel, exists := cfg.Models[ruleModelName]; exists {
-			// Model reference - add its env vars
-			addEnvVarsForModelConfig(ctx, &ruleModel, cfg.Providers, requiredEnv, env)
+			// Named model reference. A routed target bypasses when the router
+			// does (propagation) or when it sets its own flag.
+			if !bypassOnly || rootBypassed || ruleModel.BypassModelsGateway {
+				addEnvVarsForModelConfig(ctx, &ruleModel, cfg.Providers, requiredEnv, env)
+			}
 		} else if providerName, _, ok := strings.Cut(ruleModelName, "/"); ok {
-			// Inline spec (e.g., "openai/gpt-4o") - infer env vars from provider
-			inlineModel := latest.ModelConfig{Provider: providerName}
-			addEnvVarsForModelConfig(ctx, &inlineModel, cfg.Providers, requiredEnv, env)
+			// Inline spec (e.g., "openai/gpt-4o") - infer env vars from provider.
+			// Inline specs carry no flag of their own; they bypass only via the
+			// router's propagated bypass.
+			if !bypassOnly || rootBypassed {
+				inlineModel := latest.ModelConfig{Provider: providerName}
+				addEnvVarsForModelConfig(ctx, &inlineModel, cfg.Providers, requiredEnv, env)
+			}
 		}
 	}
 }

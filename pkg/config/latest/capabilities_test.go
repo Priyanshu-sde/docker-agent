@@ -51,6 +51,29 @@ model: gpt-4o
 	assert.True(t, f.isShorthandOnly(), "a bare provider/model must still marshal as shorthand")
 }
 
+func TestModelConfigBypassModelsGatewayYAMLRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	const in = `provider: anthropic
+model: claude-sonnet-4-5
+bypass_models_gateway: true
+`
+	var f FlexibleModelConfig
+	require.NoError(t, yaml.Unmarshal([]byte(in), &f))
+	assert.True(t, f.BypassModelsGateway, "bypass_models_gateway should be parsed")
+
+	// A model carrying only the bypass flag (plus provider/model) must not
+	// collapse to the shorthand on marshal, or the flag would be lost.
+	assert.False(t, f.isShorthandOnly(), "bypass_models_gateway must defeat shorthand marshalling")
+
+	out, err := yaml.Marshal(f)
+	require.NoError(t, err)
+
+	var rt FlexibleModelConfig
+	require.NoError(t, yaml.Unmarshal(out, &rt))
+	assert.True(t, rt.BypassModelsGateway, "bypass_models_gateway should survive a marshal round-trip; got:\n%s", out)
+}
+
 func TestModelConfigCloneCopiesCapabilities(t *testing.T) {
 	t.Parallel()
 

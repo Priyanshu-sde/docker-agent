@@ -273,6 +273,11 @@ func TestValidateFirstAvailable(t *testing.T) {
 			wantErr: "cannot be combined with token_key",
 		},
 		{
+			name:    "combined with bypass_models_gateway",
+			model:   latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}, BypassModelsGateway: true},
+			wantErr: "cannot be combined with bypass_models_gateway",
+		},
+		{
 			name:    "combined with model options",
 			model:   latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}, ProviderOpts: map[string]any{"project": "p"}},
 			wantErr: "cannot be combined with provider_opts",

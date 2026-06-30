@@ -105,6 +105,9 @@ func (m *ModelConfig) validateFirstAvailable() error {
 	if m.TokenKey != "" {
 		return errors.New("first_available cannot be combined with token_key")
 	}
+	if m.BypassModelsGateway {
+		return errors.New("first_available cannot be combined with bypass_models_gateway (set it on the candidate models instead)")
+	}
 	if len(m.ProviderOpts) > 0 {
 		return errors.New("first_available cannot be combined with provider_opts")
 	}

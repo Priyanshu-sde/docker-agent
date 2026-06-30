@@ -373,6 +373,62 @@ func TestCheckRequiredEnvVars_BypassModelsGateway(t *testing.T) {
 	assert.Equal(t, []string{"ANTHROPIC_API_KEY"}, reqErr.Missing)
 }
 
+func TestCheckRequiredEnvVars_BypassModelsGatewayRouting(t *testing.T) {
+	t.Parallel()
+
+	env := &fakeEnvProvider{vars: map[string]string{
+		environment.DockerDesktopTokenEnv: "some-jwt-token",
+	}}
+
+	t.Run("bypass router propagates to children", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &latest.Config{
+			Agents: []latest.AgentConfig{{Name: "root", Model: "router"}},
+			Models: map[string]latest.ModelConfig{
+				"router": {
+					Provider:            "anthropic",
+					Model:               "claude-sonnet-4-5",
+					BypassModelsGateway: true,
+					Routing:             []latest.RoutingRule{{Model: "openai/gpt-5", Examples: []string{"code"}}},
+				},
+			},
+		}
+
+		// The router bypasses, so both the fallback (anthropic) and the routed
+		// target (openai) dial directly and need their own credentials.
+		err := CheckRequiredEnvVars(t.Context(), cfg, "https://models.docker.com", env)
+		require.Error(t, err)
+		var reqErr *environment.RequiredEnvError
+		require.ErrorAs(t, err, &reqErr)
+		assert.Equal(t, []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY"}, reqErr.Missing)
+	})
+
+	t.Run("non-bypass router with bypass child requires only the child", func(t *testing.T) {
+		t.Parallel()
+
+		cfg := &latest.Config{
+			Agents: []latest.AgentConfig{{Name: "root", Model: "router"}},
+			Models: map[string]latest.ModelConfig{
+				"router": {
+					Provider: "anthropic",
+					Model:    "claude-sonnet-4-5",
+					Routing:  []latest.RoutingRule{{Model: "direct", Examples: []string{"code"}}},
+				},
+				"direct": {Provider: "openai", Model: "gpt-5", BypassModelsGateway: true},
+			},
+		}
+
+		// The router and its fallback go through the gateway; only the routed
+		// bypass child needs direct credentials.
+		err := CheckRequiredEnvVars(t.Context(), cfg, "https://models.docker.com", env)
+		require.Error(t, err)
+		var reqErr *environment.RequiredEnvError
+		require.ErrorAs(t, err, &reqErr)
+		assert.Equal(t, []string{"OPENAI_API_KEY"}, reqErr.Missing)
+	})
+}
+
 func TestApplyModelOverrides(t *testing.T) {
 	t.Parallel()
 
