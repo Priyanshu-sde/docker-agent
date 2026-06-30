@@ -12,7 +12,7 @@
 #   "."         -> the agent's working directory
 #   "~"         -> the user's home directory
 #   "~/foo"     -> $HOME/foo
-#   "$VAR"      -> environment variable
+#   "${env.VAR}" -> environment variable (canonical; "$VAR" / "${VAR}" also work)
 #   absolute    -> used as-is
 #   relative    -> joined with the working directory
 #

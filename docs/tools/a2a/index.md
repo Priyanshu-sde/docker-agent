@@ -22,7 +22,7 @@ toolsets:
     name: research_agent
     # Optional: custom HTTP headers (typically for auth)
     headers:
-      Authorization: "Bearer ${A2A_TOKEN}"
+      Authorization: "Bearer ${env.A2A_TOKEN}"
       X-Tenant: "acme"
 ```
 

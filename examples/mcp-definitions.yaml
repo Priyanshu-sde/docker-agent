@@ -18,7 +18,7 @@ mcps:
   github:
     ref: docker:github-official
     env:
-      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_PERSONAL_ACCESS_TOKEN}"
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${env.GITHUB_PERSONAL_ACCESS_TOKEN}"
     tools:
       - create_or_update_file
       - search_repositories

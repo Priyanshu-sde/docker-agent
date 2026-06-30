@@ -10,4 +10,4 @@ agents:
       - type: mcp
         ref: docker:brave
         env:
-          brave.api_key: ${BRAVE_API_KEY}
+          brave.api_key: ${env.BRAVE_API_KEY}

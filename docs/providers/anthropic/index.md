@@ -53,15 +53,16 @@ models:
 | `command` | Shell out to a CLI on every refresh (`gcloud auth print-identity-token`, `az account get-access-token`, ...)              |
 | `url`     | Fetch from an HTTP(S) endpoint (cloud metadata servers, GitHub Actions OIDC token URL, ...)                              |
 
-For `url`, both the URL and any header values support `${VAR}` expansion
-against the runtime environment, which lets you wire the GitHub Actions OIDC
+For `url`, both the URL and any header values support `${env.VAR}` expansion
+against the runtime environment (the legacy `${VAR}` form is also accepted),
+which lets you wire the GitHub Actions OIDC
 token endpoint without putting secrets in YAML:
 
 ```yaml
 identity_token:
-  url: ${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://api.anthropic.com
+  url: ${env.ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://api.anthropic.com
   headers:
-    Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}
+    Authorization: bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}
   response_field: value
 ```
 

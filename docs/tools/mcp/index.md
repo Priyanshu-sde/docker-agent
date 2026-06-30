@@ -45,7 +45,7 @@ Browse available servers at the [Docker MCP Catalog](https://hub.docker.com/u/mc
 | `tools`       | array  | Optional whitelist — only expose these tools to the model.       |
 | `instruction` | string | Custom instructions injected into the agent's context.           |
 | `config`      | any    | MCP server-specific configuration passed during initialization.  |
-| `working_dir` | string | Working directory for the MCP gateway subprocess. Only applies when the catalog entry runs as a local process (not remote). Relative paths are resolved against the agent's working directory. Supports `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
+| `working_dir` | string | Working directory for the MCP gateway subprocess. Only applies when the catalog entry runs as a local process (not remote). Relative paths are resolved against the agent's working directory. Supports `${env.VAR}` (canonical), plus `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
 
 ## Local MCP (stdio)
 
@@ -67,7 +67,7 @@ toolsets:
 | `args`        | array  | Command arguments. |
 | `tools`       | array  | Optional whitelist — only expose these tools. |
 | `env`         | object | Environment variables (key-value pairs). |
-| `working_dir` | string | Working directory for the MCP server process. Relative paths are resolved against the agent's working directory. Defaults to the agent's working directory when omitted. Supports `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
+| `working_dir` | string | Working directory for the MCP server process. Relative paths are resolved against the agent's working directory. Defaults to the agent's working directory when omitted. Supports `${env.VAR}` (canonical), plus `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
 | `instruction` | string | Custom instructions injected into the agent's context. |
 | `version`     | string | Package reference for [auto-installing]({{ '/configuration/tools/#auto-installing-tools' | relative_url }}) the command binary. |
 
@@ -88,7 +88,7 @@ toolsets:
       url: "https://mcp.linear.app/mcp"
       transport_type: "streamable"               # or "sse" for legacy servers
       headers:
-        Authorization: "Bearer ${LINEAR_TOKEN}"
+        Authorization: "Bearer ${env.LINEAR_TOKEN}"
     # Optional: allow OAuth helper requests to reach private/internal IPs.
     allow_private_ips: false
     tools: ["search_issues", "create_issue"]

@@ -190,7 +190,7 @@ remote MCP endpoints.
 |------|---------------|
 | [`custom_provider.yaml`](custom_provider.yaml) | Talking to any OpenAI-compatible endpoint via a custom provider. |
 | [`compose-secrets.yaml`](compose-secrets.yaml) | Reading API keys from Docker Compose / Swarm secrets. |
-| [`env_placeholders.yaml`](env_placeholders.yaml) | `${ENV_VAR}` substitution inside the YAML. |
+| [`env_placeholders.yaml`](env_placeholders.yaml) | `${env.VAR}` substitution inside the YAML. |
 | [`model_env_substitution.yaml`](model_env_substitution.yaml) | `${env.VAR}` substitution in a model's `model` / `base_url`. |
 | [`nebius.yaml`](nebius.yaml) | Nebius cloud provider. |
 | [`grok.yaml`](grok.yaml) | xAI Grok model. |

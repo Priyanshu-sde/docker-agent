@@ -55,7 +55,7 @@ Entries in either list are expanded as follows:
 
 - `"."` — the agent's working directory
 - `"~"` or `"~/..."` — the user's home directory
-- `"$VAR"` / `"${VAR}"` — environment variable expansion
+- `"$VAR"` / `"${VAR}"` / `"${env.VAR}"` — environment variable expansion
 - absolute paths — used as-is
 - relative paths — anchored at the working directory
 

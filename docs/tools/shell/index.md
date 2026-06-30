@@ -36,7 +36,7 @@ toolsets:
   - type: shell
     env:
       MY_VAR: "value"
-      PATH: "${PATH}:/custom/bin"
+      PATH: "${env.PATH}:/custom/bin"
 ```
 
 ### Safer mode

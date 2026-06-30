@@ -78,7 +78,7 @@ Browse available tools at the [Docker MCP Catalog](https://hub.docker.com/search
 | `tools`       | array  | Optional: only expose these tools                                |
 | `instruction` | string | Custom instructions injected into the agent's context            |
 | `config`      | any    | MCP server-specific configuration (passed during initialization) |
-| `working_dir` | string | Working directory for the MCP gateway subprocess. Only applies when the catalog entry runs as a local process (not remote). Relative paths are resolved against the agent's working directory. Supports `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
+| `working_dir` | string | Working directory for the MCP gateway subprocess. Only applies when the catalog entry runs as a local process (not remote). Relative paths are resolved against the agent's working directory. Supports `${env.VAR}` (canonical), plus `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
 
 ### Local MCP (stdio)
 
@@ -100,7 +100,7 @@ toolsets:
 | `args` | array | Command arguments |
 | `tools` | array | Optional: only expose these tools |
 | `env` | object | Environment variables (key-value pairs) |
-| `working_dir` | string | Working directory for the MCP server process. Relative paths are resolved against the agent's working directory. Defaults to the agent's working directory when omitted. Supports `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
+| `working_dir` | string | Working directory for the MCP server process. Relative paths are resolved against the agent's working directory. Defaults to the agent's working directory when omitted. Supports `${env.VAR}` (canonical), plus `~` and shell-style `$VAR`/`${VAR}` expansion ([details]({{ '/configuration/overview/#variable-expansion-in-config-fields' | relative_url }})). |
 | `instruction` | string | Custom instructions injected into the agent's context |
 | `version` | string | Package reference for [auto-installing](#auto-installing-tools) the command binary |
 
@@ -499,7 +499,7 @@ agents:
           url: "https://internal-api.example.com/mcp"
           transport_type: "streamable"
           headers:
-            Authorization: "Bearer ${INTERNAL_TOKEN}"
+            Authorization: "Bearer ${env.INTERNAL_TOKEN}"
 ```
 
 <div class="callout callout-warning" markdown="1">

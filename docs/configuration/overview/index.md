@@ -220,7 +220,7 @@ API keys and secrets are read from environment variables — never stored in con
 
 ## Variable Expansion in Config Fields
 
-docker-agent uses **two different expansion syntaxes** depending on the field. They are not interchangeable: using the wrong syntax in a field is currently a silent no-op, so the literal string is passed through. Tracking issue: [#2615](https://github.com/docker/docker-agent/issues/2615).
+docker-agent expands `${env.VAR}` references in many config fields. This is the **canonical syntax everywhere** — prefer it for every field. Two engines back it: a full JavaScript evaluator for prompt/HTTP fields (where you also get defaults, ternaries, and tool calls), and a simpler path expander for filesystem/env fields (which additionally accepts the legacy `$VAR` / `${VAR}` / `~` shell forms). Picking `${env.VAR}` everywhere always works; the one caveat is that the path expander does not evaluate richer JS expressions. Using a shell-style `$VAR` in a JS-templated field is currently a silent no-op, so the literal string is passed through. Tracking issue: [#2615](https://github.com/docker/docker-agent/issues/2615).
 
 ### JavaScript template literals — `${env.VAR}`
 
@@ -252,9 +252,9 @@ agents:
 
 Undefined variables expand to the empty string.
 
-### Shell-style — `$VAR`, `${VAR}`, `~`
+### Path & env fields — `${env.VAR}` (canonical), `$VAR` / `${VAR}` / `~` (aliases)
 
-Used for filesystem paths. Backed by `os.ExpandEnv` plus tilde expansion against the current user's home directory.
+Used for filesystem paths and process environment values. Backed by `os.ExpandEnv` plus tilde expansion against the current user's home directory. The canonical `${env.VAR}` form is accepted here too, so a single syntax works across every field; the bare `$VAR` / `${VAR}` shell forms remain supported as aliases.
 
 Applies to:
 
@@ -268,13 +268,13 @@ agents:
   root:
     toolsets:
       - type: memory
-        path: "~/notes/${PROJECT}/memory.db"
+        path: "~/notes/${env.PROJECT}/memory.db"
       - type: mcp
         command: my-server
-        working_dir: "$HOME/work"
+        working_dir: "${env.HOME}/work"
 ```
 
-The `working_dir`, `path`, and `env` value fields additionally accept the `${env.VAR}` form as an alias for `${VAR}`, so the JS-style syntax works there too. Richer JS expressions (e.g. `${env.VAR || 'default'}`) are still **not** evaluated in these fields.
+Unlike the JS-templated fields above, these accept only a plain variable reference: richer JS expressions (e.g. `${env.VAR || 'default'}`) are **not** evaluated here, and the legacy `$VAR` / `${VAR}` forms keep working for backward compatibility.
 
 Model definitions follow the same rule. The `models.<name>.model` and `models.<name>.base_url` fields are expanded when the provider is built, accepting both `${env.VAR}` and `${VAR}`. This is useful when the model id or endpoint is injected by the environment (for example a Docker Compose / DMR setup that exports the model reference as a variable):
 
@@ -302,7 +302,7 @@ models:
 
 The `~` prefix is meaningful only in path-like fields (`working_dir`, `path`).
 
-When in doubt, prefer `${env.X}` for prompts and headers, and `${X}` (or `$X`) for paths.
+Prefer `${env.X}` everywhere. The bare `$X` / `${X}` and `~` forms are accepted only in path and `env` value fields, where they remain supported for backward compatibility.
 
 ## Validation
 

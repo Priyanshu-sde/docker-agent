@@ -78,8 +78,9 @@ providers:
   # 4. url: fetch the JWT over HTTP(S).
   #
   # The example below targets the GitHub Actions OIDC token endpoint.
-  # Both the URL and the header values are passed through ${VAR} expansion
-  # against the runtime environment, so secrets like
+  # Both the URL and the header values are passed through ${env.VAR} expansion
+  # against the runtime environment (the legacy ${VAR} form is also accepted),
+  # so secrets like
   # ACTIONS_ID_TOKEN_REQUEST_TOKEN are never written to the YAML.
   #
   # GitHub Actions returns {"value": "<jwt>"}, so we ask the URL source
@@ -93,9 +94,9 @@ providers:
         federation_rule_id: fdrl_REPLACE_ME
         organization_id: 00000000-0000-0000-0000-000000000000
         identity_token:
-          url: ${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://api.anthropic.com
+          url: ${env.ACTIONS_ID_TOKEN_REQUEST_URL}&audience=https://api.anthropic.com
           headers:
-            Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}
+            Authorization: bearer ${env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}
           response_field: value
 
 models:
