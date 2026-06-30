@@ -30,6 +30,7 @@ type Agent struct {
 	fallbackRetries         int                                 // Number of retries per fallback model with exponential backoff
 	fallbackCooldown        time.Duration                       // Duration to stick with fallback after non-retryable error
 	titleModel              provider.Provider                   // Optional dedicated model for session-title generation
+	compactionModel         provider.Provider                   // Optional dedicated model for session compaction (summary generation)
 	modelOverrides          atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
 	subAgents               []*Agent
 	handoffs                []*Agent
@@ -318,6 +319,15 @@ func (a *Agent) TitleModels(ctx context.Context) []provider.Provider {
 		models = append(models, m)
 	}
 	return append(models, a.fallbackModels...)
+}
+
+// CompactionModel returns the dedicated model configured for session
+// compaction (summary generation), or nil when none was configured (in which
+// case compaction reuses the agent's own model). Unlike the primary model,
+// it is not affected by runtime model switching: a /compact still runs on the
+// configured compaction model after the conversation model has been changed.
+func (a *Agent) CompactionModel() provider.Provider {
+	return a.compactionModel
 }
 
 // Commands returns the named commands configured for this agent.

@@ -965,6 +965,18 @@ type ModelConfig struct {
 	// model name from the models section or an inline "provider/model" spec.
 	// When empty, title generation reuses the agent's own model.
 	TitleModel string `json:"title_model,omitempty"`
+	// CompactionModel names the model used to summarize the conversation when
+	// this model's session is compacted (manual /compact, the proactive
+	// threshold trigger, or post-overflow recovery). The summary call ingests
+	// the whole conversation, so it is the slowest and most expensive call in a
+	// session; pointing this at a smaller/faster model makes compaction cheaper
+	// and more reliable without changing the model that runs the conversation.
+	// The value can be a model name from the models section or an inline
+	// "provider/model" spec. When empty, compaction reuses the agent's own
+	// model. If the compaction model has a smaller context window than the
+	// primary, compaction is triggered against the smaller window so the
+	// summary call can always ingest the conversation it must compact.
+	CompactionModel string `json:"compaction_model,omitempty"`
 	// Capabilities optionally declares the model's attachment capabilities,
 	// overriding the automatic models.dev-based detection. See [CapabilitiesConfig].
 	Capabilities *CapabilitiesConfig `json:"capabilities,omitempty"`
@@ -1108,6 +1120,7 @@ func (f *FlexibleModelConfig) isShorthandOnly() bool {
 		len(f.Routing) == 0 &&
 		f.FirstAvailable == nil &&
 		f.TitleModel == "" &&
+		f.CompactionModel == "" &&
 		f.Capabilities == nil
 }
 

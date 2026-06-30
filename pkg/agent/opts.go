@@ -91,6 +91,15 @@ func WithTitleModel(model provider.Provider) Opt {
 	}
 }
 
+// WithCompactionModel sets a dedicated model for session compaction (summary
+// generation), letting a heavyweight primary model delegate the slow, expensive
+// whole-conversation summary call to a smaller/faster one.
+func WithCompactionModel(model provider.Provider) Opt {
+	return func(a *Agent) {
+		a.compactionModel = model
+	}
+}
+
 func WithSubAgents(subAgents ...*Agent) Opt {
 	return func(a *Agent) {
 		a.subAgents = subAgents

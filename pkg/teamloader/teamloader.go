@@ -301,6 +301,16 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			if titleModel != nil {
 				opts = append(opts, agent.WithTitleModel(titleModel))
 			}
+
+			// A model may delegate session compaction (summary generation) to
+			// another, cheaper/faster model.
+			compactionModel, err := getCompactionModelForAgent(ctx, cfg, &agentConfig, runConfig, loadOpts.providerRegistry)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get compaction model: %w", err)
+			}
+			if compactionModel != nil {
+				opts = append(opts, agent.WithCompactionModel(compactionModel))
+			}
 		}
 
 		agentTools, warnings := getToolsForAgent(ctx, &agentConfig, parentDir, runConfig, loadOpts.toolsetRegistry, configName, expander)
@@ -590,6 +600,64 @@ func getTitleModelForAgent(ctx context.Context, cfg *latest.Config, a *latest.Ag
 	model, err := providerRegistry.NewWithModels(ctx, &modelCfg, cfg.Models, runConfig.EnvProvider(), opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create title model '%s': %w", titleRef, err)
+	}
+	return model, nil
+}
+
+// getCompactionModelForAgent resolves the dedicated compaction (summary
+// generation) model for an agent, if any. It returns the model named by the
+// `compaction_model` field of the first of the agent's configured models that
+// sets it, or nil when none do. It mirrors getTitleModelForAgent: the value may
+// be a named model from the models section or an inline "provider/model" spec.
+func getCompactionModelForAgent(ctx context.Context, cfg *latest.Config, a *latest.AgentConfig, runConfig *config.RuntimeConfig, providerRegistry *provider.Registry) (provider.Provider, error) {
+	var compactionRef string
+	for name := range strings.SplitSeq(a.Model, ",") {
+		if modelCfg, ok := cfg.Models[name]; ok && modelCfg.CompactionModel != "" {
+			compactionRef = modelCfg.CompactionModel
+			break
+		}
+	}
+	if compactionRef == "" {
+		return nil, nil
+	}
+
+	modelsStore, modelsStoreErr := runConfig.ModelsDevStore()
+
+	modelCfg, exists := cfg.Models[compactionRef]
+	if !exists {
+		parsed, err := latest.ParseModelRef(compactionRef)
+		if err != nil {
+			return nil, fmt.Errorf("compaction model '%s' not found in configuration and is not a valid provider/model format", compactionRef)
+		}
+		modelCfg = parsed
+	}
+	modelCfg.Name = compactionRef
+
+	maxTokens := &defaultMaxTokens
+	if modelCfg.MaxTokens != nil {
+		maxTokens = modelCfg.MaxTokens
+	} else if modelsStoreErr == nil {
+		m, err := modelsStore.GetModel(ctx, modelsdev.NewID(modelCfg.Provider, modelCfg.Model))
+		if err == nil {
+			maxTokens = &m.Limit.Output
+		}
+	}
+
+	opts := []options.Opt{
+		options.WithGateway(runConfig.ModelsGateway),
+		options.WithStructuredOutput(a.StructuredOutput),
+		options.WithProviders(cfg.Providers),
+	}
+	if maxTokens != nil {
+		opts = append(opts, options.WithMaxTokens(*maxTokens))
+	}
+	if modelsStoreErr == nil {
+		opts = append(opts, options.WithModelsDevStore(modelsStore))
+	}
+
+	model, err := providerRegistry.NewWithModels(ctx, &modelCfg, cfg.Models, runConfig.EnvProvider(), opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create compaction model '%s': %w", compactionRef, err)
 	}
 	return model, nil
 }

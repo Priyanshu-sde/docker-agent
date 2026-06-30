@@ -296,6 +296,79 @@ agents:
 	})
 }
 
+func TestCompactionModelResolution(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+
+	t.Run("named compaction model", func(t *testing.T) {
+		data := []byte(`models:
+  primary:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    compaction_model: fast
+  fast:
+    provider: openai
+    model: gpt-4o-mini
+agents:
+  root:
+    model: primary
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("compaction.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		require.NotNil(t, root.CompactionModel())
+		assert.Equal(t, "openai/gpt-4o-mini", root.CompactionModel().ID().String())
+		// The dedicated compaction model is independent of the primary model
+		// that runs the conversation.
+		assert.Equal(t, "anthropic/claude-sonnet-4-5", root.Model(t.Context()).ID().String())
+	})
+
+	t.Run("inline compaction model", func(t *testing.T) {
+		data := []byte(`models:
+  primary:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    compaction_model: openai/gpt-4o-mini
+agents:
+  root:
+    model: primary
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("compaction.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		require.NotNil(t, root.CompactionModel())
+		assert.Equal(t, "openai/gpt-4o-mini", root.CompactionModel().ID().String())
+	})
+
+	t.Run("no compaction model", func(t *testing.T) {
+		data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("compaction.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		// Without a dedicated compaction model, compaction reuses the agent's
+		// own model.
+		assert.Nil(t, root.CompactionModel())
+	})
+}
+
 func TestLoadHarnessAgentWithoutModel(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "dummy")
 
