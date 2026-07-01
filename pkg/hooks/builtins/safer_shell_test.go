@@ -286,3 +286,173 @@ func TestSaferShell_ApplyAgentDefaultsAutoInjectsBuiltin(t *testing.T) {
 	assert.Equal(t, hooks.HookTypeBuiltin, mc.Hooks[0].Type)
 	assert.Equal(t, SaferShell, mc.Hooks[0].Command)
 }
+
+// Per-policy classifier behaviour matrix. Docker Desktop flips
+// SafetyPolicy per-session; the classifier MUST follow without any
+// other code changing.
+func TestSaferShell_PolicyMatrix(t *testing.T) {
+	const destructive = "rm -rf /tmp/x"
+	const safe = "docker ps"
+	const unknown = "myproject-cli deploy --prod"
+
+	type want struct {
+		emit        bool
+		blastRadius string
+	}
+
+	cases := []struct {
+		name   string
+		policy string
+		cmd    string
+		want   want
+	}{
+		// unsafe: silent (restores --yolo semantics).
+		{"unsafe + destructive → silent", policyUnsafe, destructive, want{emit: false}},
+		{"unsafe + safe → silent", policyUnsafe, safe, want{emit: false}},
+		{"unsafe + unknown → silent", policyUnsafe, unknown, want{emit: false}},
+
+		// safer: only classified destructive gates.
+		{"safer + destructive → ask (high)", policySafer, destructive, want{emit: true, blastRadius: "high"}},
+		{"safer + safe → silent", policySafer, safe, want{emit: false}},
+		{"safer + unknown → silent (no actionable opinion)", policySafer, unknown, want{emit: false}},
+
+		// strict: destructive + unknown gate; matches PR #3273.
+		{"strict + destructive → ask (high)", policyStrict, destructive, want{emit: true, blastRadius: "high"}},
+		{"strict + safe → silent", policyStrict, safe, want{emit: false}},
+		{"strict + unknown → ask (unknown)", policyStrict, unknown, want{emit: true, blastRadius: "unknown"}},
+
+		// empty / unrecognised → strict (forward-compat fallback).
+		{"empty + destructive → ask (high)", "", destructive, want{emit: true, blastRadius: "high"}},
+		{"empty + unknown → ask (unknown)", "", unknown, want{emit: true, blastRadius: "unknown"}},
+		{"unrecognised policy + destructive → ask (strict fallback)", "future", destructive, want{emit: true, blastRadius: "high"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := saferShell(t.Context(), &hooks.Input{
+				HookEventName: hooks.EventPreToolUse,
+				ToolName:      shellToolName,
+				ToolInput:     map[string]any{"cmd": tc.cmd},
+				SafetyPolicy:  tc.policy,
+			}, nil)
+			require.NoError(t, err)
+			if !tc.want.emit {
+				assert.Nil(t, out, "policy=%q cmd=%q must be silent", tc.policy, tc.cmd)
+				return
+			}
+			require.NotNil(t, out, "policy=%q cmd=%q must produce a verdict", tc.policy, tc.cmd)
+			require.NotNil(t, out.HookSpecificOutput)
+			assert.Equal(t, hooks.DecisionAsk, out.HookSpecificOutput.PermissionDecision)
+			assert.Equal(t, tc.want.blastRadius, out.HookSpecificOutput.Metadata[metaBlastRadius])
+		})
+	}
+}
+
+// YAML args override: `args: ["safer"|"strict"|"unsafe"]` on a hook
+// entry forces the classifier's mode regardless of session policy.
+// Enables eval harnesses (which hardcode --yolo/unsafe) to exercise
+// safer-mode gating. Precedence: args[0] > Input.SafetyPolicy > strict.
+// Unrecognised args fall through to the session (typo tolerance).
+func TestSaferShell_ArgsOverrideSessionPolicy(t *testing.T) {
+	cases := []struct {
+		name          string
+		sessionPolicy string
+		args          []string
+		cmd           string
+		wantEmit      bool
+		wantRadius    string
+	}{
+		{
+			name:          "args=safer overrides unsafe session: destructive gates",
+			sessionPolicy: policyUnsafe,
+			args:          []string{"safer"},
+			cmd:           "rm -rf /tmp/x",
+			wantEmit:      true,
+			wantRadius:    "high",
+		},
+		{
+			name:          "args=safer overrides unsafe session: unknown stays silent",
+			sessionPolicy: policyUnsafe,
+			args:          []string{"safer"},
+			cmd:           "docker build .",
+			wantEmit:      false,
+		},
+		{
+			name:          "args=safer overrides unsafe session: safe stays silent",
+			sessionPolicy: policyUnsafe,
+			args:          []string{"safer"},
+			cmd:           "docker ps",
+			wantEmit:      false,
+		},
+		{
+			name:          "args=strict overrides safer session: unknown now gates",
+			sessionPolicy: policySafer,
+			args:          []string{"strict"},
+			cmd:           "docker build .",
+			wantEmit:      true,
+			wantRadius:    "unknown",
+		},
+		{
+			name:          "args=unsafe overrides strict session: silent on destructive",
+			sessionPolicy: policyStrict,
+			args:          []string{"unsafe"},
+			cmd:           "rm -rf /tmp/x",
+			wantEmit:      false,
+		},
+		{
+			name:          "unrecognised args value falls through to session policy (unsafe → silent)",
+			sessionPolicy: policyUnsafe,
+			args:          []string{"yolo"}, // typo
+			cmd:           "rm -rf /tmp/x",
+			wantEmit:      false,
+		},
+		{
+			name:          "unrecognised args value falls through to session policy (safer → ask)",
+			sessionPolicy: policySafer,
+			args:          []string{"yolo"}, // typo
+			cmd:           "rm -rf /tmp/x",
+			wantEmit:      true,
+			wantRadius:    "high",
+		},
+		{
+			name:          "empty args + empty session: strict fallback gates destructive",
+			sessionPolicy: "",
+			args:          nil,
+			cmd:           "rm -rf /tmp/x",
+			wantEmit:      true,
+			wantRadius:    "high",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := saferShell(t.Context(), &hooks.Input{
+				HookEventName: hooks.EventPreToolUse,
+				ToolName:      shellToolName,
+				ToolInput:     map[string]any{"cmd": tc.cmd},
+				SafetyPolicy:  tc.sessionPolicy,
+			}, tc.args)
+			require.NoError(t, err)
+			if !tc.wantEmit {
+				assert.Nil(t, out)
+				return
+			}
+			require.NotNil(t, out)
+			require.NotNil(t, out.HookSpecificOutput)
+			assert.Equal(t, hooks.DecisionAsk, out.HookSpecificOutput.PermissionDecision)
+			assert.Equal(t, tc.wantRadius, out.HookSpecificOutput.Metadata[metaBlastRadius])
+		})
+	}
+}
+
+// unsafe short-circuits before the taxonomy loader — the one
+// exception to fail-closed on load failure. The embedded JSON can't
+// be corrupted from a test, so this pins the early-return path.
+func TestSaferShell_UnsafeReturnsBeforeTaxonomyLoad(t *testing.T) {
+	out, err := saferShell(t.Context(), &hooks.Input{
+		HookEventName: hooks.EventPreToolUse,
+		ToolName:      shellToolName,
+		ToolInput:     map[string]any{"cmd": "rm -rf /tmp/x"},
+		SafetyPolicy:  policyUnsafe,
+	}, nil)
+	require.NoError(t, err)
+	assert.Nil(t, out, "unsafe must short-circuit before classification")
+}

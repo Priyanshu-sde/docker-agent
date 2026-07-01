@@ -1,23 +1,24 @@
 package builtins
 
-// safer_shell is the destructive-command guard for the shell toolset.
-// It fires on EventPreToolUse (registered with preempt_yolo:true so
-// the runtime dispatches it before Decide()/--yolo) and classifies
-// each shell call against an embedded taxonomy:
+// safer_shell classifies shell tool calls and adapts its verdict to
+// the session's SafetyPolicy (read from hooks.Input.SafetyPolicy).
+// Registered on pre_tool_use with preempt_yolo:true so it runs before
+// Decide()/--yolo.
 //
-//   1. Destructive match → Ask + Metadata{blast_radius, category, reason}
-//   2. Safe match        → nil (no opinion; falls through to the
-//                          regular approval pipeline — Decide() /
-//                          --yolo / permissions / readonly hint)
-//   3. No match          → Ask + Metadata{blast_radius=unknown}; the
-//                          user opted into "safer mode", so an
-//                          unrecognised command still surfaces.
+// Modes:
+//   unsafe — silent; returns nil (restores --yolo semantics).
+//   safer  — destructive matches ask; safe-list and unknown fall through.
+//   strict — destructive matches ask; safe-list returns nil; unknown
+//            asks with blast_radius=unknown. Empty SafetyPolicy is
+//            treated as strict.
 //
-// Compound shell (a && b, a; b, a | b) does NOT match a single
-// destructive or safe pattern and falls through to branch 3 by
-// design. The matcher is regex-based on a whitespace-normalised form
-// of the command; the `<placeholder>` syntax in patterns matches a
-// single non-whitespace token, and `...` matches any tail.
+// The legacy --yolo boolean is backfilled to SafetyPolicy=unsafe by
+// pkg/session.WithToolsApproved so existing callers stay silent.
+//
+// Compound shell (a && b, a; b, a | b) skips the safe-list and falls
+// through to the destructive scan. The matcher is regex-based on a
+// whitespace-normalised form of the command; `<placeholder>` matches
+// one non-whitespace token, `...` matches any tail.
 
 import (
 	"context"
@@ -143,17 +144,19 @@ func compileSafe(value any) ([]safePattern, error) {
 }
 
 // saferShell is the [hooks.BuiltinFunc] registered under [SaferShell].
-// See the file-level comment for the priority order.
-//
-// On taxonomy load failure the call is routed to user confirmation
-// with blast_radius=unknown rather than allowed silently — failing
-// closed is the security-meaningful choice and matches [failClosed]'s
-// treatment of the pre_tool_use preempt-yolo lane.
-func saferShell(_ context.Context, in *hooks.Input, _ []string) (*hooks.Output, error) {
+// See the file-level comment for the policy-aware logic. Taxonomy
+// load failure asks with blast_radius=unknown regardless of policy
+// (fail-closed), except under unsafe which stays silent.
+func saferShell(_ context.Context, in *hooks.Input, args []string) (*hooks.Output, error) {
 	if in == nil || in.HookEventName != hooks.EventPreToolUse {
 		return nil, nil
 	}
 	if in.ToolName != shellToolName {
+		return nil, nil
+	}
+
+	policy := effectiveSafetyPolicy(in.SafetyPolicy, args)
+	if policy == policyUnsafe {
 		return nil, nil
 	}
 
@@ -165,19 +168,47 @@ func saferShell(_ context.Context, in *hooks.Input, _ []string) (*hooks.Output, 
 	}
 
 	if command != "" {
-		// 1) Destructive match wins.
 		if match := bestDestructiveMatch(command, patterns.destructive); match != nil {
 			return askWithMetadata(match.BlastRadius, match.Category,
 				"Command matches destructive operation: "+match.Pattern), nil
 		}
-		// 2) Safe match → no opinion (falls through to regular pipeline).
 		if matchesSafe(command, patterns.safe) {
 			return nil, nil
 		}
 	}
-	// 3) Unknown → ask with no classified severity.
+	// Unknown command: safer defers, strict asks.
+	if policy == policySafer {
+		return nil, nil
+	}
 	return askWithMetadata("unknown", "",
 		"Shell command requires safer-mode confirmation."), nil
+}
+
+// Mirrors pkg/session.SafetyPolicy strings; the hooks package must
+// stay free of a session dependency.
+const (
+	policyUnsafe = "unsafe"
+	policySafer  = "safer"
+	policyStrict = "strict"
+)
+
+// effectiveSafetyPolicy picks the policy for one invocation.
+// Precedence: args[0] (YAML pin) > session > strict. Unrecognised
+// args[0] falls through to session (so a YAML typo doesn't flip
+// modes silently).
+func effectiveSafetyPolicy(sessionPolicy string, args []string) string {
+	if len(args) > 0 {
+		switch args[0] {
+		case policyUnsafe, policySafer, policyStrict:
+			return args[0]
+		}
+	}
+	switch sessionPolicy {
+	case policyUnsafe, policySafer, policyStrict:
+		return sessionPolicy
+	default:
+		return policyStrict
+	}
 }
 
 func shellCommandArg(input map[string]any) (string, bool) {
