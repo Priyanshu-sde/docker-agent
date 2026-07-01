@@ -21,6 +21,7 @@ import (
 var modelsDevAbsentProviders = map[string]bool{
 	"dmr":          true, // Docker Model Runner (local, not in catalog)
 	"opencode-zen": true, // not yet registered in models.dev
+	"ovhcloud":     true, // OVHcloud AI Endpoints (not yet in models.dev)
 }
 
 func collectExamples(t *testing.T) []string {

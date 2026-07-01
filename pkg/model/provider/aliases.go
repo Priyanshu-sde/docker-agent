@@ -73,6 +73,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://inference.baseten.co/v1",
 		TokenEnvVar: "BASETEN_API_KEY",
 	},
+	"ovhcloud": {
+		APIType:     "openai",
+		BaseURL:     "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+		TokenEnvVar: "OVH_AI_ENDPOINTS_ACCESS_TOKEN",
+	},
 	"github-copilot": {
 		APIType:     "openai",
 		BaseURL:     "https://api.githubcopilot.com",

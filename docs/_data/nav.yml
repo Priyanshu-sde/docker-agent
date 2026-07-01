@@ -147,6 +147,8 @@
       url: /providers/nebius/
     - title: Baseten
       url: /providers/baseten/
+    - title: OVHcloud
+      url: /providers/ovhcloud/
     - title: MiniMax
       url: /providers/minimax/
     - title: OpenRouter

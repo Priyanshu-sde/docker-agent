@@ -57,6 +57,20 @@ func TestBasetenAlias(t *testing.T) {
 	assert.True(t, IsCatalogProvider("baseten"))
 }
 
+func TestOVHcloudAlias(t *testing.T) {
+	t.Parallel()
+
+	alias, ok := LookupAlias("ovhcloud")
+	require.True(t, ok)
+	assert.Equal(t, Alias{
+		APIType:     "openai",
+		BaseURL:     "https://oai.endpoints.kepler.ai.cloud.ovh.net/v1",
+		TokenEnvVar: "OVH_AI_ENDPOINTS_ACCESS_TOKEN",
+	}, alias)
+	assert.True(t, IsKnownProvider("ovhcloud"))
+	assert.True(t, IsCatalogProvider("ovhcloud"))
+}
+
 func TestEachAlias(t *testing.T) {
 	t.Parallel()
 

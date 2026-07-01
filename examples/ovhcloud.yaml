@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../agent-schema.json
+
+models:
+  ovhcloud_model:
+    provider: ovhcloud
+    model: Qwen3.5-397B-A17B
+
+agents:
+  root:
+    model: ovhcloud_model
+    description: Assistant using OVHcloud AI Endpoints
+    instruction: |
+      You are a helpful assistant.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: think

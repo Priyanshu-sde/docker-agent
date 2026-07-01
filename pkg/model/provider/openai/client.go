@@ -221,7 +221,8 @@ func (c *Client) convertMessages(ctx context.Context, messages []chat.Message) [
 	// some such backends silently return an empty stream when a request carries
 	// more than one system message. The DMR client already applies this merge
 	// for the same reason. Apply it to explicit openai_chatcompletions configs
-	// and Baseten's built-in OpenAI-compatible endpoint.
+	// and built-in OpenAI-compatible endpoints (Baseten, OVHcloud) that do not
+	// set api_type in ProviderOpts.
 	if shouldMergeConsecutiveMessages(&c.ModelConfig) {
 		return oaistream.MergeConsecutiveMessages(converted)
 	}
@@ -232,7 +233,10 @@ func shouldMergeConsecutiveMessages(cfg *latest.ModelConfig) bool {
 	if getAPIType(cfg) == "openai_chatcompletions" {
 		return true
 	}
-	return cfg != nil && cfg.Provider == "baseten"
+	if cfg == nil {
+		return false
+	}
+	return cfg.Provider == "baseten" || cfg.Provider == "ovhcloud"
 }
 
 // CreateChatCompletionStream creates a streaming chat completion request

@@ -45,6 +45,16 @@ func TestBaseten_MergesConsecutiveSystemMessages(t *testing.T) {
 	})
 }
 
+func TestOVHcloud_MergesConsecutiveSystemMessages(t *testing.T) {
+	t.Parallel()
+
+	assertMergesConsecutiveMessages(t, &latest.ModelConfig{
+		Provider: "ovhcloud",
+		Model:    "Qwen3.5-397B-A17B",
+		TokenKey: "MY_TOKEN",
+	})
+}
+
 func assertMergesConsecutiveMessages(t *testing.T, cfg *latest.ModelConfig) {
 	t.Helper()
 

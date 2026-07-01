@@ -66,6 +66,7 @@ docker-agent also includes built-in aliases for these providers:
 | Nebius         | `nebius`         | `NEBIUS_API_KEY`                    |
 | MiniMax        | `minimax`        | `MINIMAX_API_KEY`                   |
 | Baseten        | `baseten`        | `BASETEN_API_KEY`                   |
+| OVHcloud       | `ovhcloud`       | `OVH_AI_ENDPOINTS_ACCESS_TOKEN`     |
 | Requesty       | `requesty`       | `REQUESTY_API_KEY`                  |
 | OpenRouter     | `openrouter`     | `OPENROUTER_API_KEY`                |
 | Azure OpenAI   | `azure`          | `AZURE_API_KEY` + `base_url`        |
