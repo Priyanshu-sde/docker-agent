@@ -23,8 +23,10 @@ func TestClient_StreamSessionEvents_DeliversMultipleEvents(t *testing.T) {
 
 	// proceed gates each subsequent event on the client having consumed
 	// the previous one, guaranteeing the events arrive in separate reads
-	// (the one-shot-read regression) without timing dependence.
-	proceed := make(chan struct{})
+	// (the one-shot-read regression) without timing dependence. Buffered
+	// so a failing run leaves the reader loop unblocked instead of
+	// deadlocking the test.
+	proceed := make(chan struct{}, 3)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)

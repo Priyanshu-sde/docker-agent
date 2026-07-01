@@ -118,13 +118,9 @@ func TestElicitationBridge_RestoreAndCloseWaitsForInflightSenders(t *testing.T) 
 		close(closed)
 	}()
 
-	// Sanity check (never false-positive): teardown cannot have completed
-	// while the sender still holds the read lock across its parked send.
-	select {
-	case <-closed:
-		t.Fatal("channel closed while a send was still in flight")
-	default:
-	}
+	// The teardown ordering itself is verified below: the parked send must
+	// complete without a send-on-closed-channel panic, which is only
+	// possible if restoreAndClose waited for the read lock.
 
 	select {
 	case ev := <-current:

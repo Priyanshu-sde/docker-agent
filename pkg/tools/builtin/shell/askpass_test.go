@@ -191,7 +191,7 @@ func TestAskpass_PromptsSerialized(t *testing.T) {
 
 	// Wait until both requests have reached askUser (one prompting, one
 	// queued on promptSem), then let the prompts finish.
-	require.Eventually(t, func() bool { return srv.promptWaiters.Load() == 2 },
+	require.Eventually(t, func() bool { return srv.promptArrivals.Load() == 2 },
 		time.Second, time.Millisecond, "both askpass requests should reach askUser")
 	close(release)
 	wg.Wait()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -124,33 +125,27 @@ func TestWaitIfPaused_ContextCancellation(t *testing.T) {
 func TestWaitIfPaused_BroadcastsToAllWaiters(t *testing.T) {
 	t.Parallel()
 
-	r := &LocalRuntime{}
-	_, _ = r.TogglePause(t.Context())
+	synctest.Test(t, func(t *testing.T) {
+		r := &LocalRuntime{}
+		_, _ = r.TogglePause(t.Context())
 
-	const n = 8
-	var wg sync.WaitGroup
-	for range n {
-		wg.Go(func() {
-			_ = r.waitIfPaused(t.Context())
-		})
-	}
+		const n = 8
+		var wg sync.WaitGroup
+		for range n {
+			wg.Go(func() {
+				_ = r.waitIfPaused(t.Context())
+			})
+		}
 
-	// No need to wait for the goroutines to park: whether a waiter is
-	// already blocked on the pause channel or observes the resume later,
-	// only a close-based broadcast lets all n of them return.
-	_, _ = r.TogglePause(t.Context()) // single resume should wake all waiters
+		// All n waiters are durably parked on the pause channel now.
+		synctest.Wait()
 
-	doneAll := make(chan struct{})
-	go func() {
+		_, _ = r.TogglePause(t.Context()) // single resume must wake all waiters
+
+		// A partial wake-up leaves waiters parked forever, which synctest
+		// reports as a deadlock instead of hanging the suite.
 		wg.Wait()
-		close(doneAll)
-	}()
-
-	select {
-	case <-doneAll:
-	case <-time.After(time.Second):
-		t.Fatal("not all waiters woke up after a single resume")
-	}
+	})
 }
 
 // TestTogglePause_RaceFreeUnderConcurrentCallers exercises concurrent

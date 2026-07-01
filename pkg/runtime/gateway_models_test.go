@@ -316,18 +316,23 @@ func TestListGatewayModels_ConcurrentCallersCoalesce(t *testing.T) {
 	const callers = 8
 	var wg sync.WaitGroup
 	results := make([][]string, callers)
-	for i := range callers {
+
+	// First caller triggers the fetch; the handler parks it on release.
+	wg.Go(func() {
+		results[0], _ = r.listGatewayModels(t.Context())
+	})
+	require.Eventually(t, func() bool { return requests.Load() >= 1 },
+		time.Second, time.Millisecond, "fetch never reached the gateway")
+
+	// The remaining callers start while the fetch is provably in flight,
+	// so they must coalesce onto it (or read the cache once it lands). A
+	// non-coalescing implementation would issue its own gateway requests
+	// and trip the assertion below.
+	for i := 1; i < callers; i++ {
 		wg.Go(func() {
 			results[i], _ = r.listGatewayModels(t.Context())
 		})
 	}
-
-	// Once the fetch is in flight (the handler is blocked on release),
-	// every other caller must coalesce onto it or hit the cache; a
-	// non-coalescing bug would show up as extra blocked requests either
-	// way, since the handler holds all of them until release.
-	require.Eventually(t, func() bool { return requests.Load() >= 1 },
-		time.Second, time.Millisecond, "fetch never reached the gateway")
 	close(release)
 	wg.Wait()
 

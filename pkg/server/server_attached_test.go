@@ -312,7 +312,8 @@ func TestAttachedServer_DeleteWithWaitBlocksUntilStreamStops(t *testing.T) {
 	require.NoError(t, store.AddSession(ctx, sess))
 
 	sm := NewSessionManager(ctx, config.Sources{}, store, 0, &config.RuntimeConfig{})
-	// The stream stays open until DELETE cancels the session context.
+	// The fake stream is held open by release (DELETE cancels the attach
+	// context, not the stream context), so the test controls when it ends.
 	fake := &fakeRuntime{release: make(chan struct{})}
 	sm.AttachRuntime(t.Context(), sess.ID, fake, sess)
 
