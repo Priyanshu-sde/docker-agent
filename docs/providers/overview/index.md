@@ -68,6 +68,7 @@ docker-agent also includes built-in aliases for these providers:
 | Baseten        | `baseten`        | `BASETEN_API_KEY`                   |
 | OVHcloud       | `ovhcloud`       | `OVH_AI_ENDPOINTS_ACCESS_TOKEN`     |
 | Groq           | `groq`           | `GROQ_API_KEY`                      |
+| Fireworks AI   | `fireworks`      | `FIREWORKS_API_KEY`                 |
 | DeepSeek       | `deepseek`       | `DEEPSEEK_API_KEY`                  |
 | Cerebras       | `cerebras`       | `CEREBRAS_API_KEY`                  |
 | Requesty       | `requesty`       | `REQUESTY_API_KEY`                  |

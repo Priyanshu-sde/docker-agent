@@ -147,6 +147,8 @@
       url: /providers/deepseek/
     - title: Docker Model Runner
       url: /providers/dmr/
+    - title: Fireworks AI
+      url: /providers/fireworks/
     - title: GitHub Copilot
       url: /providers/github-copilot/
     - title: Google Gemini

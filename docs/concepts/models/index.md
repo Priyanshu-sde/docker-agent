@@ -84,6 +84,7 @@ for details.
 | Baseten             | `baseten`        | DeepSeek, Kimi, GLM, Llama models    | `BASETEN_API_KEY`                   |
 | OVHcloud            | `ovhcloud`       | Qwen, Llama, Mistral, DeepSeek (EU-hosted) | `OVH_AI_ENDPOINTS_ACCESS_TOKEN` |
 | Groq                | `groq`           | Llama, Qwen, GPT-OSS (fast inference) | `GROQ_API_KEY`                     |
+| Fireworks AI        | `fireworks`      | Kimi, Llama, Qwen, DeepSeek, GLM (open models) | `FIREWORKS_API_KEY`         |
 | DeepSeek            | `deepseek`       | DeepSeek-V3 chat and R1 reasoner     | `DEEPSEEK_API_KEY`                  |
 | Cerebras            | `cerebras`       | GPT-OSS, GLM (fast inference)         | `CEREBRAS_API_KEY`                  |
 | Requesty            | `requesty`       | Multi-provider gateway               | `REQUESTY_API_KEY`                  |

@@ -77,6 +77,13 @@ func TestAvailableProviders_NoGateway(t *testing.T) {
 			expectedProvider: "groq",
 		},
 		{
+			name: "fireworks api key present",
+			envVars: map[string]string{
+				"FIREWORKS_API_KEY": "test-key",
+			},
+			expectedProvider: "fireworks",
+		},
+		{
 			name: "deepseek api key present",
 			envVars: map[string]string{
 				"DEEPSEEK_API_KEY": "test-key",
@@ -280,6 +287,15 @@ func TestAutoModelConfig(t *testing.T) {
 			expectedMaxTokens: 32000,
 		},
 		{
+			name: "fireworks provider",
+			envVars: map[string]string{
+				"FIREWORKS_API_KEY": "test-key",
+			},
+			expectedProvider:  "fireworks",
+			expectedModel:     "accounts/fireworks/models/kimi-k2-instruct",
+			expectedMaxTokens: 32000,
+		},
+		{
 			name: "deepseek provider",
 			envVars: map[string]string{
 				"DEEPSEEK_API_KEY": "test-key",
@@ -379,7 +395,7 @@ func TestDefaultModels(t *testing.T) {
 	t.Parallel()
 
 	// Test that DefaultModels map has all expected providers
-	expectedProviders := []string{"openai", "anthropic", "google", "dmr", "mistral", "openrouter", "baseten", "ovhcloud", "groq", "deepseek", "cerebras", "amazon-bedrock", "opencode-zen", "opencode-go"}
+	expectedProviders := []string{"openai", "anthropic", "google", "dmr", "mistral", "openrouter", "baseten", "ovhcloud", "groq", "fireworks", "deepseek", "cerebras", "amazon-bedrock", "opencode-zen", "opencode-go"}
 
 	for _, provider := range expectedProviders {
 		t.Run(provider, func(t *testing.T) {
@@ -399,6 +415,7 @@ func TestDefaultModels(t *testing.T) {
 	assert.Equal(t, "deepseek-ai/DeepSeek-V3.1", DefaultModels["baseten"])
 	assert.Equal(t, "Qwen3.5-397B-A17B", DefaultModels["ovhcloud"])
 	assert.Equal(t, "llama-3.3-70b-versatile", DefaultModels["groq"])
+	assert.Equal(t, "accounts/fireworks/models/kimi-k2-instruct", DefaultModels["fireworks"])
 	assert.Equal(t, "deepseek-chat", DefaultModels["deepseek"])
 	assert.Equal(t, "gpt-oss-120b", DefaultModels["cerebras"])
 	assert.Equal(t, "global.anthropic.claude-sonnet-4-5-20250929-v1:0", DefaultModels["amazon-bedrock"])
@@ -410,7 +427,7 @@ func TestAutoModelConfig_IntegrationWithDefaultModels(t *testing.T) {
 	t.Parallel()
 
 	// Verify that AutoModelConfig always returns a model from DefaultModels
-	providers := []string{"openai", "anthropic", "google", "mistral", "openrouter", "baseten", "ovhcloud", "groq", "deepseek", "cerebras", "opencode-zen"}
+	providers := []string{"openai", "anthropic", "google", "mistral", "openrouter", "baseten", "ovhcloud", "groq", "fireworks", "deepseek", "cerebras", "opencode-zen"}
 
 	for _, provider := range providers {
 		t.Run(provider, func(t *testing.T) {
@@ -436,6 +453,8 @@ func TestAutoModelConfig_IntegrationWithDefaultModels(t *testing.T) {
 				envVars["OVH_AI_ENDPOINTS_ACCESS_TOKEN"] = "test-token"
 			case "groq":
 				envVars["GROQ_API_KEY"] = "test-key"
+			case "fireworks":
+				envVars["FIREWORKS_API_KEY"] = "test-key"
 			case "deepseek":
 				envVars["DEEPSEEK_API_KEY"] = "test-key"
 			case "cerebras":
@@ -561,13 +580,21 @@ func TestAvailableProviders_PrecedenceOrder(t *testing.T) {
 	providers = AvailableProviders(t.Context(), "", env)
 	assert.Equal(t, "ovhcloud", providers[0])
 
-	// groq wins over deepseek
+	// groq wins over fireworks
 	env = environment.NewMapEnvProvider(map[string]string{
-		"GROQ_API_KEY":     "test-key",
-		"DEEPSEEK_API_KEY": "test-key",
+		"GROQ_API_KEY":      "test-key",
+		"FIREWORKS_API_KEY": "test-key",
 	})
 	providers = AvailableProviders(t.Context(), "", env)
 	assert.Equal(t, "groq", providers[0])
+
+	// fireworks wins over deepseek
+	env = environment.NewMapEnvProvider(map[string]string{
+		"FIREWORKS_API_KEY": "test-key",
+		"DEEPSEEK_API_KEY":  "test-key",
+	})
+	providers = AvailableProviders(t.Context(), "", env)
+	assert.Equal(t, "fireworks", providers[0])
 
 	// deepseek wins over cerebras
 	env = environment.NewMapEnvProvider(map[string]string{

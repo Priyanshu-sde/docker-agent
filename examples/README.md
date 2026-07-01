@@ -196,6 +196,7 @@ remote MCP endpoints.
 | [`baseten.yaml`](baseten.yaml) | Baseten cloud provider. |
 | [`ovhcloud.yaml`](ovhcloud.yaml) | OVHcloud AI Endpoints provider. |
 | [`groq.yaml`](groq.yaml) | Groq fast-inference provider. |
+| [`fireworks.yaml`](fireworks.yaml) | Fireworks AI open-model inference provider. |
 | [`deepseek.yaml`](deepseek.yaml) | DeepSeek chat and reasoning provider. |
 | [`cerebras.yaml`](cerebras.yaml) | Cerebras fast-inference provider. |
 | [`grok.yaml`](grok.yaml) | xAI Grok model. |

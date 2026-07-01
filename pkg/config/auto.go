@@ -47,6 +47,7 @@ var cloudProviders = []providerConfig{
 	{"baseten", []string{"BASETEN_API_KEY"}, "BASETEN_API_KEY"},
 	{"ovhcloud", []string{"OVH_AI_ENDPOINTS_ACCESS_TOKEN"}, "OVH_AI_ENDPOINTS_ACCESS_TOKEN"},
 	{"groq", []string{"GROQ_API_KEY"}, "GROQ_API_KEY"},
+	{"fireworks", []string{"FIREWORKS_API_KEY"}, "FIREWORKS_API_KEY"},
 	{"deepseek", []string{"DEEPSEEK_API_KEY"}, "DEEPSEEK_API_KEY"},
 	{"cerebras", []string{"CEREBRAS_API_KEY"}, "CEREBRAS_API_KEY"},
 	{"amazon-bedrock", []string{
@@ -115,6 +116,7 @@ var DefaultModels = map[string]string{
 	"baseten":        "deepseek-ai/DeepSeek-V3.1",
 	"ovhcloud":       "Qwen3.5-397B-A17B",
 	"groq":           "llama-3.3-70b-versatile",
+	"fireworks":      "accounts/fireworks/models/kimi-k2-instruct",
 	"deepseek":       "deepseek-chat",
 	"cerebras":       "gpt-oss-120b",
 	"amazon-bedrock": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",

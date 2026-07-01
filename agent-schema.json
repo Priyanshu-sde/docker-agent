@@ -182,7 +182,7 @@
       "properties": {
         "provider": {
           "type": "string",
-          "description": "The underlying provider type. Defaults to \"openai\" when not set. Supported values: openai, anthropic, google, amazon-bedrock, dmr, and any built-in alias (requesty, openrouter, azure, xai, ollama, mistral, baseten, ovhcloud, groq, deepseek, cerebras, etc.).",
+          "description": "The underlying provider type. Defaults to \"openai\" when not set. Supported values: openai, anthropic, google, amazon-bedrock, dmr, and any built-in alias (requesty, openrouter, azure, xai, ollama, mistral, baseten, ovhcloud, groq, fireworks, deepseek, cerebras, etc.).",
           "examples": [
             "openai",
             "anthropic",

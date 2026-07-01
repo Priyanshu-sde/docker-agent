@@ -85,6 +85,20 @@ func TestGroqAlias(t *testing.T) {
 	assert.True(t, IsCatalogProvider("groq"))
 }
 
+func TestFireworksAlias(t *testing.T) {
+	t.Parallel()
+
+	alias, ok := LookupAlias("fireworks")
+	require.True(t, ok)
+	assert.Equal(t, Alias{
+		APIType:     "openai",
+		BaseURL:     "https://api.fireworks.ai/inference/v1",
+		TokenEnvVar: "FIREWORKS_API_KEY",
+	}, alias)
+	assert.True(t, IsKnownProvider("fireworks"))
+	assert.True(t, IsCatalogProvider("fireworks"))
+}
+
 func TestDeepSeekAlias(t *testing.T) {
 	t.Parallel()
 

@@ -83,6 +83,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://api.groq.com/openai/v1",
 		TokenEnvVar: "GROQ_API_KEY",
 	},
+	"fireworks": {
+		APIType:     "openai",
+		BaseURL:     "https://api.fireworks.ai/inference/v1",
+		TokenEnvVar: "FIREWORKS_API_KEY",
+	},
 	"deepseek": {
 		APIType:     "openai",
 		BaseURL:     "https://api.deepseek.com/v1",
