@@ -183,18 +183,59 @@ func TestSupervisor_StartTimesOutOnSlowConnect(t *testing.T) {
 	assert.Check(t, errors.Is(err, lifecycle.ErrInitTimeout))
 	assert.Check(t, is.Equal(s.State().State, lifecycle.StateStopped))
 
-	// A late-arriving session must be closed, not leaked.
+	// Only one Connect is ever launched, even though it is still wedged.
+	assert.Check(t, is.Equal(c.calls.Load(), int32(1)))
+}
+
+// TestSupervisor_StartAdoptsLateConnect verifies that a Connect that finishes
+// after the first Start timed out is adopted by the next Start (reusing the
+// same in-flight goroutine) rather than launching a second, concurrent
+// Connect.
+func TestSupervisor_StartAdoptsLateConnect(t *testing.T) {
+	t.Parallel()
+
+	c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
+	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+
+	assert.Check(t, errors.Is(s.Start(t.Context()), lifecycle.ErrInitTimeout))
+
+	// The handshake completes; the next Start adopts it.
 	close(c.release)
+	assert.NilError(t, s.Start(t.Context()))
+	assert.Check(t, is.Equal(s.State().State, lifecycle.StateReady))
+	// Still only one Connect was ever launched.
+	assert.Check(t, is.Equal(c.calls.Load(), int32(1)))
+
+	assert.NilError(t, s.Stop(t.Context()))
+}
+
+// TestSupervisor_StopReapsLateConnect verifies that when Stop is called while a
+// timed-out Connect is still in flight, the session it eventually produces is
+// closed rather than leaked.
+func TestSupervisor_StopReapsLateConnect(t *testing.T) {
+	t.Parallel()
+
+	sess := newFakeSession()
+	c := &blockingConnector{release: make(chan struct{}), session: sess}
+	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+
+	assert.Check(t, errors.Is(s.Start(t.Context()), lifecycle.ErrInitTimeout))
+
+	// Stop while the connect is still wedged, then let it complete.
+	assert.NilError(t, s.Stop(t.Context()))
+	close(c.release)
+
+	// The reaper must close the late session.
 	deadline := time.Now().Add(time.Second)
 	for {
-		c.session.mu.Lock()
-		closed := c.session.closed
-		c.session.mu.Unlock()
+		sess.mu.Lock()
+		closed := sess.closed
+		sess.mu.Unlock()
 		if closed {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("late session was not closed after startup timeout")
+			t.Fatal("late session was not closed after Stop")
 		}
 		time.Sleep(5 * time.Millisecond)
 	}

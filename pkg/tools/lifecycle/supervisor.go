@@ -178,6 +178,12 @@ type Supervisor struct {
 	// after closing the session so no transport goroutines are left behind.
 	watchDone chan struct{}
 
+	// inflightConnect holds a connector.Connect that a startup timeout left
+	// running (see connect). At most one exists at a time; the next Start
+	// adopts it and Stop reaps it, so overlapping Connects never race on the
+	// shared MCP session.
+	inflightConnect *pendingConnect
+
 	// randFloat is the jitter source; tests may override.
 	randFloat func() float64
 }
@@ -283,45 +289,99 @@ func (s *Supervisor) Start(ctx context.Context) error {
 	return nil
 }
 
+// connectResult is the outcome of a single connector.Connect call.
+type connectResult struct {
+	sess Session
+	err  error
+}
+
+// pendingConnect is a single in-flight connector.Connect whose result is
+// adopted by a Start or reaped by Stop, whichever happens first. adopted is
+// set exactly once (guarded by Supervisor.mu) so a session is never both
+// handed to a caller and closed by the reaper.
+type pendingConnect struct {
+	done    chan struct{} // closed when Connect returns
+	res     connectResult // valid once done is closed
+	adopted bool          // set by the first of {Start adopts, Stop reaps}
+}
+
 // connect performs connector.Connect bounded by policy.StartupTimeout. When
-// the timeout is zero it calls Connect directly. Otherwise it races Connect
-// against a timer: on timeout it returns ErrInitTimeout immediately and, in a
-// background goroutine, closes any Session that Connect eventually produces so
-// a slow-but-successful handshake does not leak a live connection. The timer
-// approach (rather than a ctx deadline) is deliberate: the MCP connector
-// detaches its ctx with context.WithoutCancel, so a deadline on ctx would be
-// stripped before it could interrupt a wedged initialize handshake.
+// the timeout is zero it calls Connect directly.
+//
+// Otherwise it guarantees at most one Connect is ever in flight: on timeout it
+// returns ErrInitTimeout but leaves the goroutine running, recorded in
+// s.inflightConnect. A later Start reuses that same goroutine instead of
+// launching a concurrent Connect, and Stop reaps it. This matters because the
+// MCP transport shares one underlying client across Connect calls, so two
+// overlapping Connects would race on the shared session (a late one could
+// clobber or close a newer one). The timer (rather than a ctx deadline) is
+// deliberate: the MCP connector detaches its ctx with context.WithoutCancel,
+// so a deadline on ctx would be stripped before it could interrupt a wedged
+// initialize handshake.
+//
+// A consequence is that a Connect wedged forever is never superseded by a
+// fresh attempt (each Start returns ErrInitTimeout). That is intentional:
+// spawning a new attempt per turn would accumulate orphaned handshakes and,
+// for stdio, leak subprocesses. A handshake that eventually completes is
+// adopted by the next Start.
 func (s *Supervisor) connect(ctx context.Context) (Session, error) {
 	if s.policy.StartupTimeout <= 0 {
 		return s.connector.Connect(ctx)
 	}
 
-	type connectResult struct {
-		sess Session
-		err  error
+	s.mu.Lock()
+	p := s.inflightConnect
+	if p == nil {
+		p = &pendingConnect{done: make(chan struct{})}
+		s.inflightConnect = p
+		go func() {
+			sess, err := s.connector.Connect(ctx)
+			s.mu.Lock()
+			p.res = connectResult{sess: sess, err: err}
+			close(p.done)
+			s.mu.Unlock()
+		}()
 	}
-	resultCh := make(chan connectResult, 1) // buffered so a late send never blocks
-	go func() {
-		sess, err := s.connector.Connect(ctx)
-		resultCh <- connectResult{sess: sess, err: err}
-	}()
+	s.mu.Unlock()
 
 	timer := time.NewTimer(s.policy.StartupTimeout)
 	defer timer.Stop()
 
 	select {
-	case res := <-resultCh:
+	case <-p.done:
+		s.mu.Lock()
+		if p.adopted {
+			// Stop reaped (and closed) this connect while we waited.
+			s.mu.Unlock()
+			return nil, ErrNotStarted
+		}
+		p.adopted = true
+		if s.inflightConnect == p {
+			s.inflightConnect = nil
+		}
+		res := p.res
+		s.mu.Unlock()
 		return res.sess, res.err
 	case <-timer.C:
-		// Reap the orphaned Connect so a session that arrives after the
-		// timeout is closed instead of leaked.
-		go func() {
-			res := <-resultCh
-			if res.sess != nil {
-				_ = res.sess.Close(context.WithoutCancel(ctx))
-			}
-		}()
 		return nil, wrap(ErrInitTimeout, fmt.Errorf("%q did not connect within %s", s.name, s.policy.StartupTimeout))
+	}
+}
+
+// reapPendingConnect waits for an orphaned Connect (left in flight by a
+// startup timeout) to finish and closes its session unless a Start already
+// adopted it. Called only from Stop.
+func (s *Supervisor) reapPendingConnect(ctx context.Context, p *pendingConnect) {
+	<-p.done
+	s.mu.Lock()
+	if p.adopted {
+		s.mu.Unlock()
+		return
+	}
+	p.adopted = true
+	sess := p.res.sess
+	s.mu.Unlock()
+	if sess != nil {
+		_ = sess.Close(ctx)
 	}
 }
 
@@ -338,10 +398,19 @@ func (s *Supervisor) Stop(ctx context.Context) error {
 	sess := s.session
 	s.session = nil
 	watchDone := s.watchDone
+	pending := s.inflightConnect
+	s.inflightConnect = nil
 	s.mu.Unlock()
 
 	s.tracker.Set(StateStopped)
 	s.signalDone()
+
+	// Reap a Connect left in flight by a startup timeout so its eventual
+	// session is closed rather than leaked. Runs in the background: a wedged
+	// handshake must not block Stop.
+	if pending != nil {
+		go s.reapPendingConnect(context.WithoutCancel(ctx), pending)
+	}
 
 	var closeErr error
 	if sess != nil {
