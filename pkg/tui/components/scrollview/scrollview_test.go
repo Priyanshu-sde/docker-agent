@@ -132,3 +132,24 @@ func TestSetContentInvalidatesWidthCache(t *testing.T) {
 	assert.NotEqual(t, before, after)
 	assert.Contains(t, after, "aaaaaaaa")
 }
+
+func TestComposeRemeasuresRestyledLines(t *testing.T) {
+	t.Parallel()
+
+	m := New()
+	m.SetSize(20, 4)
+	content := []string{"aa", "bb", "cc", "dd", "ee", "ff"}
+	m.SetContent(content, len(content))
+	m.SetScrollOffset(0)
+	m.View() // warm the width cache
+
+	// A restyled line whose display width differs from the cached original
+	// (e.g. width drift on complex grapheme clusters) must be re-measured,
+	// not padded using the stale cached width.
+	restyled := []string{"aaaa", "bb", "cc", "dd"}
+	out := m.ViewWithRestyledLines(restyled)
+	for line := range strings.SplitSeq(out, "\n") {
+		// Full row = content + gap + scrollbar column.
+		assert.Equal(t, m.width, ansi.StringWidth(line))
+	}
+}

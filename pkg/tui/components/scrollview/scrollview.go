@@ -296,10 +296,11 @@ func (m *Model) ViewWithLines(visibleLines []string) string {
 	return m.viewWithLines(visibleLines, -1)
 }
 
-// ViewWithRestyledLines is like [Model.ViewWithLines] for callers that
-// guarantee visibleLines[i] has the same display width as the content line
-// scrollOffset+i set via [Model.SetContent] (e.g. width-preserving selection
-// or hover restyling). This enables memoized width lookups in compose.
+// ViewWithRestyledLines is like [Model.ViewWithLines] for callers whose
+// visibleLines are sliced from the content set via [Model.SetContent] at the
+// current scroll offset (possibly restyled, e.g. selection or hover
+// highlights). Unchanged lines reuse memoized width lookups in compose;
+// restyled lines are re-measured.
 func (m *Model) ViewWithRestyledLines(visibleLines []string) string {
 	return m.viewWithLines(visibleLines, m.scrollOffset)
 }
@@ -326,15 +327,19 @@ func (m *Model) syncScrollbar() {
 }
 
 // compose pads/truncates lines to contentWidth and joins with the scrollbar
-// column. When baseLine >= 0, lines[i] is a width-preserving restyling of
-// content line baseLine+i, so its display width comes from the memoized cache.
+// column. When baseLine >= 0, lines[i] that are unchanged from content line
+// baseLine+i take their display width from the memoized cache; restyled lines
+// are re-measured since restyling may not be exactly width-preserving for
+// complex grapheme clusters (ZWJ emoji, flags).
 func (m *Model) compose(lines []string, baseLine int) string {
 	contentWidth := m.ContentWidth()
 
 	// Pad or truncate each line to exact content width
 	for i, line := range lines {
 		var w int
-		if gi := baseLine + i; baseLine >= 0 && gi < len(m.lines) {
+		// The equality check is O(1) for unchanged lines: they share the same
+		// string backing, so it short-circuits on pointer identity.
+		if gi := baseLine + i; baseLine >= 0 && gi < len(m.lines) && line == m.lines[gi] {
 			w = m.lineWidth(gi)
 		} else {
 			w = ansi.StringWidth(line)
