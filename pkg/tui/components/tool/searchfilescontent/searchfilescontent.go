@@ -13,7 +13,7 @@ import (
 
 func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
 	return toolcommon.NewBase(msg, sessionState, toolcommon.SimpleRendererWithResult(
-		extractArgs,
+		toolcommon.StableExtractor(extractArgs),
 		extractResult,
 	))
 }

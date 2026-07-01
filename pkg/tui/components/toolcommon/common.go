@@ -89,16 +89,56 @@ func tryFixPartialJSON(s string) (string, bool) {
 	return result.String(), true
 }
 
+// CompletePartialJSON attempts to complete a partial JSON object by closing
+// any unclosed strings, arrays, and objects.
+func CompletePartialJSON(s string) (string, bool) {
+	return tryFixPartialJSON(s)
+}
+
 // ExtractField creates an argument extractor function that parses JSON and extracts a field.
 // The field function receives the parsed args and returns the display string.
-// It supports partial JSON parsing for streaming tool calls.
+// It supports partial JSON parsing for streaming tool calls and keeps the last
+// parsed value while a later argument fragment is temporarily unparseable.
 func ExtractField[T any](field func(T) string) func(string) string {
+	var last string
+	var hasLast bool
+
 	return func(args string) string {
 		parsed, err := ParseArgs[T](args)
 		if err != nil {
+			if hasLast {
+				return last
+			}
 			return ""
 		}
-		return field(parsed)
+
+		value := field(parsed)
+		if value != "" {
+			last = value
+			hasLast = true
+		}
+		return value
+	}
+}
+
+// StableExtractor wraps an argument extractor so transient empty returns keep
+// showing the last non-empty value. This is useful for streaming tool-call
+// arguments where an intermediate JSON fragment may be impossible to parse.
+func StableExtractor(extract func(string) string) func(string) string {
+	var last string
+	var hasLast bool
+
+	return func(args string) string {
+		value := extract(args)
+		if value != "" {
+			last = value
+			hasLast = true
+			return value
+		}
+		if hasLast {
+			return last
+		}
+		return ""
 	}
 }
 

@@ -1,7 +1,6 @@
 package readmultiplefiles
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -18,19 +17,16 @@ import (
 )
 
 func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
-	return toolcommon.NewBase(msg, sessionState, render)
+	extractPaths := toolcommon.StableExtractor(extractArgs)
+	return toolcommon.NewBase(msg, sessionState, func(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, height int) string {
+		return render(msg, s, sessionState, width, height, extractPaths)
+	})
 }
 
-func render(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int) string {
-	// Parse arguments
-	var args filesystem.ReadMultipleFilesArgs
-	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args); err != nil {
-		return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults())
-	}
-
+func render(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int, extractPaths func(string) string) string {
 	// For pending/running state, show files being read
 	if msg.ToolStatus == types.ToolStatusPending || msg.ToolStatus == types.ToolStatusRunning {
-		return toolcommon.RenderTool(msg, s, formatFilesList(args.Paths), "", width, sessionState.HideToolResults())
+		return toolcommon.RenderTool(msg, s, extractPaths(msg.ToolCall.Function.Arguments), "", width, sessionState.HideToolResults())
 	}
 
 	// For completed/error state, render each file line
@@ -111,6 +107,14 @@ func formatSummaryLines(meta *filesystem.ReadMultipleFilesMeta) []fileSummary {
 	}
 
 	return summaries
+}
+
+func extractArgs(args string) string {
+	parsed, err := toolcommon.ParseArgs[filesystem.ReadMultipleFilesArgs](args)
+	if err != nil {
+		return ""
+	}
+	return formatFilesList(parsed.Paths)
 }
 
 // formatFilesList formats a list of file paths for display.

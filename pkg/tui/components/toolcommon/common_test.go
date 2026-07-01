@@ -101,6 +101,35 @@ func TestTryFixPartialJSON(t *testing.T) {
 	}
 }
 
+func TestExtractFieldKeepsLastValueWhenFragmentCannotParse(t *testing.T) {
+	t.Parallel()
+	type testArgs struct {
+		Path string `json:"path"`
+	}
+
+	extractPath := ExtractField(func(a testArgs) string { return a.Path })
+
+	assert.Equal(t, "/tmp/file", extractPath(`{"path": "/tmp/file"`))
+	assert.Equal(t, "/tmp/file", extractPath(`{"path": "/tmp/file",`))
+	assert.Equal(t, "/tmp/file", extractPath(`{"path": "/tmp/file", "content": "hello\`))
+	assert.Equal(t, "/tmp/other", extractPath(`{"path": "/tmp/other"}`))
+}
+
+func TestStableExtractorKeepsLastNonEmptyValue(t *testing.T) {
+	t.Parallel()
+
+	extract := StableExtractor(func(args string) string {
+		if args == "bad" {
+			return ""
+		}
+		return args
+	})
+
+	assert.Equal(t, "first", extract("first"))
+	assert.Equal(t, "first", extract("bad"))
+	assert.Equal(t, "second", extract("second"))
+}
+
 func TestParsePartialArgs(t *testing.T) {
 	t.Parallel()
 	type testArgs struct {

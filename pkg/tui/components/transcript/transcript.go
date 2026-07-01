@@ -113,6 +113,9 @@ func (t *Transcript) AddOrUpdateToolCall(agentName string, toolCall tools.ToolCa
 				msg.ToolCall.Function.Arguments = toolCall.Function.Arguments
 			}
 		}
+		if msg.ToolStatus == status {
+			return nil
+		}
 		return t.refreshToolView(i, status)
 	}
 	t.RemoveLast(types.MessageTypeSpinner)

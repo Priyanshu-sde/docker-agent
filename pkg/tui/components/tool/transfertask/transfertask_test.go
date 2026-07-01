@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/docker/docker-agent/pkg/tools"
+	transfertasktool "github.com/docker/docker-agent/pkg/tools/builtin/transfertask"
+	"github.com/docker/docker-agent/pkg/tui/service"
 	"github.com/docker/docker-agent/pkg/tui/types"
 )
 
@@ -79,6 +81,23 @@ func TestTransferTaskCard_StatusIcon(t *testing.T) {
 // the icon stays a single glyph with no elapsed-time suffix, so the wrapped
 // task text keeps the same indent across statuses. Swapping in an elapsed-time
 // icon (e.g. toolcommon.Icon) would shift the running task column and regress.
+func TestTransferTaskFallsBackToToolHeaderWhenArgumentsCannotParse(t *testing.T) {
+	t.Parallel()
+
+	msg := types.ToolCallMessage("root", tools.ToolCall{
+		ID: "call-1",
+		Function: tools.FunctionCall{
+			Name:      transfertasktool.ToolNameTransferTask,
+			Arguments: `{"agent":`,
+		},
+	}, tools.Tool{Name: transfertasktool.ToolNameTransferTask}, types.ToolStatusPending)
+
+	view := New(msg, service.StaticSessionState{})
+	_ = view.SetSize(80, 0)
+
+	assert.Contains(t, stripANSI(view.View()), transfertasktool.ToolNameTransferTask)
+}
+
 func TestTransferTaskCard_IconWidthIsStable(t *testing.T) {
 	t.Parallel()
 

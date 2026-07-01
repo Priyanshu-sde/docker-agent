@@ -15,19 +15,23 @@ import (
 )
 
 func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
-	return toolcommon.NewBase(msg, sessionState, render)
+	var lastParams string
+	return toolcommon.NewBase(msg, sessionState, func(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, height int) string {
+		return render(msg, s, sessionState, width, height, &lastParams)
+	})
 }
 
-func render(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int) string {
-	var args map[string]any
-	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &args); err != nil {
-		return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults())
+func render(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int, lastParams *string) string {
+	args, err := toolcommon.ParseArgs[map[string]any](msg.ToolCall.Function.Arguments)
+	if err != nil {
+		return toolcommon.RenderTool(msg, s, *lastParams, "", width, sessionState.HideToolResults())
 	}
 
 	// Extract argument summary for the tool call display
 	var params string
 	if argsText := formatArgs(args); argsText != "" {
 		params = "(" + argsText + ")"
+		*lastParams = params
 	}
 
 	// Add inline result/progress after the tool name

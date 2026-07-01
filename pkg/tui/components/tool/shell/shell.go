@@ -15,13 +15,16 @@ import (
 const maxVisibleShellOutputLines = 20
 
 func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
-	return toolcommon.NewBase(msg, sessionState, renderShell)
+	extractCmd := toolcommon.ExtractField(func(a builtinshell.RunShellArgs) string { return a.Cmd })
+	return toolcommon.NewBase(msg, sessionState, func(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, height int) string {
+		return renderShell(msg, s, sessionState, width, height, extractCmd)
+	})
 }
 
-func renderShell(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int) string {
+func renderShell(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int, extractCmd func(string) string) string {
 	arg := ""
 	if msg.ToolCall.Function.Arguments != "" {
-		arg = toolcommon.ExtractField(func(a builtinshell.RunShellArgs) string { return a.Cmd })(msg.ToolCall.Function.Arguments)
+		arg = extractCmd(msg.ToolCall.Function.Arguments)
 	}
 
 	result := ""

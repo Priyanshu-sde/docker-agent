@@ -1,7 +1,10 @@
 package toolcommon
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/docker/docker-agent/pkg/tui/components/spinner"
 	"github.com/docker/docker-agent/pkg/tui/core/layout"
@@ -21,14 +24,18 @@ type CollapsedRenderer func(msg *types.Message, s spinner.Spinner, sessionState 
 // Base provides common boilerplate for tool components.
 // It handles spinner management, sizing, and delegates rendering to a custom function.
 type Base struct {
-	message           *types.Message
-	spinner           spinner.Spinner
-	width             int
-	height            int
-	sessionState      service.SessionStateReader // read-only access to session state
-	render            Renderer
-	collapsedRenderer CollapsedRenderer
-	spinnerRegistered bool // tracks whether spinner is registered with coordinator
+	message             *types.Message
+	spinner             spinner.Spinner
+	width               int
+	height              int
+	sessionState        service.SessionStateReader // read-only access to session state
+	render              Renderer
+	collapsedRenderer   CollapsedRenderer
+	spinnerRegistered   bool // tracks whether spinner is registered with coordinator
+	lastRendered        string
+	lastRenderedHeight  int
+	lastCollapsed       string
+	lastCollapsedHeight int
 }
 
 // NewBase creates a new base tool component with the given renderer.
@@ -59,6 +66,12 @@ func NewBaseWithCollapsed(msg *types.Message, sessionState service.SessionStateR
 }
 
 func (b *Base) SetSize(width, height int) tea.Cmd {
+	if b.width != width || b.height != height {
+		b.lastRendered = ""
+		b.lastRenderedHeight = 0
+		b.lastCollapsed = ""
+		b.lastCollapsedHeight = 0
+	}
 	b.width = width
 	b.height = height
 	return nil
@@ -99,7 +112,16 @@ func (b *Base) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 }
 
 func (b *Base) View() string {
-	return b.render(b.message, b.spinner, b.sessionState, b.width, b.height)
+	rendered := b.render(b.message, b.spinner, b.sessionState, b.width, b.height)
+	height := renderedViewHeight(rendered)
+	if b.shouldKeepLastPendingRender(rendered, height, b.lastRendered, b.lastRenderedHeight) {
+		return b.lastRendered
+	}
+	if rendered != "" {
+		b.lastRendered = rendered     //rubocop:disable Lint/TUIViewPurity // render-stability cache for temporarily unparseable streamed arguments
+		b.lastRenderedHeight = height //rubocop:disable Lint/TUIViewPurity // paired height for the render-stability cache above
+	}
+	return rendered
 }
 
 // ExpandedView returns the regular, full tool renderer.
@@ -111,9 +133,43 @@ func (b *Base) ExpandedView() string {
 // Falls back to the regular View() if no collapsed renderer is provided.
 func (b *Base) CollapsedView() string {
 	if b.collapsedRenderer != nil {
-		return b.collapsedRenderer(b.message, b.spinner, b.sessionState, b.width, b.height)
+		rendered := b.collapsedRenderer(b.message, b.spinner, b.sessionState, b.width, b.height)
+		height := renderedViewHeight(rendered)
+		if b.shouldKeepLastPendingRender(rendered, height, b.lastCollapsed, b.lastCollapsedHeight) {
+			return b.lastCollapsed
+		}
+		if rendered != "" {
+			b.lastCollapsed = rendered
+			b.lastCollapsedHeight = height
+		}
+		return rendered
 	}
 	return b.View()
+}
+
+func (b *Base) shouldKeepLastPendingRender(rendered string, height int, last string, lastHeight int) bool {
+	if b.message.ToolStatus != types.ToolStatusPending || last == "" {
+		return false
+	}
+	if rendered == "" || height < lastHeight {
+		return true
+	}
+	return height == lastHeight && renderedContentWidth(rendered) < renderedContentWidth(last)
+}
+
+func renderedContentWidth(rendered string) int {
+	total := 0
+	for line := range strings.SplitSeq(strings.TrimSuffix(rendered, "\n"), "\n") {
+		total += ansi.StringWidth(strings.TrimRight(ansi.Strip(line), " "))
+	}
+	return total
+}
+
+func renderedViewHeight(rendered string) int {
+	if rendered == "" {
+		return 0
+	}
+	return strings.Count(strings.TrimSuffix(rendered, "\n"), "\n") + 1
 }
 
 // StopAnimation stops the spinner animation and unregisters from the animation coordinator.

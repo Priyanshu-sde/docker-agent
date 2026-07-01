@@ -24,7 +24,10 @@ import (
 // New builds the plan tool view: the plan name from the call arguments, plus a
 // compact title/status/revision summary from the result.
 func New(msg *types.Message, sessionState service.SessionStateReader) layout.Model {
-	return toolcommon.NewBase(msg, sessionState, toolcommon.SimpleRendererWithResult(extractName, extractSummary))
+	return toolcommon.NewBase(msg, sessionState, toolcommon.SimpleRendererWithResult(
+		toolcommon.ExtractField(func(a nameArg) string { return a.Name }),
+		extractSummary,
+	))
 }
 
 type nameArg struct {

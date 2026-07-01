@@ -7,10 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/tools"
+	"github.com/docker/docker-agent/pkg/tui/service"
 	"github.com/docker/docker-agent/pkg/tui/types"
 )
 
@@ -105,6 +107,23 @@ func TestRenderEditFile_TabIndentedLineDoesNotPanic(t *testing.T) {
 		_ = renderEditFile(toolCall, 120, false, types.ToolStatusCompleted)
 		_ = renderEditFile(toolCall, 120, true, types.ToolStatusCompleted)
 	})
+}
+
+func TestEditFileViewFallsBackToToolHeaderWhenArgumentsCannotParse(t *testing.T) {
+	t.Parallel()
+
+	msg := types.ToolCallMessage("agent", tools.ToolCall{
+		ID: "test-invalid-args",
+		Function: tools.FunctionCall{
+			Name:      "edit_file",
+			Arguments: `{"path": "/tmp/file",`,
+		},
+	}, tools.Tool{Name: "edit_file"}, types.ToolStatusPending)
+
+	view := New(msg, service.StaticSessionState{})
+	_ = view.SetSize(80, 0)
+
+	assert.Contains(t, ansi.Strip(view.View()), "edit_file")
 }
 
 func TestRenderEditFile_MissingFileReturnsEmptyDiff(t *testing.T) {

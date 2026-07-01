@@ -480,7 +480,7 @@ func (m *model) finishTool(e *runtime.ToolCallResponseEvent) {
 
 	msg := *tv.message
 	view := toolView{message: &msg, images: tv.images}
-	m.addBlock(func(w int) []string { return renderToolWithState(view, w, 0, m.sessionState) })
+	m.addBlock(func(w int) []string { return renderToolWithState(&view, w, 0, m.sessionState) })
 
 	m.removeTool(id)
 }

@@ -1,7 +1,6 @@
 package transfertask
 
 import (
-	"encoding/json"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -19,10 +18,14 @@ func New(msg *types.Message, sessionState service.SessionStateReader) layout.Mod
 	return toolcommon.NewBase(msg, sessionState, render)
 }
 
-func render(msg *types.Message, s spinner.Spinner, _ service.SessionStateReader, width, _ int) string {
-	var params transfertask.Args
-	if err := json.Unmarshal([]byte(msg.ToolCall.Function.Arguments), &params); err != nil {
-		return ""
+func render(msg *types.Message, s spinner.Spinner, sessionState service.SessionStateReader, width, _ int) string {
+	params, err := toolcommon.ParseArgs[transfertask.Args](msg.ToolCall.Function.Arguments)
+	if err != nil || (params.Agent == "" && params.Task == "") {
+		hideResults := false
+		if sessionState != nil {
+			hideResults = sessionState.HideToolResults()
+		}
+		return toolcommon.RenderTool(msg, s, "", "", width, hideResults)
 	}
 
 	header := styles.AgentBadgeStyleFor(msg.Sender).MarginLeft(2).Render(msg.Sender) +

@@ -8,6 +8,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/docker/docker-agent/pkg/tools"
+	"github.com/docker/docker-agent/pkg/tui/components/toolcommon"
 	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
@@ -83,6 +84,21 @@ func formatValue(value any) string {
 
 // decodeArguments decodes the JSON-encoded arguments string into an ordered slice of key-value pairs.
 func decodeArguments(arguments string) ([]kv, error) {
+	args, err := decodeArgumentsStrict(arguments)
+	if err == nil {
+		return args, nil
+	}
+
+	if fixed, ok := toolcommon.CompletePartialJSON(arguments); ok {
+		if partialArgs, partialErr := decodeArgumentsStrict(fixed); partialErr == nil {
+			return partialArgs, nil
+		}
+	}
+
+	return nil, err
+}
+
+func decodeArgumentsStrict(arguments string) ([]kv, error) {
 	decoder := json.NewDecoder(strings.NewReader(arguments))
 
 	tok, err := decoder.Token()

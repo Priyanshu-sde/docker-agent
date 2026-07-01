@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/docker/docker-agent/pkg/tools"
 	"github.com/docker/docker-agent/pkg/tui/animation"
 	toolcomponent "github.com/docker/docker-agent/pkg/tui/components/tool"
@@ -15,8 +17,10 @@ import (
 // the same TUI message shape used by the full-screen TUI so the lean renderer
 // can delegate the visual representation to pkg/tui/components/tool.
 type toolView struct {
-	message *tuitypes.Message
-	images  []inlineImage
+	message   *tuitypes.Message
+	images    []inlineImage
+	lastWidth int
+	lastLines []string
 }
 
 const maxToolOutputLines = 12
@@ -38,14 +42,14 @@ func ensureToolDefinition(toolCall tools.ToolCall, toolDef tools.Tool) tools.Too
 // full TUI. This keeps built-in tools and registered custom renderers visually
 // consistent between the normal and lean interfaces.
 func renderTool(t toolView, width int) []string {
-	return renderToolWithState(t, width, 0, service.StaticSessionState{})
+	return renderToolWithState(&t, width, 0, service.StaticSessionState{})
 }
 
-func renderToolWithState(t toolView, width, frame int, sessionState service.SessionStateReader) []string {
+func renderToolWithState(t *toolView, width, frame int, sessionState service.SessionStateReader) []string {
 	if width < 1 {
 		width = 1
 	}
-	if t.message == nil {
+	if t == nil || t.message == nil {
 		return nil
 	}
 	if sessionState == nil {
@@ -63,7 +67,40 @@ func renderToolWithState(t toolView, width, frame int, sessionState service.Sess
 	for _, img := range t.images {
 		lines = append(lines, renderInlineImage(img, width)...)
 	}
+
+	if t.shouldKeepLastPendingLines(width, lines) {
+		return cloneLines(t.lastLines)
+	}
+	if t.message.ToolStatus == tuitypes.ToolStatusPending && len(lines) > 0 {
+		t.lastWidth = width
+		t.lastLines = cloneLines(lines)
+	} else if t.message.ToolStatus != tuitypes.ToolStatusPending {
+		t.lastLines = nil
+		t.lastWidth = 0
+	}
 	return lines
+}
+
+func (t *toolView) shouldKeepLastPendingLines(width int, lines []string) bool {
+	if t.message.ToolStatus != tuitypes.ToolStatusPending || t.lastWidth != width || len(t.lastLines) == 0 {
+		return false
+	}
+	if len(lines) == 0 || len(lines) < len(t.lastLines) {
+		return true
+	}
+	return len(lines) == len(t.lastLines) && totalContentWidth(lines) < totalContentWidth(t.lastLines)
+}
+
+func cloneLines(lines []string) []string {
+	return append([]string(nil), lines...)
+}
+
+func totalContentWidth(lines []string) int {
+	total := 0
+	for _, line := range lines {
+		total += displayWidth(strings.TrimRight(ansi.Strip(line), " "))
+	}
+	return total
 }
 
 func splitRenderedTool(rendered string, width int) []string {

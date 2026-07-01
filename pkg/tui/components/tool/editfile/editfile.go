@@ -20,6 +20,13 @@ func New(msg *types.Message, sessionState service.SessionStateReader) layout.Mod
 	return toolcommon.NewBaseWithCollapsed(msg, sessionState, render, renderCollapsed)
 }
 
+func parseEditFileArgs(args string) (filesystem.EditFileArgs, error) {
+	if parsed, err := toolcommon.ParseArgs[filesystem.EditFileArgs](args); err == nil {
+		return parsed, nil
+	}
+	return filesystem.ParseEditFileArgs([]byte(args))
+}
+
 // render displays the edit_file tool output in the TUI.
 // It prioritizes the agent-provided friendly header when available,
 // hides results when collapsed by the user, and renders tool errors
@@ -31,13 +38,6 @@ func render(
 	width,
 	_ int,
 ) string {
-	// Parse tool arguments to extract the file path for display.
-	args, err := filesystem.ParseEditFileArgs([]byte(msg.ToolCall.Function.Arguments))
-	if err != nil {
-		// If arguments cannot be parsed, fail silently to avoid breaking the TUI.
-		return ""
-	}
-
 	// When the tool failed, render a single-line error header
 	// consistent with other tool error renderings.
 	if msg.ToolStatus == types.ToolStatusError {
@@ -63,6 +63,12 @@ func render(
 	}
 
 	// ---- Normal (non-error) rendering ----
+
+	// Parse tool arguments to extract the file path for display.
+	args, err := parseEditFileArgs(msg.ToolCall.Function.Arguments)
+	if err != nil {
+		return toolcommon.RenderTool(msg, s, "", "", width, sessionState.HideToolResults())
+	}
 
 	// Check for friendly description first
 	var content string
@@ -111,11 +117,6 @@ func renderCollapsed(
 	width,
 	_ int,
 ) string {
-	args, err := filesystem.ParseEditFileArgs([]byte(msg.ToolCall.Function.Arguments))
-	if err != nil {
-		return ""
-	}
-
 	// Error state
 	if msg.ToolStatus == types.ToolStatusError {
 		if msg.Content == "" {
@@ -128,6 +129,11 @@ func renderCollapsed(
 			styles.ToolErrorMessageStyle.Render(msg.Content),
 		)
 		return styles.BaseStyle.MaxWidth(width).Render(line)
+	}
+
+	args, err := parseEditFileArgs(msg.ToolCall.Function.Arguments)
+	if err != nil {
+		return toolcommon.RenderTool(msg, s, "", "", width, false)
 	}
 
 	// Count added/removed lines

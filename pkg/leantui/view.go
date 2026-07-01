@@ -67,7 +67,7 @@ func (m *model) conversationLines(width int) []string {
 	}
 	for _, id := range m.toolOrder {
 		if tv := m.tools[id]; tv != nil {
-			lines = append(lines, renderToolWithState(*tv, width, m.spinnerFrame, m.sessionState)...)
+			lines = append(lines, renderToolWithState(tv, width, m.spinnerFrame, m.sessionState)...)
 			lines = append(lines, "")
 		}
 	}
