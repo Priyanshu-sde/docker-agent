@@ -196,6 +196,7 @@ remote MCP endpoints.
 | [`baseten.yaml`](baseten.yaml) | Baseten cloud provider. |
 | [`ovhcloud.yaml`](ovhcloud.yaml) | OVHcloud AI Endpoints provider. |
 | [`groq.yaml`](groq.yaml) | Groq fast-inference provider. |
+| [`deepseek.yaml`](deepseek.yaml) | DeepSeek chat and reasoning provider. |
 | [`grok.yaml`](grok.yaml) | xAI Grok model. |
 | [`github-copilot.yaml`](github-copilot.yaml) | GitHub Copilot models via OAuth device-flow. |
 | [`fallback_models.yaml`](fallback_models.yaml) | Automatic fallback to a secondary model when the primary fails. |

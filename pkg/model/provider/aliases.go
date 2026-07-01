@@ -83,6 +83,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://api.groq.com/openai/v1",
 		TokenEnvVar: "GROQ_API_KEY",
 	},
+	"deepseek": {
+		APIType:     "openai",
+		BaseURL:     "https://api.deepseek.com/v1",
+		TokenEnvVar: "DEEPSEEK_API_KEY",
+	},
 	"github-copilot": {
 		APIType:     "openai",
 		BaseURL:     "https://api.githubcopilot.com",

@@ -151,6 +151,8 @@
       url: /providers/ovhcloud/
     - title: Groq
       url: /providers/groq/
+    - title: DeepSeek
+      url: /providers/deepseek/
     - title: MiniMax
       url: /providers/minimax/
     - title: OpenRouter

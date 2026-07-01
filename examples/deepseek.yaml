@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../agent-schema.json
+
+models:
+  deepseek_model:
+    provider: deepseek
+    model: deepseek-chat
+
+agents:
+  root:
+    model: deepseek_model
+    description: Assistant using DeepSeek
+    instruction: |
+      You are a helpful assistant.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: think

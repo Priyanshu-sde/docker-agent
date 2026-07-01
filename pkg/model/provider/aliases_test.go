@@ -85,6 +85,20 @@ func TestGroqAlias(t *testing.T) {
 	assert.True(t, IsCatalogProvider("groq"))
 }
 
+func TestDeepSeekAlias(t *testing.T) {
+	t.Parallel()
+
+	alias, ok := LookupAlias("deepseek")
+	require.True(t, ok)
+	assert.Equal(t, Alias{
+		APIType:     "openai",
+		BaseURL:     "https://api.deepseek.com/v1",
+		TokenEnvVar: "DEEPSEEK_API_KEY",
+	}, alias)
+	assert.True(t, IsKnownProvider("deepseek"))
+	assert.True(t, IsCatalogProvider("deepseek"))
+}
+
 func TestEachAlias(t *testing.T) {
 	t.Parallel()
 

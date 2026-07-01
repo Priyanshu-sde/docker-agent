@@ -68,6 +68,7 @@ docker-agent also includes built-in aliases for these providers:
 | Baseten        | `baseten`        | `BASETEN_API_KEY`                   |
 | OVHcloud       | `ovhcloud`       | `OVH_AI_ENDPOINTS_ACCESS_TOKEN`     |
 | Groq           | `groq`           | `GROQ_API_KEY`                      |
+| DeepSeek       | `deepseek`       | `DEEPSEEK_API_KEY`                  |
 | Requesty       | `requesty`       | `REQUESTY_API_KEY`                  |
 | OpenRouter     | `openrouter`     | `OPENROUTER_API_KEY`                |
 | Azure OpenAI   | `azure`          | `AZURE_API_KEY` + `base_url`        |
