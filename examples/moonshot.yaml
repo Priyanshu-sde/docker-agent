@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../agent-schema.json
+
+models:
+  moonshot_model:
+    provider: moonshot
+    model: kimi-k2-0905-preview
+
+agents:
+  root:
+    model: moonshot_model
+    description: Assistant using Moonshot AI (Kimi)
+    instruction: |
+      You are a helpful assistant.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: think

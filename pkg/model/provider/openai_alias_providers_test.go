@@ -82,6 +82,16 @@ var openAIAliasProviders = []openAIAliasProvider{
 		greeting:             "Hello from Hugging Face",
 		mergesSystemMessages: true,
 	},
+	{
+		// Moonshot AI is a first-party API serving its own Kimi lineup, so its
+		// per-source system messages are left untouched (mergesSystemMessages
+		// omitted, like deepseek).
+		provider: "moonshot",
+		envVar:   "MOONSHOT_API_KEY",
+		testKey:  "sk-test-moonshot-key",
+		model:    "kimi-k2-0905-preview",
+		greeting: "Hello from Moonshot",
+	},
 }
 
 // TestOpenAIAliasProvider_EndToEndRequest drives a real request through the full

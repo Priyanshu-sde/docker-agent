@@ -169,6 +169,7 @@ func TestShouldMergeConsecutiveMessages_Gating(t *testing.T) {
 		{"first-party mistral", &latest.ModelConfig{Provider: "mistral", Model: "mistral-small"}, false},
 		{"first-party xai", &latest.ModelConfig{Provider: "xai", Model: "grok-4"}, false},
 		{"first-party deepseek", &latest.ModelConfig{Provider: "deepseek", Model: "deepseek-chat"}, false},
+		{"first-party moonshot", &latest.ModelConfig{Provider: "moonshot", Model: "kimi-k2-0905-preview"}, false},
 	}
 
 	for _, tt := range tests {

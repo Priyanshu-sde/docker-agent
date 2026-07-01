@@ -108,6 +108,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://router.huggingface.co/v1",
 		TokenEnvVar: "HF_TOKEN",
 	},
+	"moonshot": {
+		APIType:     "openai",
+		BaseURL:     "https://api.moonshot.ai/v1",
+		TokenEnvVar: "MOONSHOT_API_KEY",
+	},
 	"github-copilot": {
 		APIType:     "openai",
 		BaseURL:     "https://api.githubcopilot.com",

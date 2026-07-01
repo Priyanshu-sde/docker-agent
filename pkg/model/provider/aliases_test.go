@@ -45,6 +45,7 @@ func TestCatalogAliases(t *testing.T) {
 		"fireworks":   {APIType: "openai", BaseURL: "https://api.fireworks.ai/inference/v1", TokenEnvVar: "FIREWORKS_API_KEY"},
 		"together":    {APIType: "openai", BaseURL: "https://api.together.xyz/v1", TokenEnvVar: "TOGETHER_API_KEY"},
 		"huggingface": {APIType: "openai", BaseURL: "https://router.huggingface.co/v1", TokenEnvVar: "HF_TOKEN"},
+		"moonshot":    {APIType: "openai", BaseURL: "https://api.moonshot.ai/v1", TokenEnvVar: "MOONSHOT_API_KEY"},
 	}
 
 	for name, want := range expected {

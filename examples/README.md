@@ -201,6 +201,7 @@ remote MCP endpoints.
 | [`cerebras.yaml`](cerebras.yaml) | Cerebras fast-inference provider. |
 | [`together.yaml`](together.yaml) | Together AI open-model inference provider. |
 | [`huggingface.yaml`](huggingface.yaml) | Hugging Face Inference Providers open-model router. |
+| [`moonshot.yaml`](moonshot.yaml) | Moonshot AI (Kimi K2) provider. |
 | [`grok.yaml`](grok.yaml) | xAI Grok model. |
 | [`github-copilot.yaml`](github-copilot.yaml) | GitHub Copilot models via OAuth device-flow. |
 | [`fallback_models.yaml`](fallback_models.yaml) | Automatic fallback to a secondary model when the primary fails. |

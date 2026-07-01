@@ -163,6 +163,8 @@
       url: /providers/minimax/
     - title: Mistral
       url: /providers/mistral/
+    - title: Moonshot AI
+      url: /providers/moonshot/
     - title: Nebius
       url: /providers/nebius/
     - title: OpenAI
