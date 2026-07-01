@@ -114,6 +114,29 @@ func (c *scriptedConnector) Connect(context.Context) (lifecycle.Session, error) 
 
 func (c *scriptedConnector) Calls() int { return int(c.calls.Load()) }
 
+// blockingConnector blocks in Connect until release is closed, then returns
+// the configured session/err. It lets tests exercise the startup-timeout path
+// where Connect is slow rather than failing outright.
+type blockingConnector struct {
+	release chan struct{}
+	session *fakeSession
+	err     error
+	calls   atomic.Int32
+}
+
+func (c *blockingConnector) Connect(ctx context.Context) (lifecycle.Session, error) {
+	c.calls.Add(1)
+	select {
+	case <-c.release:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+	if c.err != nil {
+		return nil, c.err
+	}
+	return c.session, nil
+}
+
 // fastBackoff is a minimal backoff for tests so we don't sit in time.Sleep.
 var fastBackoff = lifecycle.Backoff{
 	Initial:    1 * time.Millisecond,
@@ -145,6 +168,116 @@ func TestSupervisor_StartSucceedsAndReadies(t *testing.T) {
 	assert.Check(t, s.IsReady())
 	assert.NilError(t, s.Stop(t.Context()))
 	assert.Check(t, is.Equal(s.State().State, lifecycle.StateStopped))
+}
+
+// TestSupervisor_StartTimesOutOnSlowConnect verifies that a Connect that
+// hangs past StartupTimeout causes Start to return ErrInitTimeout and leaves
+// the supervisor in StateStopped so the caller can retry.
+func TestSupervisor_StartTimesOutOnSlowConnect(t *testing.T) {
+	t.Parallel()
+
+	c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
+	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+
+	err := s.Start(t.Context())
+	assert.Check(t, errors.Is(err, lifecycle.ErrInitTimeout))
+	assert.Check(t, is.Equal(s.State().State, lifecycle.StateStopped))
+
+	// Only one Connect is ever launched, even though it is still wedged.
+	assert.Check(t, is.Equal(c.calls.Load(), int32(1)))
+}
+
+// TestSupervisor_StartAdoptsLateConnect verifies that a Connect that finishes
+// after the first Start timed out is adopted by the next Start (reusing the
+// same in-flight goroutine) rather than launching a second, concurrent
+// Connect.
+func TestSupervisor_StartAdoptsLateConnect(t *testing.T) {
+	t.Parallel()
+
+	c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
+	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+
+	assert.Check(t, errors.Is(s.Start(t.Context()), lifecycle.ErrInitTimeout))
+
+	// The handshake completes; the next Start adopts it.
+	close(c.release)
+	assert.NilError(t, s.Start(t.Context()))
+	assert.Check(t, is.Equal(s.State().State, lifecycle.StateReady))
+	// Still only one Connect was ever launched.
+	assert.Check(t, is.Equal(c.calls.Load(), int32(1)))
+
+	assert.NilError(t, s.Stop(t.Context()))
+}
+
+// TestSupervisor_StartAdoptsLateConnectAfterFirstCtxCancelled verifies that
+// the in-flight Connect is detached from the first caller's context: when that
+// context is cancelled after the first Start times out, a connector that
+// respects ctx cancellation still completes, and the adopting Start does not
+// receive a stale context.Canceled.
+func TestSupervisor_StartAdoptsLateConnectAfterFirstCtxCancelled(t *testing.T) {
+	t.Parallel()
+
+	c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
+	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	assert.Check(t, errors.Is(s.Start(ctx), lifecycle.ErrInitTimeout))
+	// Cancelling the first caller's context must not poison the detached
+	// in-flight Connect: blockingConnector returns ctx.Err() if its ctx is done.
+	cancel()
+
+	close(c.release)
+	assert.NilError(t, s.Start(t.Context()))
+	assert.Check(t, is.Equal(s.State().State, lifecycle.StateReady))
+	assert.Check(t, is.Equal(c.calls.Load(), int32(1)))
+
+	assert.NilError(t, s.Stop(t.Context()))
+}
+
+// TestSupervisor_StopReapsLateConnect verifies that when Stop is called while a
+// timed-out Connect is still in flight, the session it eventually produces is
+// closed rather than leaked.
+func TestSupervisor_StopReapsLateConnect(t *testing.T) {
+	t.Parallel()
+
+	sess := newFakeSession()
+	c := &blockingConnector{release: make(chan struct{}), session: sess}
+	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: 20 * time.Millisecond})
+
+	assert.Check(t, errors.Is(s.Start(t.Context()), lifecycle.ErrInitTimeout))
+
+	// Stop while the connect is still wedged, then let it complete.
+	assert.NilError(t, s.Stop(t.Context()))
+	close(c.release)
+
+	// The reaper must close the late session.
+	deadline := time.Now().Add(time.Second)
+	for {
+		sess.mu.Lock()
+		closed := sess.closed
+		sess.mu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("late session was not closed after Stop")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// TestSupervisor_StartWithinTimeoutSucceeds verifies that a Connect that
+// completes before StartupTimeout readies the supervisor normally.
+func TestSupervisor_StartWithinTimeoutSucceeds(t *testing.T) {
+	t.Parallel()
+
+	c := &blockingConnector{release: make(chan struct{}), session: newFakeSession()}
+	close(c.release) // Connect returns immediately
+	s := lifecycle.New("test", c, lifecycle.Policy{StartupTimeout: time.Second})
+
+	assert.NilError(t, s.Start(t.Context()))
+	assert.Check(t, is.Equal(s.State().State, lifecycle.StateReady))
+	assert.NilError(t, s.Stop(t.Context()))
 }
 
 func TestSupervisor_StartIsIdempotent(t *testing.T) {

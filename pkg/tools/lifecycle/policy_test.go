@@ -67,6 +67,26 @@ func TestPolicyFromConfig_PartialOverridesKeepProfileDefaults(t *testing.T) {
 	assert.Equal(t, 7, p.MaxAttempts, "explicit override applied")
 }
 
+func TestPolicyFromConfig_StartupTimeout(t *testing.T) {
+	t.Parallel()
+
+	// Nil config and non-strict profiles default to no timeout.
+	assert.Equal(t, time.Duration(0), PolicyFromConfig("test", nil).StartupTimeout)
+	assert.Equal(t, time.Duration(0), PolicyFromConfig("test", &latest.LifecycleConfig{
+		Profile: latest.LifecycleProfileResilient,
+	}).StartupTimeout)
+
+	// The strict profile carries a 30s default.
+	assert.Equal(t, 30*time.Second, PolicyFromConfig("test", &latest.LifecycleConfig{
+		Profile: latest.LifecycleProfileStrict,
+	}).StartupTimeout)
+
+	// An explicit value wins over the profile default.
+	assert.Equal(t, 5*time.Second, PolicyFromConfig("test", &latest.LifecycleConfig{
+		StartupTimeout: latest.Duration{Duration: 5 * time.Second},
+	}).StartupTimeout)
+}
+
 func TestParseRestart(t *testing.T) {
 	t.Parallel()
 	cases := map[string]Restart{

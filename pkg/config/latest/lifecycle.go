@@ -62,12 +62,13 @@ type LifecycleConfig struct {
 
 	// StartupTimeout caps the duration of the initial Connect call.
 	//
-	// NOTE: this field is currently informational — the runtime does NOT
-	// yet enforce it. The supervisor's Start uses the caller's context
-	// for cancellation today; honouring StartupTimeout requires the same
-	// eager-startup wiring as Required.
+	// Enforced by the supervisor: on expiry the initial Start returns
+	// ErrInitTimeout and the toolset stays stopped (the runtime retries on
+	// the next turn). This bounds a server that hangs mid-handshake rather
+	// than returning an error.
 	//
-	// Zero means "no timeout".
+	// Zero means "no timeout". The "strict" profile defaults to 30s; other
+	// profiles default to 0.
 	StartupTimeout Duration `json:"startup_timeout,omitzero" yaml:"startup_timeout,omitempty"`
 
 	// CallTimeout is informational; it documents the user's expectation
