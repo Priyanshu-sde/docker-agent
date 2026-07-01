@@ -88,6 +88,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://api.deepseek.com/v1",
 		TokenEnvVar: "DEEPSEEK_API_KEY",
 	},
+	"cerebras": {
+		APIType:     "openai",
+		BaseURL:     "https://api.cerebras.ai/v1",
+		TokenEnvVar: "CEREBRAS_API_KEY",
+	},
 	"github-copilot": {
 		APIType:     "openai",
 		BaseURL:     "https://api.githubcopilot.com",

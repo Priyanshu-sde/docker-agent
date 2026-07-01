@@ -48,6 +48,7 @@ var cloudProviders = []providerConfig{
 	{"ovhcloud", []string{"OVH_AI_ENDPOINTS_ACCESS_TOKEN"}, "OVH_AI_ENDPOINTS_ACCESS_TOKEN"},
 	{"groq", []string{"GROQ_API_KEY"}, "GROQ_API_KEY"},
 	{"deepseek", []string{"DEEPSEEK_API_KEY"}, "DEEPSEEK_API_KEY"},
+	{"cerebras", []string{"CEREBRAS_API_KEY"}, "CEREBRAS_API_KEY"},
 	{"amazon-bedrock", []string{
 		"AWS_BEARER_TOKEN_BEDROCK",
 		"AWS_ACCESS_KEY_ID",
@@ -115,6 +116,7 @@ var DefaultModels = map[string]string{
 	"ovhcloud":       "Qwen3.5-397B-A17B",
 	"groq":           "llama-3.3-70b-versatile",
 	"deepseek":       "deepseek-chat",
+	"cerebras":       "gpt-oss-120b",
 	"amazon-bedrock": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
 	"opencode-go":    "deepseek-v4-flash",
 	"opencode-zen":   "deepseek-v4-flash-free",

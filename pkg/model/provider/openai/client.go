@@ -241,6 +241,7 @@ var openModelHostProviders = map[string]bool{
 	"ovhcloud":   true,
 	"openrouter": true,
 	"nebius":     true,
+	"cerebras":   true,
 }
 
 // shouldMergeConsecutiveMessages reports whether the chat-completions request

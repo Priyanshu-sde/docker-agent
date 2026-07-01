@@ -1,0 +1,17 @@
+# yaml-language-server: $schema=../agent-schema.json
+
+models:
+  cerebras_model:
+    provider: cerebras
+    model: gpt-oss-120b
+
+agents:
+  root:
+    model: cerebras_model
+    description: Assistant using Cerebras
+    instruction: |
+      You are a helpful assistant.
+    toolsets:
+      - type: filesystem
+      - type: shell
+      - type: think

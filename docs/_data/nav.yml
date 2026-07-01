@@ -141,6 +141,8 @@
       url: /providers/bedrock/
     - title: Baseten
       url: /providers/baseten/
+    - title: Cerebras
+      url: /providers/cerebras/
     - title: DeepSeek
       url: /providers/deepseek/
     - title: Docker Model Runner

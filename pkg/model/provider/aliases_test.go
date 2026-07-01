@@ -99,6 +99,20 @@ func TestDeepSeekAlias(t *testing.T) {
 	assert.True(t, IsCatalogProvider("deepseek"))
 }
 
+func TestCerebrasAlias(t *testing.T) {
+	t.Parallel()
+
+	alias, ok := LookupAlias("cerebras")
+	require.True(t, ok)
+	assert.Equal(t, Alias{
+		APIType:     "openai",
+		BaseURL:     "https://api.cerebras.ai/v1",
+		TokenEnvVar: "CEREBRAS_API_KEY",
+	}, alias)
+	assert.True(t, IsKnownProvider("cerebras"))
+	assert.True(t, IsCatalogProvider("cerebras"))
+}
+
 func TestEachAlias(t *testing.T) {
 	t.Parallel()
 
