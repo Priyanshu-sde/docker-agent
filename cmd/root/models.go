@@ -54,7 +54,14 @@ type modelRow struct {
 	Default  bool   `json:"default,omitempty"`
 }
 
-func newModelsCmd() *cobra.Command {
+// modelsCmdOption pre-seeds the RuntimeConfig backing the models command
+// before its flags are wired. It is the seam tests use to inject a hermetic
+// env provider and an in-memory models.dev store, so listing models never
+// shells out to the OS keychain or reaches the network. Production calls
+// newModelsCmd with no options, leaving behavior unchanged.
+type modelsCmdOption func(*config.RuntimeConfig)
+
+func newModelsCmd(opts ...modelsCmdOption) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "models",
 		Short: "List available models",
@@ -66,7 +73,7 @@ you have credentials for. Use --all to include all providers.`,
 		GroupID: "core",
 	}
 
-	listCmd := newModelsListCmd()
+	listCmd := newModelsListCmd(opts...)
 	cmd.AddCommand(listCmd)
 
 	// Default to "list" when no subcommand given.
@@ -79,8 +86,11 @@ you have credentials for. Use --all to include all providers.`,
 	return cmd
 }
 
-func newModelsListCmd() *cobra.Command {
+func newModelsListCmd(opts ...modelsCmdOption) *cobra.Command {
 	var flags modelsListFlags
+	for _, opt := range opts {
+		opt(&flags.runConfig)
+	}
 
 	cmd := &cobra.Command{
 		Use:     "list",
