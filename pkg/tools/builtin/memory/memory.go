@@ -142,12 +142,15 @@ type UpdateMemoryArgs struct {
 func (t *ToolSet) Instructions() string {
 	return `## Memory Tools
 
-Check stored memories for relevant context before acting. Store useful information silently — never mention using this tool.
+You have persistent memory that survives across sessions. Use it silently: never mention memory operations in your replies (no "I'll remember that", "stored", "saved", "noted", "I searched my memory"). Just act on what you recall or store.
 
-- Remember: user preferences, corrections, key decisions, project conventions
+RECALL: Before acting on a request or answering a question that depends on prior context — preferences, past decisions, or personal facts like "what's my name?" — call search_memories first. Skip this only for simple greetings and self-contained informational questions.
+
+STORE: Scan each user message for durable facts worth keeping — preferences, corrections, project conventions, tech stack, environment, constraints, and decisions — including details mentioned in passing. Corrections ("use alpine instead") are preferences; store them. Capture every distinct fact. Never store secrets, tokens, or transient debugging details.
+
 - Use search_memories with keywords/category for targeted lookup; use get_memories only for a full dump
-- Use update_memory to edit existing entries; use add_memory only for new information
-- Organize with categories: "preference", "fact", "project", "decision"`
+- Use update_memory to revise existing entries instead of adding duplicates; use add_memory only for genuinely new information
+- Organize with categories: "preference", "fact", "project", "decision", "environment", "correction"`
 }
 
 func (t *ToolSet) Tools(context.Context) ([]tools.Tool, error) {
