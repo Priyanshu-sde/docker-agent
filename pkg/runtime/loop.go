@@ -412,9 +412,13 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 		a = r.resolveSessionAgent(sess)
 
 		// Clear per-tool model override on agent switch so it doesn't
-		// leak from one agent's toolset into another agent's turn.
+		// leak from one agent's toolset into another agent's turn. Also
+		// reset prevTurnMadeToolCalls so a new agent's empty first turn is
+		// judged on its own merits, not silenced by the previous agent's
+		// tool activity.
 		if a.Name() != ls.prevAgentName {
 			ls.toolModelOverride = ""
+			ls.prevTurnMadeToolCalls = false
 			ls.prevAgentName = a.Name()
 		}
 
@@ -565,20 +569,23 @@ type loopState struct {
 	exitReason          string
 	// prevTurnMadeToolCalls reports whether the immediately preceding
 	// turn emitted tool calls. Used to classify an empty trailing turn:
-	// a natural stop right after tool work is benign (the model already
+	// a clean stop right after tool work is benign (the model already
 	// did its job and has nothing left to say — common at the tail of a
 	// fork-skill sequence), not the rate-limit / token-cap case the
-	// empty-response warning would otherwise imply.
+	// empty-response warning would otherwise imply. Reset on agent switch
+	// so it never carries across agents.
 	prevTurnMadeToolCalls bool
 }
 
 // emptyTurnWarning classifies an empty assistant turn (no content, no tool
 // calls) and returns the user-facing warning message, or "" when the turn is
 // benign and should stay silent. Known cases:
-//   - benign: a natural stop right after a tool-call turn — the model already
-//     did its work and had nothing left to say (common at the tail of a
-//     fork-skill sequence, e.g. commit / open-pr). The real answer is the
-//     previous assistant message, so a UI warning would be noise.
+//   - benign: a clean stop (finish_reason "stop") right after a tool-call turn
+//     — the model already did its work and had nothing left to say (common at
+//     the tail of a fork-skill sequence, e.g. commit / open-pr). The real
+//     answer is the previous assistant message, so a UI warning would be noise.
+//     Only "stop" qualifies: a "length" finish after tool calls means the reply
+//     was truncated by the output token limit and must still warn.
 //   - reasoning-only: thinking-mode models (e.g. Qwen3 via
 //     openai_chatcompletions) that stream only reasoning tokens and then stop
 //     or hit the output token limit, leaving visible content empty (see #3145).
@@ -587,7 +594,7 @@ type loopState struct {
 // Refusals are handled separately by the caller and never reach here.
 func emptyTurnWarning(res streamResult, prevTurnMadeToolCalls bool, modelID string, reason chat.FinishReason) string {
 	switch {
-	case res.Stopped && prevTurnMadeToolCalls:
+	case reason == chat.FinishReasonStop && prevTurnMadeToolCalls:
 		return ""
 	case strings.TrimSpace(res.ReasoningContent) != "":
 		return fmt.Sprintf(

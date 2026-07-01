@@ -4204,6 +4204,15 @@ func TestEmptyTurnWarning(t *testing.T) {
 		assert.Contains(t, got, "empty response")
 	})
 
+	t.Run("length finish after tool calls still warns (truncated, not benign)", func(t *testing.T) {
+		// A "length" stop means the reply was cut off by the output token
+		// limit; even after tool calls this is a real truncation the user
+		// should see, so it must NOT be silenced by the benign case.
+		res := streamResult{Stopped: true}
+		got := emptyTurnWarning(res, true, "test/model", chat.FinishReasonLength)
+		assert.Contains(t, got, "empty response")
+	})
+
 	t.Run("non-stop empty turn after tool calls still warns", func(t *testing.T) {
 		res := streamResult{Stopped: false}
 		got := emptyTurnWarning(res, true, "test/model", chat.FinishReasonNull)
