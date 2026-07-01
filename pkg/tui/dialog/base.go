@@ -136,9 +136,10 @@ func RenderHelp(text string, contentWidth int) string {
 	return styles.DialogHelpStyle.Width(contentWidth).Align(lipgloss.Center).Render(text)
 }
 
-// RenderHelpKeys renders key bindings in the same style as the main TUI's status bar.
-// Each binding is a pair of [key, description] strings.
-func RenderHelpKeys(contentWidth int, bindings ...string) string {
+// helpKeysLine formats key bindings into a single line, styled like the main
+// TUI's status bar. Each binding is a pair of [key, description] strings. It
+// returns "" for empty or malformed input.
+func helpKeysLine(bindings ...string) string {
 	if len(bindings) == 0 || len(bindings)%2 != 0 {
 		return ""
 	}
@@ -150,25 +151,23 @@ func RenderHelpKeys(contentWidth int, bindings ...string) string {
 		parts = append(parts, keyPart+" "+descPart)
 	}
 
-	return styles.BaseStyle.Width(contentWidth).Align(lipgloss.Center).Render(strings.Join(parts, "  "))
+	return strings.Join(parts, "  ")
+}
+
+// RenderHelpKeys renders key bindings in the same style as the main TUI's status bar.
+// Each binding is a pair of [key, description] strings.
+func RenderHelpKeys(contentWidth int, bindings ...string) string {
+	if len(bindings) == 0 || len(bindings)%2 != 0 {
+		return ""
+	}
+	return styles.BaseStyle.Width(contentWidth).Align(lipgloss.Center).Render(helpKeysLine(bindings...))
 }
 
 // HelpKeysWidth returns the rendered width of the given key bindings laid out
 // on a single line, using the same formatting as RenderHelpKeys. It returns 0
 // for empty or malformed input.
 func HelpKeysWidth(bindings ...string) int {
-	if len(bindings) == 0 || len(bindings)%2 != 0 {
-		return 0
-	}
-
-	var parts []string
-	for i := 0; i < len(bindings); i += 2 {
-		keyPart := styles.HighlightWhiteStyle.Render(bindings[i])
-		descPart := styles.SecondaryStyle.Render(bindings[i+1])
-		parts = append(parts, keyPart+" "+descPart)
-	}
-
-	return lipgloss.Width(strings.Join(parts, "  "))
+	return lipgloss.Width(helpKeysLine(bindings...))
 }
 
 // HandleQuit checks for the configured quit key and returns tea.Quit if matched.
