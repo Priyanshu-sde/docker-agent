@@ -63,6 +63,7 @@ var cloudProviders = []providerConfig{
 	{"together", []string{"TOGETHER_API_KEY"}, "TOGETHER_API_KEY", "TOGETHER_API_KEY"},
 	{"huggingface", []string{"HF_TOKEN"}, "HF_TOKEN", "HF_TOKEN"},
 	{"moonshot", []string{"MOONSHOT_API_KEY"}, "MOONSHOT_API_KEY", "MOONSHOT_API_KEY"},
+	{"vercel", []string{"AI_GATEWAY_API_KEY"}, "AI_GATEWAY_API_KEY", "AI_GATEWAY_API_KEY"},
 	{"amazon-bedrock", []string{
 		"AWS_BEARER_TOKEN_BEDROCK",
 		"AWS_ACCESS_KEY_ID",
@@ -135,6 +136,7 @@ var DefaultModels = map[string]string{
 	"together":       "meta-llama/Llama-3.3-70B-Instruct-Turbo",
 	"huggingface":    "meta-llama/Llama-3.3-70B-Instruct",
 	"moonshot":       "kimi-k2-0905-preview",
+	"vercel":         "openai/gpt-5",
 	"amazon-bedrock": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
 	"opencode-go":    "deepseek-v4-flash",
 	"opencode-zen":   "deepseek-v4-flash-free",

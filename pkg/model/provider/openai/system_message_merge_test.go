@@ -164,6 +164,7 @@ func TestShouldMergeConsecutiveMessages_Gating(t *testing.T) {
 		{"open-model host fireworks", &latest.ModelConfig{Provider: "fireworks", Model: "accounts/fireworks/models/kimi-k2-instruct"}, true},
 		{"open-model host together", &latest.ModelConfig{Provider: "together", Model: "Qwen/Qwen3-235B-A22B-Instruct-2507-tput"}, true},
 		{"open-model host huggingface", &latest.ModelConfig{Provider: "huggingface", Model: "meta-llama/Llama-3.3-70B-Instruct"}, true},
+		{"open-model host gateway vercel", &latest.ModelConfig{Provider: "vercel", Model: "openai/gpt-5"}, true},
 		{"explicit api_type openai_chatcompletions", &latest.ModelConfig{Provider: "custom", Model: "qwen3", ProviderOpts: map[string]any{"api_type": "openai_chatcompletions"}}, true},
 		// First-party APIs with fixed model lineups: unchanged (no merge).
 		{"first-party mistral", &latest.ModelConfig{Provider: "mistral", Model: "mistral-small"}, false},

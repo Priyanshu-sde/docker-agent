@@ -92,6 +92,17 @@ var openAIAliasProviders = []openAIAliasProvider{
 		model:    "kimi-k2-0905-preview",
 		greeting: "Hello from Moonshot",
 	},
+	{
+		// Vercel AI Gateway is a multi-provider router that can front open-weight
+		// models (Qwen, Llama, DeepSeek, ...), so its per-source system messages
+		// are coalesced like the other gateway/open-model hosts (issue #3344).
+		provider:             "vercel",
+		envVar:               "AI_GATEWAY_API_KEY",
+		testKey:              "vck-test-vercel-key",
+		model:                "openai/gpt-5",
+		greeting:             "Hello from Vercel",
+		mergesSystemMessages: true,
+	},
 }
 
 // TestOpenAIAliasProvider_EndToEndRequest drives a real request through the full

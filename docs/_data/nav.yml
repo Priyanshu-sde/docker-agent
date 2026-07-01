@@ -179,6 +179,8 @@
       url: /providers/ovhcloud/
     - title: Together AI
       url: /providers/together/
+    - title: Vercel AI Gateway
+      url: /providers/vercel/
     - title: "xAI (Grok)"
       url: /providers/xai/
     - title: Provider Definitions

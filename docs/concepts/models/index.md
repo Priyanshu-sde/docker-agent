@@ -90,6 +90,7 @@ for details.
 | Together AI         | `together`       | Llama, Qwen, DeepSeek, Kimi (open models) | `TOGETHER_API_KEY`             |
 | Hugging Face        | `huggingface`    | Llama, Qwen, DeepSeek, GLM (open models) | `HF_TOKEN`                      |
 | Moonshot AI         | `moonshot`       | Kimi K2 chat, reasoning, and coding models | `MOONSHOT_API_KEY`             |
+| Vercel AI Gateway   | `vercel`         | Multi-provider gateway               | `AI_GATEWAY_API_KEY`                |
 | Requesty            | `requesty`       | Multi-provider gateway               | `REQUESTY_API_KEY`                  |
 | OpenRouter          | `openrouter`     | Multi-provider gateway               | `OPENROUTER_API_KEY`                |
 | Azure OpenAI        | `azure`          | gpt-4o, gpt-5 on Azure               | `AZURE_API_KEY` + `base_url`        |

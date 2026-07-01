@@ -113,6 +113,11 @@ var Aliases = map[string]Alias{
 		BaseURL:     "https://api.moonshot.ai/v1",
 		TokenEnvVar: "MOONSHOT_API_KEY",
 	},
+	"vercel": {
+		APIType:     "openai",
+		BaseURL:     "https://ai-gateway.vercel.sh/v1",
+		TokenEnvVar: "AI_GATEWAY_API_KEY",
+	},
 	"github-copilot": {
 		APIType:     "openai",
 		BaseURL:     "https://api.githubcopilot.com",

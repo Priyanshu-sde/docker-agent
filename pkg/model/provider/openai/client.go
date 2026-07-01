@@ -245,6 +245,7 @@ var openModelHostProviders = map[string]bool{
 	"fireworks":   true,
 	"together":    true,
 	"huggingface": true,
+	"vercel":      true,
 }
 
 // shouldMergeConsecutiveMessages reports whether the chat-completions request
