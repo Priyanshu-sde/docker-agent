@@ -23,6 +23,15 @@ func (s *InputSession) displayTitle() string {
 	return s.Title
 }
 
+// criteria returns the session's evaluation criteria, or an empty (non-nil)
+// EvalCriteria when the session declares none.
+func (s *InputSession) criteria() *session.EvalCriteria {
+	if s.Evals != nil {
+		return s.Evals
+	}
+	return &session.EvalCriteria{}
+}
+
 // Result contains the evaluation results for a single test case.
 type Result struct {
 	InputPath         string            `json:"input_path"`

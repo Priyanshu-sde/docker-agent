@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -942,3 +943,42 @@ type stubPullError struct {
 func (e *stubPullError) Error() string { return e.fullDetail }
 
 func (e *stubPullError) ModelPullErrorSummary() string { return e.summary }
+
+func TestProviderAPIKeyEnvVars(t *testing.T) {
+	t.Parallel()
+
+	vars := ProviderAPIKeyEnvVars()
+
+	// Sorted and deduplicated for reproducibility.
+	assert.True(t, slices.IsSorted(vars), "env vars must be sorted, got %v", vars)
+	assert.Equal(t, slices.Compact(slices.Clone(vars)), vars, "env vars must be deduplicated")
+
+	// The dedicated single-secret model API keys must be present.
+	for _, name := range []string{
+		"OPENAI_API_KEY",
+		"ANTHROPIC_API_KEY",
+		"GOOGLE_API_KEY",
+		"MISTRAL_API_KEY",
+		"OPENROUTER_API_KEY",
+		"XAI_API_KEY",
+		"NEBIUS_API_KEY",
+	} {
+		assert.Contains(t, vars, name)
+	}
+
+	// Non-secret detection/mode flags and multi-variable credential sets must
+	// never be exposed as forwardable API keys.
+	for _, name := range []string{
+		"GOOGLE_GENAI_USE_VERTEXAI",
+		"GEMINI_API_KEY",
+		"AWS_ACCESS_KEY_ID",
+		"AWS_PROFILE",
+		"AWS_ROLE_ARN",
+		"AWS_BEARER_TOKEN_BEDROCK",
+	} {
+		assert.NotContains(t, vars, name)
+	}
+
+	// Broad, general-purpose tokens must not be forwarded as model credentials.
+	assert.NotContains(t, vars, "GITHUB_TOKEN")
+}

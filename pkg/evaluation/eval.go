@@ -257,11 +257,8 @@ func (r *Runner) preBuildImages(ctx context.Context, out io.Writer, evals []Inpu
 	// Count unique images to report an accurate number.
 	unique := make(map[imageKey]struct{})
 	for _, eval := range evals {
-		var key imageKey
-		if eval.Evals != nil {
-			key = imageKey{workingDir: eval.Evals.WorkingDir, image: eval.Evals.Image}
-		}
-		unique[key] = struct{}{}
+		criteria := eval.criteria()
+		unique[imageKey{workingDir: criteria.WorkingDir, image: criteria.Image}] = struct{}{}
 	}
 
 	fmt.Fprintf(out, "Pre-building %d Docker image(s)...\n", len(unique))
@@ -289,10 +286,7 @@ func (r *Runner) preBuildImages(ctx context.Context, out io.Writer, evals []Inpu
 					continue
 				}
 
-				criteria := eval.Evals
-				if criteria == nil {
-					criteria = &session.EvalCriteria{}
-				}
+				criteria := eval.criteria()
 
 				_, err := r.getOrBuildImage(ctx, criteria)
 				results <- buildResult{title: eval.Title, err: err}
@@ -325,12 +319,7 @@ func (r *Runner) runSingleEval(ctx context.Context, evalSess *InputSession) (Res
 
 	slog.DebugContext(ctx, "Starting evaluation", "title", title)
 
-	var evals *session.EvalCriteria
-	if evalSess.Evals != nil {
-		evals = evalSess.Evals
-	} else {
-		evals = &session.EvalCriteria{}
-	}
+	evals := evalSess.criteria()
 
 	userMessages := getUserMessages(evalSess.Session)
 
@@ -418,20 +407,23 @@ func (r *Runner) runDockerAgentInContainer(ctx context.Context, imageID string, 
 	)
 
 	var env []string
+	// addEnv forwards a variable to the container: "-e NAME" tells docker to
+	// pass it through, and NAME=VALUE sets it on the docker process.
+	addEnv := func(name, value string) {
+		args = append(args, "-e", name)
+		env = append(env, name+"="+value)
+	}
 
 	if r.runConfig.ModelsGateway != "" {
-		args = append(args, "-e", "DOCKER_AGENT_MODELS_GATEWAY")
-		env = append(env, "DOCKER_AGENT_MODELS_GATEWAY="+r.runConfig.ModelsGateway)
+		addEnv("DOCKER_AGENT_MODELS_GATEWAY", r.runConfig.ModelsGateway)
 
 		if token, ok := r.runConfig.EnvProvider().Get(ctx, environment.DockerDesktopTokenEnv); ok && token != "" {
-			args = append(args, "-e", environment.DockerDesktopTokenEnv)
-			env = append(env, environment.DockerDesktopTokenEnv+"="+token)
+			addEnv(environment.DockerDesktopTokenEnv, token)
 		}
 	} else {
-		for _, name := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "NEBIUS_API_KEY"} {
+		for _, name := range config.ProviderAPIKeyEnvVars() {
 			if val, ok := r.runConfig.EnvProvider().Get(ctx, name); ok && val != "" {
-				args = append(args, "-e", name)
-				env = append(env, name+"="+val)
+				addEnv(name, val)
 			}
 		}
 	}
@@ -440,11 +432,9 @@ func (r *Runner) runDockerAgentInContainer(ctx context.Context, imageID string, 
 	// Format: KEY or KEY=VALUE
 	for _, entry := range r.EnvVars {
 		if key, val, hasValue := strings.Cut(entry, "="); hasValue && key != "" {
-			args = append(args, "-e", key)
-			env = append(env, key+"="+val)
+			addEnv(key, val)
 		} else if val, ok := r.runConfig.EnvProvider().Get(ctx, entry); ok && entry != "" {
-			args = append(args, "-e", entry)
-			env = append(env, entry+"="+val)
+			addEnv(entry, val)
 		}
 	}
 

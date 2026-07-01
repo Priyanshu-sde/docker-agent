@@ -5,11 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"slices"
 	"strings"
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider"
 )
 
 // DMRModelLister returns the IDs of the models currently available to Docker
@@ -24,6 +26,14 @@ type providerConfig struct {
 	name    string   // provider name (e.g., "anthropic")
 	envVars []string // env vars to check - provider is available if ANY is set
 	hint    string   // description for error messages
+	// apiKeyEnvVar is the single secret API-key env var that authenticates this
+	// provider and is safe to forward into an isolated environment (e.g. an eval
+	// container). It is empty when the provider has no forwardable single secret
+	// (e.g. amazon-bedrock's multi-variable AWS credentials, or DMR which needs
+	// none). It intentionally differs from envVars, which also contains non-secret
+	// detection/mode flags (e.g. GOOGLE_GENAI_USE_VERTEXAI) that must never be
+	// forwarded as credentials.
+	apiKeyEnvVar string
 }
 
 // cloudProviders defines the available cloud providers in priority order.
@@ -35,29 +45,29 @@ type providerConfig struct {
 // should set the provider explicitly (e.g. `--model opencode-go/...`) rather than
 // relying on auto; see docs/providers/opencode-go for details.
 var cloudProviders = []providerConfig{
-	{"anthropic", []string{"ANTHROPIC_API_KEY"}, "ANTHROPIC_API_KEY"},
-	{"openai", []string{"OPENAI_API_KEY"}, "OPENAI_API_KEY"},
+	{"anthropic", []string{"ANTHROPIC_API_KEY"}, "ANTHROPIC_API_KEY", "ANTHROPIC_API_KEY"},
+	{"openai", []string{"OPENAI_API_KEY"}, "OPENAI_API_KEY", "OPENAI_API_KEY"},
 	{"google", []string{
 		"GOOGLE_API_KEY",
 		"GEMINI_API_KEY",
 		"GOOGLE_GENAI_USE_VERTEXAI",
-	}, "GOOGLE_API_KEY (or GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI)"},
-	{"mistral", []string{"MISTRAL_API_KEY"}, "MISTRAL_API_KEY"},
-	{"openrouter", []string{"OPENROUTER_API_KEY"}, "OPENROUTER_API_KEY"},
-	{"baseten", []string{"BASETEN_API_KEY"}, "BASETEN_API_KEY"},
-	{"ovhcloud", []string{"OVH_AI_ENDPOINTS_ACCESS_TOKEN"}, "OVH_AI_ENDPOINTS_ACCESS_TOKEN"},
-	{"groq", []string{"GROQ_API_KEY"}, "GROQ_API_KEY"},
-	{"fireworks", []string{"FIREWORKS_API_KEY"}, "FIREWORKS_API_KEY"},
-	{"deepseek", []string{"DEEPSEEK_API_KEY"}, "DEEPSEEK_API_KEY"},
-	{"cerebras", []string{"CEREBRAS_API_KEY"}, "CEREBRAS_API_KEY"},
+	}, "GOOGLE_API_KEY (or GEMINI_API_KEY, GOOGLE_GENAI_USE_VERTEXAI)", "GOOGLE_API_KEY"},
+	{"mistral", []string{"MISTRAL_API_KEY"}, "MISTRAL_API_KEY", "MISTRAL_API_KEY"},
+	{"openrouter", []string{"OPENROUTER_API_KEY"}, "OPENROUTER_API_KEY", "OPENROUTER_API_KEY"},
+	{"baseten", []string{"BASETEN_API_KEY"}, "BASETEN_API_KEY", "BASETEN_API_KEY"},
+	{"ovhcloud", []string{"OVH_AI_ENDPOINTS_ACCESS_TOKEN"}, "OVH_AI_ENDPOINTS_ACCESS_TOKEN", "OVH_AI_ENDPOINTS_ACCESS_TOKEN"},
+	{"groq", []string{"GROQ_API_KEY"}, "GROQ_API_KEY", "GROQ_API_KEY"},
+	{"fireworks", []string{"FIREWORKS_API_KEY"}, "FIREWORKS_API_KEY", "FIREWORKS_API_KEY"},
+	{"deepseek", []string{"DEEPSEEK_API_KEY"}, "DEEPSEEK_API_KEY", "DEEPSEEK_API_KEY"},
+	{"cerebras", []string{"CEREBRAS_API_KEY"}, "CEREBRAS_API_KEY", "CEREBRAS_API_KEY"},
 	{"amazon-bedrock", []string{
 		"AWS_BEARER_TOKEN_BEDROCK",
 		"AWS_ACCESS_KEY_ID",
 		"AWS_PROFILE",
 		"AWS_ROLE_ARN",
-	}, "AWS_ACCESS_KEY_ID (or AWS_PROFILE, AWS_ROLE_ARN, AWS_BEARER_TOKEN_BEDROCK)"},
-	{"opencode-zen", []string{"OPENCODE_API_KEY"}, "OPENCODE_API_KEY"},
-	{"opencode-go", []string{"OPENCODE_API_KEY"}, "OPENCODE_API_KEY"},
+	}, "AWS_ACCESS_KEY_ID (or AWS_PROFILE, AWS_ROLE_ARN, AWS_BEARER_TOKEN_BEDROCK)", ""},
+	{"opencode-zen", []string{"OPENCODE_API_KEY"}, "OPENCODE_API_KEY", "OPENCODE_API_KEY"},
+	{"opencode-go", []string{"OPENCODE_API_KEY"}, "OPENCODE_API_KEY", "OPENCODE_API_KEY"},
 }
 
 // AutoModelFallbackError is returned when auto model selection fails because
@@ -122,6 +132,43 @@ var DefaultModels = map[string]string{
 	"amazon-bedrock": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
 	"opencode-go":    "deepseek-v4-flash",
 	"opencode-zen":   "deepseek-v4-flash-free",
+}
+
+// nonForwardableTokenEnvVars lists provider token env vars that are NOT safe to
+// forward as model credentials into an isolated environment (e.g. an eval
+// container), even though a provider alias uses them for auth. GITHUB_TOKEN is
+// a broad, general-purpose GitHub credential (git, gh, CI, packages) that the
+// github-copilot alias happens to reuse; forwarding it would leak far more
+// access than a dedicated model API key.
+var nonForwardableTokenEnvVars = map[string]bool{
+	"GITHUB_TOKEN": true,
+}
+
+// ProviderAPIKeyEnvVars returns the deduplicated, sorted set of environment
+// variables that hold a dedicated model-provider API key. Callers that need to
+// forward provider credentials (e.g. into a container) should use this instead
+// of hard-coding a list of API key names, so it stays in sync as providers are
+// added.
+//
+// It only includes single-secret API keys: it deliberately excludes non-secret
+// detection/mode flags (e.g. GOOGLE_GENAI_USE_VERTEXAI), multi-variable
+// credential sets that cannot be forwarded as one secret (e.g. AWS/Bedrock),
+// and broad general-purpose tokens (see nonForwardableTokenEnvVars). Providers
+// needing those must be given credentials explicitly.
+func ProviderAPIKeyEnvVars() []string {
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name != "" && !nonForwardableTokenEnvVars[name] {
+			seen[name] = true
+		}
+	}
+	for _, p := range cloudProviders {
+		add(p.apiKeyEnvVar)
+	}
+	for _, alias := range provider.EachAlias() {
+		add(alias.TokenEnvVar)
+	}
+	return slices.Sorted(maps.Keys(seen))
 }
 
 func AvailableProviders(ctx context.Context, modelsGateway string, env environment.Provider) []string {
@@ -275,9 +322,9 @@ func looksLikeEmbeddingModel(modelID string) bool {
 	return strings.Contains(strings.ToLower(modelID), "embed")
 }
 
-func PreferredMaxTokens(provider string) *int64 {
+func PreferredMaxTokens(providerName string) *int64 {
 	var mt int64 = 32000
-	if provider == "dmr" {
+	if providerName == "dmr" {
 		mt = 16000
 	}
 	return &mt
