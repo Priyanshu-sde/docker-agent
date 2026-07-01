@@ -10,6 +10,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/model/provider"
 )
 
 // DMRModelLister returns the IDs of the models currently available to Docker
@@ -122,6 +123,32 @@ var DefaultModels = map[string]string{
 	"amazon-bedrock": "global.anthropic.claude-sonnet-4-5-20250929-v1:0",
 	"opencode-go":    "deepseek-v4-flash",
 	"opencode-zen":   "deepseek-v4-flash-free",
+}
+
+// ProviderAPIKeyEnvVars returns the deduplicated set of environment variables
+// used to authenticate cloud providers. Callers that need to forward provider
+// credentials (e.g. into a container) should use this instead of hard-coding a
+// list of API key names. It combines the auto-selection detection vars with the
+// token env vars declared by provider aliases (xai, nebius, ...), so it stays
+// in sync as providers are added.
+func ProviderAPIKeyEnvVars() []string {
+	var envVars []string
+	seen := map[string]bool{}
+	add := func(name string) {
+		if name != "" && !seen[name] {
+			seen[name] = true
+			envVars = append(envVars, name)
+		}
+	}
+	for _, p := range cloudProviders {
+		for _, envVar := range p.envVars {
+			add(envVar)
+		}
+	}
+	for _, alias := range provider.EachAlias() {
+		add(alias.TokenEnvVar)
+	}
+	return envVars
 }
 
 func AvailableProviders(ctx context.Context, modelsGateway string, env environment.Provider) []string {
@@ -275,9 +302,9 @@ func looksLikeEmbeddingModel(modelID string) bool {
 	return strings.Contains(strings.ToLower(modelID), "embed")
 }
 
-func PreferredMaxTokens(provider string) *int64 {
+func PreferredMaxTokens(providerName string) *int64 {
 	var mt int64 = 32000
-	if provider == "dmr" {
+	if providerName == "dmr" {
 		mt = 16000
 	}
 	return &mt

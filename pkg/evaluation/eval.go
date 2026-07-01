@@ -428,7 +428,7 @@ func (r *Runner) runDockerAgentInContainer(ctx context.Context, imageID string, 
 			env = append(env, environment.DockerDesktopTokenEnv+"="+token)
 		}
 	} else {
-		for _, name := range []string{"OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "MISTRAL_API_KEY", "OPENROUTER_API_KEY", "XAI_API_KEY", "NEBIUS_API_KEY"} {
+		for _, name := range config.ProviderAPIKeyEnvVars() {
 			if val, ok := r.runConfig.EnvProvider().Get(ctx, name); ok && val != "" {
 				args = append(args, "-e", name)
 				env = append(env, name+"="+val)
