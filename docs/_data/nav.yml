@@ -135,42 +135,42 @@
   items:
     - title: Overview
       url: /providers/overview/
-    - title: OpenAI
-      url: /providers/openai/
     - title: Anthropic
       url: /providers/anthropic/
-    - title: Google Gemini
-      url: /providers/google/
     - title: AWS Bedrock
       url: /providers/bedrock/
-    - title: Docker Model Runner
-      url: /providers/dmr/
-    - title: OpenCode Zen
-      url: /providers/opencode-zen/
-    - title: OpenCode Go
-      url: /providers/opencode-go/
-    - title: Mistral
-      url: /providers/mistral/
-    - title: "xAI (Grok)"
-      url: /providers/xai/
-    - title: Nebius
-      url: /providers/nebius/
     - title: Baseten
       url: /providers/baseten/
-    - title: OVHcloud
-      url: /providers/ovhcloud/
-    - title: Groq
-      url: /providers/groq/
     - title: DeepSeek
       url: /providers/deepseek/
-    - title: MiniMax
-      url: /providers/minimax/
-    - title: OpenRouter
-      url: /providers/openrouter/
+    - title: Docker Model Runner
+      url: /providers/dmr/
     - title: GitHub Copilot
       url: /providers/github-copilot/
+    - title: Google Gemini
+      url: /providers/google/
+    - title: Groq
+      url: /providers/groq/
     - title: Local Models
       url: /providers/local/
+    - title: MiniMax
+      url: /providers/minimax/
+    - title: Mistral
+      url: /providers/mistral/
+    - title: Nebius
+      url: /providers/nebius/
+    - title: OpenAI
+      url: /providers/openai/
+    - title: OpenCode Go
+      url: /providers/opencode-go/
+    - title: OpenCode Zen
+      url: /providers/opencode-zen/
+    - title: OpenRouter
+      url: /providers/openrouter/
+    - title: OVHcloud
+      url: /providers/ovhcloud/
+    - title: "xAI (Grok)"
+      url: /providers/xai/
     - title: Provider Definitions
       url: /providers/custom/
 
