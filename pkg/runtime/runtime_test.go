@@ -4172,3 +4172,41 @@ func TestEmptyTrailingTurnAfterToolCallsIsSilent(t *testing.T) {
 		}
 	}
 }
+
+// TestEmptyTurnWarning exercises the pure classification helper directly,
+// covering each branch without spinning up a full run loop.
+func TestEmptyTurnWarning(t *testing.T) {
+	t.Parallel()
+
+	t.Run("benign stop after tool calls is silent", func(t *testing.T) {
+		res := streamResult{Stopped: true}
+		got := emptyTurnWarning(res, true, "test/model", chat.FinishReasonStop)
+		assert.Empty(t, got)
+	})
+
+	t.Run("reasoning-only turn warns about reasoning", func(t *testing.T) {
+		res := streamResult{Stopped: true, ReasoningContent: "thinking..."}
+		got := emptyTurnWarning(res, false, "test/model", chat.FinishReasonStop)
+		assert.Contains(t, got, "only reasoning")
+	})
+
+	t.Run("benign check takes precedence over reasoning-only", func(t *testing.T) {
+		// A reasoning-only turn that naturally stops right after tool work is
+		// still benign: the tool calls were the turn's real output.
+		res := streamResult{Stopped: true, ReasoningContent: "thinking..."}
+		got := emptyTurnWarning(res, true, "test/model", chat.FinishReasonStop)
+		assert.Empty(t, got)
+	})
+
+	t.Run("empty turn without prior tool calls warns", func(t *testing.T) {
+		res := streamResult{Stopped: true}
+		got := emptyTurnWarning(res, false, "test/model", chat.FinishReasonStop)
+		assert.Contains(t, got, "empty response")
+	})
+
+	t.Run("non-stop empty turn after tool calls still warns", func(t *testing.T) {
+		res := streamResult{Stopped: false}
+		got := emptyTurnWarning(res, true, "test/model", chat.FinishReasonNull)
+		assert.Contains(t, got, "empty response")
+	})
+}
