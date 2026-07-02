@@ -2,7 +2,6 @@
 title: "xAI (Grok)"
 description: "Use xAI's Grok models with docker-agent."
 keywords: docker agent, ai agents, model providers, llm, xai (grok)
-linkTitle: ""xAI (Grok)""
 weight: 270
 ---
 
