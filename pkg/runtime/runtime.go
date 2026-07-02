@@ -143,6 +143,14 @@ type Runtime interface {
 	// support thinking-effort selection.
 	CycleAgentThinkingLevel(ctx context.Context, agentName string) (effort.Level, error)
 
+	// SetAgentThinkingLevel sets the named agent's thinking-effort level to
+	// the requested value, applies it as a runtime model override, and
+	// returns the applied level. The level must be one the current model
+	// supports. Returns [ErrUnsupported] for runtimes that can't switch
+	// models (e.g. remote runtimes) or for models that don't support
+	// thinking-effort selection.
+	SetAgentThinkingLevel(ctx context.Context, agentName string, level effort.Level) (effort.Level, error)
+
 	// AvailableModels returns the models the user can pick from in the
 	// /model picker. Returns nil for runtimes that don't expose model
 	// switching; see SupportsModelSwitching for a cheap pre-check.

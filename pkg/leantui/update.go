@@ -11,6 +11,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/tools"
 	"github.com/docker/docker-agent/pkg/tui/messages"
@@ -142,6 +143,38 @@ func (m *model) handleCycleThinkingLevel(ctx context.Context) {
 	m.status.thinking = level.String()
 }
 
+// handleSetThinkingLevel applies the /effort command: it sets the current
+// model's reasoning-effort level to the requested value.
+func (m *model) handleSetThinkingLevel(ctx context.Context, level string) {
+	if m.app == nil {
+		return
+	}
+	if !m.app.SupportsModelSwitching() {
+		m.addNotice("", "Thinking levels can't be changed with remote runtimes", stMuted())
+		return
+	}
+	if level == "" {
+		m.addNotice("", "Usage: /effort <none|minimal|low|medium|high|xhigh|max>", stMuted())
+		return
+	}
+	parsed, ok := effort.Parse(level)
+	if !ok {
+		m.addNotice("✗ ", fmt.Sprintf("Unknown effort level %q (valid: none, minimal, low, medium, high, xhigh, max)", level), stError())
+		return
+	}
+	applied, err := m.app.SetAgentThinkingLevel(ctx, parsed)
+	if err != nil {
+		if errors.Is(err, runtime.ErrUnsupported) {
+			m.addNotice("", "Current model does not support thinking levels", stMuted())
+			return
+		}
+		m.addNotice("✗ ", fmt.Sprintf("Failed to set thinking level: %v", err), stError())
+		return
+	}
+	m.status.thinking = applied.String()
+	m.addNotice("", "Reasoning effort set to "+applied.String(), stMuted())
+}
+
 func (m *model) submit(ctx context.Context, text string) {
 	trimmed := strings.TrimSpace(text)
 	if trimmed == "" {
@@ -188,6 +221,9 @@ func (m *model) handleSlash(ctx context.Context, text string) bool {
 	case "compact":
 		m.addUserEcho(text)
 		m.startCompact(ctx, rest)
+		return true
+	case "effort":
+		m.handleSetThinkingLevel(ctx, rest)
 		return true
 	}
 
@@ -704,6 +740,7 @@ func (m *model) commitHelp() {
 			stBold().Render("Commands"),
 			stMuted().Render("  /new       start a new session"),
 			stMuted().Render("  /compact   summarize and compact the conversation"),
+			stMuted().Render("  /effort    set the model's reasoning effort (e.g. /effort high)"),
 			stMuted().Render("  /clear     clear the screen"),
 			stMuted().Render("  /help      show this help"),
 			stMuted().Render("  /exit      quit"),

@@ -217,6 +217,89 @@ func TestCycleAgentThinkingLevel_AdvancesAndOverrides(t *testing.T) {
 	assert.Equal(t, effort.Low, level)
 }
 
+func TestSetAgentThinkingLevel(t *testing.T) {
+	t.Parallel()
+
+	newThinkingRuntime := func(cfg latest.ModelConfig, env map[string]string) (*LocalRuntime, *agent.Agent) {
+		root := agent.New("root", "test", agent.WithModel(newConfigProvider(cfg)))
+		r := &LocalRuntime{
+			team: team.New(team.WithAgents(root)),
+			modelSwitcherCfg: &ModelSwitcherConfig{
+				ProviderRegistry: testProviderRegistry(),
+				EnvProvider:      environment.NewMapEnvProvider(env),
+			},
+		}
+		return r, root
+	}
+
+	t.Run("supported level installs override", func(t *testing.T) {
+		t.Parallel()
+		r, root := newThinkingRuntime(
+			latest.ModelConfig{Provider: "openai", Model: "gpt-5"},
+			map[string]string{"OPENAI_API_KEY": "sk-test"},
+		)
+
+		level, err := r.SetAgentThinkingLevel(t.Context(), "root", effort.High)
+		require.NoError(t, err)
+		assert.Equal(t, effort.High, level)
+		require.True(t, root.HasModelOverride(), "setting a level must install a runtime override")
+
+		override := root.Model(t.Context())
+		require.NotNil(t, override)
+		budget := override.BaseConfig().ModelConfig.ThinkingBudget
+		require.NotNil(t, budget)
+		assert.Equal(t, "high", budget.Effort)
+	})
+
+	t.Run("unsupported level errors and lists supported levels", func(t *testing.T) {
+		t.Parallel()
+		r, root := newThinkingRuntime(
+			latest.ModelConfig{Provider: "openai", Model: "gpt-5"},
+			map[string]string{"OPENAI_API_KEY": "sk-test"},
+		)
+
+		// gpt-5 tops out at high: max must be rejected, not clamped.
+		_, err := r.SetAgentThinkingLevel(t.Context(), "root", effort.Max)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "not supported")
+		assert.Contains(t, err.Error(), "high")
+		assert.False(t, root.HasModelOverride(), "no override should be set on rejection")
+	})
+
+	t.Run("non-reasoning model is unsupported", func(t *testing.T) {
+		t.Parallel()
+		r, root := newThinkingRuntime(
+			latest.ModelConfig{Provider: "openai", Model: "gpt-4o"},
+			map[string]string{"OPENAI_API_KEY": "sk-test"},
+		)
+
+		_, err := r.SetAgentThinkingLevel(t.Context(), "root", effort.High)
+		require.ErrorIs(t, err, ErrUnsupported)
+		assert.False(t, root.HasModelOverride())
+	})
+
+	t.Run("nil modelSwitcherCfg is unsupported", func(t *testing.T) {
+		t.Parallel()
+		root := agent.New("root", "test")
+		r := &LocalRuntime{team: team.New(team.WithAgents(root))}
+
+		_, err := r.SetAgentThinkingLevel(t.Context(), "root", effort.High)
+		require.ErrorIs(t, err, ErrUnsupported)
+	})
+
+	t.Run("model-specific top tier is accepted", func(t *testing.T) {
+		t.Parallel()
+		r, _ := newThinkingRuntime(
+			latest.ModelConfig{Provider: "anthropic", Model: "claude-opus-4-7"},
+			map[string]string{"ANTHROPIC_API_KEY": "sk-test"},
+		)
+
+		level, err := r.SetAgentThinkingLevel(t.Context(), "root", effort.Max)
+		require.NoError(t, err)
+		assert.Equal(t, effort.Max, level)
+	})
+}
+
 // TestCycleAgentThinkingLevel_PerModelTopTier verifies that cycling only
 // offers the top effort tiers to the Claude models whose API accepts them.
 func TestCycleAgentThinkingLevel_PerModelTopTier(t *testing.T) {

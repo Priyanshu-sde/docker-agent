@@ -194,6 +194,39 @@ func (r *LocalRuntime) SupportsModelSwitching() bool {
 // supports (see [modelinfo.SupportedThinkingLevels]), re-creates the
 // provider(s) with the new level, and installs them as a runtime override.
 func (r *LocalRuntime) CycleAgentThinkingLevel(ctx context.Context, agentName string) (effort.Level, error) {
+	return r.applyAgentThinkingLevel(ctx, agentName, func(supported []effort.Level, current effort.Level) (effort.Level, error) {
+		// Clamp first so a configured level the model does not support re-enters
+		// the cycle at the nearest supported tier instead of resetting it.
+		return effort.NextSupportedLevel(supported, effort.Clamp(supported, current)), nil
+	})
+}
+
+// SetAgentThinkingLevel implements [Runtime.SetAgentThinkingLevel] for
+// LocalRuntime. The requested level must be one the agent's current model
+// supports; otherwise an error listing the supported levels is returned.
+func (r *LocalRuntime) SetAgentThinkingLevel(ctx context.Context, agentName string, level effort.Level) (effort.Level, error) {
+	return r.applyAgentThinkingLevel(ctx, agentName, func(supported []effort.Level, _ effort.Level) (effort.Level, error) {
+		if !slices.Contains(supported, level) {
+			return "", fmt.Errorf("thinking level %q is not supported by this model (supported: %s)", level, levelNames(supported))
+		}
+		return level, nil
+	})
+}
+
+// levelNames renders levels as a comma-separated list for error messages.
+func levelNames(levels []effort.Level) string {
+	names := make([]string, len(levels))
+	for i, l := range levels {
+		names[i] = string(l)
+	}
+	return strings.Join(names, ", ")
+}
+
+// applyAgentThinkingLevel resolves the agent's current model, asks pick to
+// choose the target level among the model's supported ones, re-creates the
+// effective provider(s) with that level, and installs them as a runtime
+// override.
+func (r *LocalRuntime) applyAgentThinkingLevel(ctx context.Context, agentName string, pick func(supported []effort.Level, current effort.Level) (effort.Level, error)) (effort.Level, error) {
 	if r.modelSwitcherCfg == nil {
 		return "", ErrUnsupported
 	}
@@ -214,10 +247,10 @@ func (r *LocalRuntime) CycleAgentThinkingLevel(ctx context.Context, agentName st
 	}
 
 	supported := modelinfo.SupportedThinkingLevels(baseCfg.Provider, baseCfg.Model)
-	// Clamp first so a configured level the model does not support re-enters
-	// the cycle at the nearest supported tier instead of resetting it.
-	current := effort.Clamp(supported, currentThinkingLevel(&baseCfg))
-	next := effort.NextSupportedLevel(supported, current)
+	next, err := pick(supported, currentThinkingLevel(&baseCfg))
+	if err != nil {
+		return "", err
+	}
 
 	// Re-create each effective provider (alloy models can have several) with
 	// the new thinking level so the override preserves the existing pool.
@@ -234,7 +267,7 @@ func (r *LocalRuntime) CycleAgentThinkingLevel(ctx context.Context, agentName st
 	}
 
 	a.SetModelOverride(newProviders...)
-	slog.InfoContext(ctx, "Cycled agent thinking level", "agent", agentName, "level", next)
+	slog.InfoContext(ctx, "Set agent thinking level", "agent", agentName, "level", next)
 	return next, nil
 }
 

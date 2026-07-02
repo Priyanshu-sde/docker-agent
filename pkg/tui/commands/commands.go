@@ -129,6 +129,17 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
+			ID:           "session.effort",
+			Label:        "Effort",
+			SlashCommand: "/effort",
+			Description:  "Set the reasoning effort of the current model (usage: /effort <level>)",
+			Category:     "Session",
+			Immediate:    true,
+			Execute: func(arg string) tea.Cmd {
+				return core.CmdHandler(messages.SetThinkingLevelMsg{Level: strings.TrimSpace(arg)})
+			},
+		},
+		{
 			ID:           "session.eval",
 			Label:        "Eval",
 			SlashCommand: "/eval",

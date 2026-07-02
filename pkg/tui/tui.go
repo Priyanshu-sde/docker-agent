@@ -1016,6 +1016,9 @@ func (m *appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ChangeModelMsg:
 		return m.handleChangeModel(msg.ModelRef)
 
+	case messages.SetThinkingLevelMsg:
+		return m.handleSetThinkingLevel(msg.Level)
+
 	// --- Theme picker ---
 
 	case messages.OpenThemePickerMsg:

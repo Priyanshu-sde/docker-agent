@@ -125,6 +125,26 @@ func TestParseSlashCommand_OtherCommands(t *testing.T) {
 		assert.True(t, ok)
 	})
 
+	t.Run("effort command with level", func(t *testing.T) {
+		t.Parallel()
+		cmd := parser.Parse("/effort high")
+		require.NotNil(t, cmd)
+		msg := cmd()
+		setMsg, ok := msg.(messages.SetThinkingLevelMsg)
+		require.True(t, ok)
+		assert.Equal(t, "high", setMsg.Level)
+	})
+
+	t.Run("effort command without level", func(t *testing.T) {
+		t.Parallel()
+		cmd := parser.Parse("/effort")
+		require.NotNil(t, cmd)
+		msg := cmd()
+		setMsg, ok := msg.(messages.SetThinkingLevelMsg)
+		require.True(t, ok)
+		assert.Empty(t, setMsg.Level)
+	})
+
 	t.Run("unknown command returns nil", func(t *testing.T) {
 		t.Parallel()
 		cmd := parser.Parse("/unknown")

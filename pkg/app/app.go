@@ -1013,6 +1013,21 @@ func (a *App) CycleAgentThinkingLevel(ctx context.Context) (effort.Level, error)
 	return level, nil
 }
 
+// SetAgentThinkingLevel sets the current agent's thinking-effort level to the
+// requested value and returns the applied level. Like
+// [App.CycleAgentThinkingLevel], the change applies to the running session
+// only. Returns an error wrapping [runtime.ErrUnsupported] when the runtime
+// or model cannot switch thinking levels.
+func (a *App) SetAgentThinkingLevel(ctx context.Context, level effort.Level) (effort.Level, error) {
+	agentName := a.runtime.CurrentAgentName(ctx)
+	applied, err := a.runtime.SetAgentThinkingLevel(ctx, agentName, level)
+	if err != nil {
+		return "", err
+	}
+	a.refreshAgentInfo(ctx)
+	return applied, nil
+}
+
 // refreshAgentInfo pushes fresh agent and team info through the events channel
 // without re-running the heavier startup steps (tool discovery, token usage).
 func (a *App) refreshAgentInfo(ctx context.Context) {

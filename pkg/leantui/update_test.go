@@ -21,6 +21,8 @@ type cycleThinkingRuntime struct {
 	level      effort.Level
 	err        error
 	cycleCalls int
+	setCalls   int
+	setLevel   effort.Level
 }
 
 func (r *cycleThinkingRuntime) CurrentAgentInfo(context.Context) runtime.CurrentAgentInfo {
@@ -95,6 +97,15 @@ func (r *cycleThinkingRuntime) CycleAgentThinkingLevel(context.Context, string) 
 	}
 	return r.level, nil
 }
+
+func (r *cycleThinkingRuntime) SetAgentThinkingLevel(_ context.Context, _ string, level effort.Level) (effort.Level, error) {
+	r.setCalls++
+	if r.err != nil {
+		return "", r.err
+	}
+	r.setLevel = level
+	return level, nil
+}
 func (r *cycleThinkingRuntime) AvailableModels(context.Context) []runtime.ModelChoice { return nil }
 func (r *cycleThinkingRuntime) SupportsModelSwitching() bool                          { return r.supports }
 func (r *cycleThinkingRuntime) OnToolsChanged(func(runtime.Event))                    {}
@@ -123,6 +134,32 @@ func TestShiftTabReportsUnsupportedThinkingLevel(t *testing.T) {
 	m.handleKey(t.Context(), key{typ: keyShiftTab})
 
 	assert.Equal(t, 1, rt.cycleCalls)
+	assert.Empty(t, m.status.thinking)
+	assert.Len(t, m.blocks, 1)
+}
+
+func TestEffortCommandSetsThinkingLevel(t *testing.T) {
+	t.Parallel()
+	rt := &cycleThinkingRuntime{supports: true}
+	m := bareModel(24)
+	m.app = app.New(t.Context(), rt, session.New())
+
+	m.handleSetThinkingLevel(t.Context(), "high")
+
+	assert.Equal(t, 1, rt.setCalls)
+	assert.Equal(t, effort.High, rt.setLevel)
+	assert.Equal(t, "high", m.status.thinking)
+}
+
+func TestEffortCommandRejectsUnknownLevel(t *testing.T) {
+	t.Parallel()
+	rt := &cycleThinkingRuntime{supports: true}
+	m := bareModel(24)
+	m.app = app.New(t.Context(), rt, session.New())
+
+	m.handleSetThinkingLevel(t.Context(), "turbo")
+
+	assert.Zero(t, rt.setCalls)
 	assert.Empty(t, m.status.thinking)
 	assert.Len(t, m.blocks, 1)
 }

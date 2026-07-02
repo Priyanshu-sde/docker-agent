@@ -16,6 +16,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/app"
 	"github.com/docker/docker-agent/pkg/browser"
+	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/evaluation"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
@@ -558,6 +559,31 @@ func (m *appModel) handleCycleThinkingLevel() (tea.Model, tea.Cmd) {
 		return m, notification.ErrorCmd(fmt.Sprintf("Failed to change thinking level: %v", err))
 	}
 	return m, nil
+}
+
+// handleSetThinkingLevel applies the /effort command: it sets the current
+// model's reasoning-effort level to the requested value. An empty level
+// shows usage; unsupported levels surface the model's supported list via
+// the runtime error.
+func (m *appModel) handleSetThinkingLevel(level string) (tea.Model, tea.Cmd) {
+	if !m.application.SupportsModelSwitching() {
+		return m, notification.InfoCmd("Thinking levels can't be changed with remote runtimes")
+	}
+	if level == "" {
+		return m, notification.InfoCmd("Usage: /effort <none|minimal|low|medium|high|xhigh|max>")
+	}
+	parsed, ok := effort.Parse(level)
+	if !ok {
+		return m, notification.ErrorCmd(fmt.Sprintf("Unknown effort level %q (valid: none, minimal, low, medium, high, xhigh, max)", level))
+	}
+	applied, err := m.application.SetAgentThinkingLevel(m.ctx(), parsed)
+	if err != nil {
+		if errors.Is(err, runtime.ErrUnsupported) {
+			return m, notification.InfoCmd("Current model does not support thinking levels")
+		}
+		return m, notification.ErrorCmd(fmt.Sprintf("Failed to set thinking level: %v", err))
+	}
+	return m, notification.SuccessCmd("Reasoning effort set to " + applied.String())
 }
 
 func (m *appModel) handleChangeModel(modelRef string) (tea.Model, tea.Cmd) {

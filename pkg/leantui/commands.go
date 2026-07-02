@@ -25,6 +25,7 @@ func builtinCommands() []command {
 	return []command{
 		{name: "new", desc: "Start a new session", kind: cmdBuiltin},
 		{name: "compact", desc: "Summarize and compact the conversation", kind: cmdBuiltin},
+		{name: "effort", desc: "Set the model's reasoning effort (usage: /effort <level>)", kind: cmdBuiltin},
 		{name: "clear", desc: "Clear the screen", kind: cmdBuiltin},
 		{name: "help", desc: "Show keyboard shortcuts and commands", kind: cmdBuiltin},
 		{name: "exit", desc: "Exit", kind: cmdBuiltin},

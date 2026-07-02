@@ -17,4 +17,8 @@ type (
 
 	// ChangeModelMsg changes the model for the current agent.
 	ChangeModelMsg struct{ ModelRef string }
+
+	// SetThinkingLevelMsg sets the reasoning-effort level of the current
+	// agent's model (/effort command). An empty Level shows usage.
+	SetThinkingLevelMsg struct{ Level string }
 )

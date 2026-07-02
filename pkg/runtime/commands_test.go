@@ -85,6 +85,10 @@ func (m *mockRuntime) SetAgentModel(context.Context, string, string) error    { 
 func (m *mockRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
 	return "", ErrUnsupported
 }
+
+func (m *mockRuntime) SetAgentThinkingLevel(context.Context, string, effort.Level) (effort.Level, error) {
+	return "", ErrUnsupported
+}
 func (m *mockRuntime) AvailableModels(context.Context) []ModelChoice { return nil }
 func (m *mockRuntime) SupportsModelSwitching() bool                  { return false }
 func (m *mockRuntime) OnToolsChanged(func(Event))                    {}

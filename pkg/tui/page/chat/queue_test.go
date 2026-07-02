@@ -100,6 +100,10 @@ func (queueTestRuntime) SetAgentModel(context.Context, string, string) error    
 func (queueTestRuntime) CycleAgentThinkingLevel(context.Context, string) (effort.Level, error) {
 	return "", runtime.ErrUnsupported
 }
+
+func (queueTestRuntime) SetAgentThinkingLevel(context.Context, string, effort.Level) (effort.Level, error) {
+	return "", runtime.ErrUnsupported
+}
 func (queueTestRuntime) AvailableModels(context.Context) []runtime.ModelChoice { return nil }
 func (queueTestRuntime) SupportsModelSwitching() bool                          { return false }
 func (queueTestRuntime) OnToolsChanged(func(runtime.Event))                    {}

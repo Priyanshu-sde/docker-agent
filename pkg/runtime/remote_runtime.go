@@ -616,6 +616,12 @@ func (r *RemoteRuntime) CycleAgentThinkingLevel(context.Context, string) (effort
 	return "", ErrUnsupported
 }
 
+// SetAgentThinkingLevel is unsupported on remote runtimes; the server owns
+// model configuration including thinking-effort selection.
+func (r *RemoteRuntime) SetAgentThinkingLevel(context.Context, string, effort.Level) (effort.Level, error) {
+	return "", ErrUnsupported
+}
+
 // SupportsModelSwitching returns true for remote runtimes (model switching is handled server-side).
 func (r *RemoteRuntime) SupportsModelSwitching() bool {
 	return true
