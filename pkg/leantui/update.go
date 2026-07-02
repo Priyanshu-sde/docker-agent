@@ -277,7 +277,9 @@ func (m *model) handleEvent(ctx context.Context, ev any) {
 	switch e := ev.(type) {
 	case *runtime.StreamStartedEvent:
 		m.busy = true
+		m.trackStreamStarted(e.SessionID)
 	case *runtime.StreamStoppedEvent:
+		m.trackStreamStopped()
 		m.handleStreamStopped(ctx)
 	case *runtime.AgentChoiceReasoningEvent:
 		m.appendPending(blockReasoning, e.Content)
@@ -314,11 +316,7 @@ func (m *model) handleEvent(ctx context.Context, ev any) {
 			toolView: *newToolView(e.GetAgentName(), e.ToolCall, toolDef, tuitypes.ToolStatusConfirmation),
 		}
 	case *runtime.TokenUsageEvent:
-		if e.Usage != nil {
-			m.status.contextLength = e.Usage.ContextLength
-			m.status.contextLimit = e.Usage.ContextLimit
-			m.status.tokens = e.Usage.InputTokens + e.Usage.OutputTokens
-		}
+		m.setTokenUsage(e.SessionID, e.Usage)
 	case *runtime.AgentInfoEvent:
 		m.status.agent = e.AgentName
 		if m.sessionState != nil {
@@ -326,6 +324,9 @@ func (m *model) handleEvent(ctx context.Context, ev any) {
 		}
 		if e.Model != "" {
 			m.status.model = e.Model
+		}
+		if e.ContextLimit > 0 {
+			m.status.contextLimit = e.ContextLimit
 		}
 	case *runtime.TeamInfoEvent:
 		m.applyTeamInfo(ctx, e)
@@ -355,9 +356,105 @@ func (m *model) handleStreamStopped(ctx context.Context) {
 		return
 	}
 
-	if m.app.ShouldExitAfterFirstResponse() {
+	if m.app != nil && m.app.ShouldExitAfterFirstResponse() {
 		m.quit()
 	}
+}
+
+func (m *model) trackStreamStarted(sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	if len(m.sessionStack) == 0 {
+		m.rootSessionID = sessionID
+	}
+	m.sessionStack = append(m.sessionStack, sessionID)
+	m.applyUsageSnapshot()
+}
+
+func (m *model) trackStreamStopped() {
+	if n := len(m.sessionStack); n > 0 {
+		m.sessionStack = m.sessionStack[:n-1]
+	}
+	m.applyUsageSnapshot()
+}
+
+func (m *model) setTokenUsage(sessionID string, usage *runtime.Usage) {
+	if usage == nil {
+		return
+	}
+
+	snapshot := usageSnapshot{
+		contextLength: usage.ContextLength,
+		contextLimit:  usage.ContextLimit,
+		tokens:        usage.InputTokens + usage.OutputTokens,
+		cost:          usage.Cost,
+	}
+	if sessionID == "" {
+		// Once session-scoped usage exists, it is authoritative for the chat
+		// footer. Empty-session usage comes from side work such as RAG indexing.
+		if len(m.usageBySession) == 0 {
+			m.applyStatusUsage(snapshot, usage.Cost, true)
+		}
+		return
+	}
+	if m.usageBySession == nil {
+		m.usageBySession = make(map[string]usageSnapshot)
+	}
+	if m.rootSessionID == "" && len(m.usageBySession) == 0 {
+		m.rootSessionID = sessionID
+	}
+	m.usageBySession[sessionID] = snapshot
+	m.latestUsageSessionID = sessionID
+	m.applyUsageSnapshot()
+}
+
+func (m *model) applyUsageSnapshot() {
+	if len(m.usageBySession) == 0 {
+		return
+	}
+
+	var totalCost float64
+	for _, usage := range m.usageBySession {
+		totalCost += usage.cost
+	}
+
+	if usage, ok := m.activeUsage(); ok {
+		m.applyStatusUsage(usage, totalCost, true)
+		return
+	}
+
+	m.status.cost = totalCost
+	m.status.costKnown = true
+}
+
+func (m *model) activeUsage() (usageSnapshot, bool) {
+	if n := len(m.sessionStack); n > 0 {
+		usage, ok := m.usageBySession[m.sessionStack[n-1]]
+		return usage, ok
+	}
+	if m.rootSessionID != "" {
+		usage, ok := m.usageBySession[m.rootSessionID]
+		return usage, ok
+	}
+	if m.latestUsageSessionID != "" {
+		usage, ok := m.usageBySession[m.latestUsageSessionID]
+		return usage, ok
+	}
+	if len(m.usageBySession) == 1 {
+		for _, usage := range m.usageBySession {
+			return usage, true
+		}
+	}
+	return usageSnapshot{}, false
+}
+
+func (m *model) applyStatusUsage(usage usageSnapshot, cost float64, costKnown bool) {
+	m.status.contextLength = usage.contextLength
+	m.status.contextLimit = usage.contextLimit
+	m.status.tokens = usage.tokens
+	m.status.cost = cost
+	m.status.costKnown = costKnown
 }
 
 func (m *model) handleSessionCompaction(ctx context.Context, e *runtime.SessionCompactionEvent) {
@@ -571,6 +668,15 @@ func (m *model) resetConversation() {
 	m.queue = nil
 	m.busy = false
 	m.confirm = nil
+	m.usageBySession = make(map[string]usageSnapshot)
+	m.rootSessionID = ""
+	m.latestUsageSessionID = ""
+	m.sessionStack = nil
+	m.status.contextLength = 0
+	m.status.contextLimit = 0
+	m.status.tokens = 0
+	m.status.cost = 0
+	m.status.costKnown = false
 }
 
 func (m *model) clearScreen() {

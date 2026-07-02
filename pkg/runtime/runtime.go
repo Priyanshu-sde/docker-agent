@@ -1396,14 +1396,24 @@ func (r *LocalRuntime) emitToolsChanged() {
 // aborted (e.g. the context was cancelled). Shared by EmitStartupInfo and
 // EmitAgentInfo so both render identical model labels.
 func (r *LocalRuntime) emitAgentAndTeamInfo(ctx context.Context, a *agent.Agent, send func(Event) bool) bool {
-	modelLabel := r.getEffectiveModelID(ctx, a).String()
+	modelID := r.getEffectiveModelID(ctx, a)
+	modelLabel := modelID.String()
+	contextLimit := r.contextLimitForAgentModel(ctx, a, modelID)
 	if a.HasHarness() {
 		modelLabel = agentModelLabel(ctx, a)
+		contextLimit = 0
 	}
-	if !send(AgentInfo(a.Name(), modelLabel, a.Description(), a.WelcomeMessage())) {
+	if !send(AgentInfo(a.Name(), modelLabel, a.Description(), a.WelcomeMessage(), contextLimit)) {
 		return false
 	}
 	return send(TeamInfo(r.agentDetailsFromTeam(ctx), r.currentAgentName()))
+}
+
+func (r *LocalRuntime) contextLimitForAgentModel(ctx context.Context, a *agent.Agent, modelID modelsdev.ID) int64 {
+	if a == nil || modelID.IsZero() {
+		return 0
+	}
+	return r.effectiveContextLimit(ctx, a, r.resolveContextLimit(ctx, a.Model(ctx), modelID))
 }
 
 // EmitAgentInfo implements [Runtime.EmitAgentInfo]: it refreshes the agent and
@@ -1459,7 +1469,7 @@ func (r *LocalRuntime) EmitStartupInfo(ctx context.Context, sess *session.Sessio
 	// sub-sessions won't emit their own events, so the parent must include
 	// their costs.
 	if sess != nil && (sess.InputTokens > 0 || sess.OutputTokens > 0) {
-		contextLimit := r.effectiveContextLimit(ctx, a, r.resolveContextLimit(ctx, a.Model(ctx), modelID))
+		contextLimit := r.contextLimitForAgentModel(ctx, a, modelID)
 		usage := SessionUsage(sess, contextLimit)
 		usage.Cost = sess.TotalCost()
 

@@ -158,6 +158,11 @@ type model struct {
 	status       statusData
 	sessionState *service.SessionState
 
+	usageBySession       map[string]usageSnapshot
+	rootSessionID        string
+	latestUsageSessionID string
+	sessionStack         []string
+
 	blocks       []*block
 	busy         bool
 	spinnerFrame int
@@ -202,6 +207,7 @@ func newModel(term *terminal, cfg Config) *model {
 		tools:            make(map[string]*toolView),
 		status:           statusData{workingDir: cfg.WorkingDir, branch: gitBranch(cfg.WorkingDir)},
 		sessionState:     sessionState,
+		usageBySession:   make(map[string]usageSnapshot),
 		appName:          appName,
 		disabledCommands: disabled,
 	}

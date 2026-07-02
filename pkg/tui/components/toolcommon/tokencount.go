@@ -19,3 +19,8 @@ func FormatTokenCount(count int64) string {
 		return strconv.FormatInt(count, 10)
 	}
 }
+
+// FormatCostUSD formats a compact USD amount for status surfaces.
+func FormatCostUSD(cost float64) string {
+	return fmt.Sprintf("$%.2f", cost)
+}

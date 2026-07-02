@@ -519,10 +519,6 @@ func (m *model) ResetStreamTracking() {
 	m.invalidateCache()
 }
 
-func formatCost(cost float64) string {
-	return fmt.Sprintf("%.2f", cost)
-}
-
 // activeSessionID returns the session whose usage the sidebar should display:
 // the deepest currently-running stream, or the main session when idle. It is
 // derived from the stream stack rather than the (rapidly toggling) current
@@ -1113,7 +1109,7 @@ func (m *model) tokenUsage(contentWidth int) string {
 	if s.contextPct != "" {
 		line += " (" + s.contextPct + ")"
 	}
-	line += " " + styles.TabAccentStyle.Render("$"+formatCost(s.totalCost))
+	line += " " + styles.TabAccentStyle.Render(toolcommon.FormatCostUSD(s.totalCost))
 	if s.sessionCount > 1 {
 		line += " " + styles.MutedStyle.Render(fmt.Sprintf("(%d sub-sessions)", s.sessionCount-1))
 	}
@@ -1134,9 +1130,9 @@ func (m *model) tokenUsageSummary() string {
 		if s.contextPct != "" {
 			parts = append(parts, "Context: "+s.contextPct)
 		}
-		parts = append(parts, "Cost: $"+formatCost(s.totalCost), fmt.Sprintf("%d sub-sessions", s.sessionCount-1))
+		parts = append(parts, "Cost: "+toolcommon.FormatCostUSD(s.totalCost), fmt.Sprintf("%d sub-sessions", s.sessionCount-1))
 	} else {
-		parts = append(parts, "Cost: $"+formatCost(s.totalCost))
+		parts = append(parts, "Cost: "+toolcommon.FormatCostUSD(s.totalCost))
 		if s.contextPct != "" {
 			parts = append(parts, "Context: "+s.contextPct)
 		}

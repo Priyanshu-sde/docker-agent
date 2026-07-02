@@ -1529,6 +1529,32 @@ func TestEmitStartupInfo(t *testing.T) {
 	require.Empty(t, collectedEvents2, "EmitStartupInfo should not emit duplicate events")
 }
 
+func TestEmitStartupInfo_AgentInfoCarriesContextLimit(t *testing.T) {
+	t.Parallel()
+
+	prov := &mockProvider{id: "test/startup-model", stream: &mockStream{}}
+	root := agent.New("startup-test-agent", "You are a startup test agent", agent.WithModel(prov))
+	tm := team.New(team.WithAgents(root))
+
+	rt, err := NewLocalRuntime(t.Context(), tm, WithCurrentAgent("startup-test-agent"),
+		WithModelStore(mockModelStoreWithLimit{limit: 200_000}))
+	require.NoError(t, err)
+
+	events := make(chan Event, 20)
+	rt.EmitStartupInfo(t.Context(), nil, NewChannelSink(events))
+	close(events)
+
+	var agentInfo *AgentInfoEvent
+	for event := range events {
+		if e, ok := event.(*AgentInfoEvent); ok {
+			agentInfo = e
+		}
+	}
+
+	require.NotNil(t, agentInfo)
+	assert.Equal(t, int64(200_000), agentInfo.ContextLimit)
+}
+
 func TestEmitStartupInfo_WithSessionTokenData(t *testing.T) {
 	t.Parallel()
 

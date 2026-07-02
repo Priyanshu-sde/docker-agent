@@ -23,14 +23,15 @@ func bareModel(height int) *model {
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
 	return &model{
-		width:        width,
-		height:       height,
-		r:            newRenderer(w, width, height),
-		editor:       newEditor("type here"),
-		ac:           newAutocomplete(),
-		tools:        map[string]*toolView{},
-		status:       statusData{workingDir: "/tmp/project"},
-		sessionState: service.NewSessionState(nil),
+		width:          width,
+		height:         height,
+		r:              newRenderer(w, width, height),
+		editor:         newEditor("type here"),
+		ac:             newAutocomplete(),
+		tools:          map[string]*toolView{},
+		status:         statusData{workingDir: "/tmp/project"},
+		sessionState:   service.NewSessionState(nil),
+		usageBySession: map[string]usageSnapshot{},
 	}
 }
 

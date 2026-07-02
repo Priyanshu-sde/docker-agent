@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/docker/docker-agent/pkg/tui/components/toolcommon"
 )
 
 // statusData is the snapshot of run state shown in the footer.
@@ -18,12 +20,21 @@ type statusData struct {
 	contextLength int64
 	contextLimit  int64
 	tokens        int64 // input + output tokens used so far
+	cost          float64
+	costKnown     bool
+}
+
+type usageSnapshot struct {
+	contextLength int64
+	contextLimit  int64
+	tokens        int64
+	cost          float64
 }
 
 // renderStatus builds the two-line footer:
 //
 //	<working dir>  ⎇ <branch>                          <agent>
-//	<context bar> <pct> · <tokens>            <model> · <effort>
+//	<context bar> <pct> · <tokens> · <cost>  <model> · <effort>
 func renderStatus(d statusData, width int) []string {
 	dir := stSecondary().Render(truncate(shortenPath(d.workingDir), max(10, width/2)))
 	left1 := dir
@@ -54,11 +65,12 @@ func renderStatus(d statusData, width int) []string {
 }
 
 func renderContext(d statusData) string {
+	cost := renderCostSuffix(d)
 	if d.contextLimit <= 0 {
 		if d.tokens > 0 {
-			return stMuted().Render(formatTokens(d.tokens) + " tokens")
+			return stMuted().Render(formatTokens(d.tokens)+" tokens") + cost
 		}
-		return stMuted().Render("context: —")
+		return renderBar(0) + stMuted().Render(" 0% · 0/0") + cost
 	}
 
 	pct := float64(d.contextLength) / float64(d.contextLimit)
@@ -71,7 +83,14 @@ func renderContext(d statusData) string {
 		formatTokens(d.contextLength),
 		formatTokens(d.contextLimit),
 	)
-	return bar + stMuted().Render(label)
+	return bar + stMuted().Render(label) + cost
+}
+
+func renderCostSuffix(d statusData) string {
+	if !d.costKnown {
+		return ""
+	}
+	return stMuted().Render(" · ") + stAccent().Render(toolcommon.FormatCostUSD(d.cost))
 }
 
 // contextBarWidth is the cell width of the context-usage gauge.
