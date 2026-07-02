@@ -30,11 +30,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
+      # Run from docs/ so the globs and ignores in .markdownlint-cli2.yaml
+      # resolve the same way as a local `npx markdownlint-cli2` run.
       - name: Lint Markdown
-        uses: DavidAnson/markdownlint-cli2-action@ded1f9488f68a970bc66ea5619e13e9b52e601cd # v23.2.0
-        with:
-          config: docs/.markdownlint-cli2.yaml
-          globs: docs/**/*.md
+        run: npx --yes markdownlint-cli2@0.22.1
+        working-directory: docs
 
   link-check:
     runs-on: ubuntu-latest
@@ -45,11 +45,12 @@ jobs:
       - name: Check relative links
         uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
         with:
+          # Verbatim (code block) links are excluded by lychee's defaults.
           # index.md and 404.md are github.io-only pages that keep Jekyll
           # Liquid links; the muffet check (task docs-check-links) covers
           # them on the rendered site.
           args: >-
-            --offline --no-progress --include-verbatim=false
+            --offline --no-progress
             --exclude-path docs/index.md --exclude-path docs/404.md
             "docs/**/*.md"
           fail: true
