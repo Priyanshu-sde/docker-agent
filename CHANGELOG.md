@@ -3,6 +3,30 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.97.0] - 2026-07-02
+
+This release adds global hook support in user config, expands environment variable references in hook and script-shell fields, and fixes hook field merging.
+
+## What's New
+- Adds support for global hooks in user config (`~/.config/cagent/config.yaml`), with hooks merged in order: agent config → global → CLI
+- Adds `${env.X}` expansion in hook and script-shell `working_dir` and `env` fields, giving them the same treatment as other `working_dir` fields
+
+## Bug Fixes
+- Fixes hook field merging so all `HooksConfig` fields are combined correctly when merging config and CLI hooks
+- Fixes unset `${env.X}` references to log at debug level instead of silently failing; config env now takes precedence over host env
+
+## Technical Changes
+- Fixes flaky `TestAttachedServer_DeleteEmitsSessionExited` test caused by a race between session deletion and event log subscription
+### Pull Requests
+
+- [#2615](https://github.com/docker/docker-agent/pull/2615) - feat(config): expand ${env.X} in hook and script-shell working_dir/env (#2615)
+- [#3416](https://github.com/docker/docker-agent/pull/3416) - feat(config): expand ${env.X} in hook and script-shell working_dir/env
+- [#3417](https://github.com/docker/docker-agent/pull/3417) - docs: update CHANGELOG.md for v1.96.0
+- [#3418](https://github.com/docker/docker-agent/pull/3418) - test: fix flaky TestAttachedServer_DeleteEmitsSessionExited
+- [#3419](https://github.com/docker/docker-agent/pull/3419) - fix: merge all hook fields
+- [#3422](https://github.com/docker/docker-agent/pull/3422) - feat: support global hooks in user config
+
+
 ## [v1.96.0] - 2026-07-02
 
 This release adds session resumption across agent URL changes, TUI e2e test generation from recorded sessions, and fixes for duplicate tool names and Anthropic adaptive thinking display.
@@ -4305,3 +4329,5 @@ This release improves the terminal user interface with better error handling and
 [v1.95.0]: https://github.com/docker/docker-agent/releases/tag/v1.95.0
 
 [v1.96.0]: https://github.com/docker/docker-agent/releases/tag/v1.96.0
+
+[v1.97.0]: https://github.com/docker/docker-agent/releases/tag/v1.97.0
