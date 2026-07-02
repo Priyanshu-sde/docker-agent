@@ -3,6 +3,33 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.96.0] - 2026-07-02
+
+This release adds session resumption across agent URL changes, TUI e2e test generation from recorded sessions, and fixes for duplicate tool names and Anthropic adaptive thinking display.
+
+## What's New
+
+- Adds ability to resume sessions across agent URL query changes when using `docker-agent serve api` (e.g. when relaunching with a different agent version tag)
+- Adds TUI e2e test generation from `--record` sessions, producing a ready-to-edit `*_test.go` file alongside the cassette with synchronization points derived from the recorded session
+- Adds a Docker Wiki example agent with `/init`, `/update`, `/status`, and `/help` commands
+
+## Bug Fixes
+
+- Fixes duplicate tool names being sent to providers by deduplicating in `collectTools()` — the first toolset wins and a warning is shown once per streak naming the conflicting toolsets (fixes Anthropic HTTP 400 "Tool names must be unique" errors)
+- Fixes missing reasoning display in the TUI when using `/effort` or Shift+Tab thinking cycle on newer Claude models (Opus 4.7+) — the adaptive `display` field is now sent by default even when `provider_opts.thinking_display` is not explicitly configured
+### Pull Requests
+
+- [#3406](https://github.com/docker/docker-agent/pull/3406) - docs: update CHANGELOG.md for v1.94.0
+- [#3407](https://github.com/docker/docker-agent/pull/3407) - docs: update CHANGELOG.md for v1.95.0
+- [#3408](https://github.com/docker/docker-agent/pull/3408) - docs: add docker wiki example agent
+- [#3409](https://github.com/docker/docker-agent/pull/3409) - fix(agent): dedupe duplicate tool names with once-per-streak warning
+- [#3410](https://github.com/docker/docker-agent/pull/3410) - feat(server): resume sessions across agent URL query changes
+- [#3412](https://github.com/docker/docker-agent/pull/3412) - feat(tui): generate a TUI e2e test from a `--record` session
+- [#3413](https://github.com/docker/docker-agent/pull/3413) - docs: single-source documentation for the docs.docker.com Hugo module mount
+- [#3414](https://github.com/docker/docker-agent/pull/3414) - docs: prepare pages for the docs.docker.com module mount
+- [#3415](https://github.com/docker/docker-agent/pull/3415) - fix(anthropic): default adaptive thinking display to summarized
+
+
 ## [v1.95.0] - 2026-07-02
 
 This release focuses on TUI rendering performance improvements for long conversations, along with a bug fix for test reliability and a configuration version update.
@@ -4276,3 +4303,5 @@ This release improves the terminal user interface with better error handling and
 [v1.94.0]: https://github.com/docker/docker-agent/releases/tag/v1.94.0
 
 [v1.95.0]: https://github.com/docker/docker-agent/releases/tag/v1.95.0
+
+[v1.96.0]: https://github.com/docker/docker-agent/releases/tag/v1.96.0
