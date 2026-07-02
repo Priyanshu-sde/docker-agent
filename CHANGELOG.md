@@ -3,6 +3,114 @@
 All notable changes to this project will be documented in this file.
 
 
+## [v1.94.0] - 2026-07-02
+
+This release significantly expands model provider support with 12 new built-in providers, adds mouse support and new commands to the TUI, introduces a SafetyPolicy primitive, and includes numerous bug fixes and performance improvements.
+
+## What's New
+
+- Adds Baseten as a built-in model provider (`provider: baseten`)
+- Adds OVHcloud AI Endpoints as a built-in model provider (`provider: ovhcloud`)
+- Adds Groq as a built-in model provider (`provider: groq`)
+- Adds DeepSeek as a built-in model provider (`provider: deepseek`)
+- Adds Cerebras as a built-in model provider (`provider: cerebras`)
+- Adds Fireworks AI as a built-in model provider (`provider: fireworks`)
+- Adds Together AI as a built-in model provider (`provider: together`)
+- Adds Hugging Face Inference Providers as a built-in model provider (`provider: huggingface`)
+- Adds Moonshot AI (Kimi) as a built-in model provider (`provider: moonshot`)
+- Adds Vercel AI Gateway as a built-in model provider (`provider: vercel`)
+- Adds Cloudflare Workers AI and Cloudflare AI Gateway as built-in model providers
+- Adds mouse support to the agent picker: hover highlights a card, single click selects it, double-click immediately starts the session, and scroll wheel navigates the YAML details panel
+- Adds metadata `tags` field to agent config and surfaces tags as coloured chips in the agent picker
+- Adds `/effort` slash command to select the model's reasoning level directly (available in both full and lean TUI)
+- Adds `SafetyPolicy` primitive (`unsafe`/`safer`/`strict`) to sessions, forwarded to hooks via `hooks.Input.SafetyPolicy`
+- Enforces `lifecycle.startup_timeout` for MCP/LSP toolset startup, which was previously parsed but never acted on
+- Adapts `safer_shell` hook classification to the session `SafetyPolicy`
+- Collapses file picker keyboard shortcuts to a single line on wide dialogs
+- Strengthens default memory toolset instructions
+
+## Improvements
+
+- Memoizes successful OCI config reads per process, halving warm startup latency for OCI agent refs
+- Suppresses spurious empty-response warning for benign post-tool stops in forked-skill sub-sessions
+- Agent picker dialog is larger and truncates long lines instead of wrapping; cards are 70 columns wide
+
+## Bug Fixes
+
+- Fixes coalescing of system messages for self-hosted and OpenAI-compatible endpoints that reject multiple system messages (e.g. vLLM with Qwen)
+- Fixes OVHcloud default model to `Qwen3.5-397B-A17B`
+- Fixes macOS Option-key characters not triggering file picker `alt+h`/`alt+i` visibility toggles
+- Removes duplicate "Initializing MCP servers…" spinner from the sidebar that fired on every turn even for agents with no MCP servers
+- Adds 5-second timeout to graceful-shutdown calls that previously used `WithoutCancel` without a deadline, preventing indefinite blocking
+- Fixes concurrent `Connect` races and goroutine leak on startup timeout for MCP/LSP toolsets
+- Fixes auto-deny of tool asks in non-interactive sessions instead of blocking indefinitely
+- Fixes tool-call confirmations being dropped without a Resume under `--yolo` in JSON mode
+- Fixes Anthropic provider falling back to token thinking for effort levels on models without adaptive thinking support (e.g. Haiku 4.5)
+- Fixes tool call render briefly disappearing or shrinking while JSON arguments are still streaming in the lean TUI
+- Clamps `max_tokens` to the context window for OpenAI-compatible providers to prevent "context window exceeded" errors on self-hosted vLLM
+- Fixes cost and context limit display in the lean TUI
+
+## Technical Changes
+
+- Derives provider API-key env vars forwarded to eval containers from the provider registry instead of a hard-coded list
+- Refactors provider client boilerplate into shared helpers across openai, anthropic, gemini, bedrock, and dmr clients
+- Consolidates OpenAI-compatible alias provider tests into a single shared test
+- Extracts shared `calleeObject` helper in lint cops to remove duplication
+- Adds `OTelTracerName` lint cop to enforce scoped OpenTelemetry tracer names
+- Replaces 44 `time.Sleep` calls in the test suite with deterministic synchronization primitives
+### Pull Requests
+
+- [#3305](https://github.com/docker/docker-agent/pull/3305) - feat(session_plan): per-session markdown plan toolset alongside plan
+- [#3333](https://github.com/docker/docker-agent/pull/3333) - fix(tui): accept macOS Option-key chars for file picker toggles
+- [#3335](https://github.com/docker/docker-agent/pull/3335) - feat(compaction): allow a dedicated model for session summary generation
+- [#3338](https://github.com/docker/docker-agent/pull/3338) - feat: add per-model bypass_models_gateway option
+- [#3339](https://github.com/docker/docker-agent/pull/3339) - docs: update CHANGELOG.md for v1.93.0
+- [#3340](https://github.com/docker/docker-agent/pull/3340) - docs: sync documentation with recent main merges
+- [#3341](https://github.com/docker/docker-agent/pull/3341) - feat: add Baseten provider support
+- [#3343](https://github.com/docker/docker-agent/pull/3343) - feat: add OVHcloud AI Endpoints provider support
+- [#3345](https://github.com/docker/docker-agent/pull/3345) - chore: bump github.com/anthropics/anthropic-sdk-go to v1.55.0
+- [#3357](https://github.com/docker/docker-agent/pull/3357) - fix(openai): coalesce system messages for self-hosted and open-model endpoints
+- [#3358](https://github.com/docker/docker-agent/pull/3358) - feat: add Groq as a supported model provider
+- [#3359](https://github.com/docker/docker-agent/pull/3359) - docs: group and collapse left navigation sections (#3359)
+- [#3360](https://github.com/docker/docker-agent/pull/3360) - docs: group and collapse left navigation sections
+- [#3361](https://github.com/docker/docker-agent/pull/3361) - feat: add DeepSeek as a supported model provider
+- [#3364](https://github.com/docker/docker-agent/pull/3364) - docs: list providers alphabetically by name in nav
+- [#3365](https://github.com/docker/docker-agent/pull/3365) - fix(docs): restore inline code contrast in light mode
+- [#3366](https://github.com/docker/docker-agent/pull/3366) - feat: collapse file picker shortcuts to one line on wide dialogs
+- [#3367](https://github.com/docker/docker-agent/pull/3367) - fix(tui): remove duplicate MCP-init spinner from sidebar
+- [#3368](https://github.com/docker/docker-agent/pull/3368) - feat: add Cerebras as a supported model provider
+- [#3369](https://github.com/docker/docker-agent/pull/3369) - feat: add Fireworks AI as a supported model provider
+- [#3370](https://github.com/docker/docker-agent/pull/3370) - fix: add 5s timeout to graceful-shutdown calls that used WithoutCancel
+- [#3373](https://github.com/docker/docker-agent/pull/3373) - feat: enforce lifecycle.startup_timeout for MCP/LSP toolset startup
+- [#3374](https://github.com/docker/docker-agent/pull/3374) - test: consolidate OpenAI-compatible alias provider tests
+- [#3375](https://github.com/docker/docker-agent/pull/3375) - refactor(config): derive provider API-key env vars from config
+- [#3376](https://github.com/docker/docker-agent/pull/3376) - feat: add Together AI as a supported model provider
+- [#3377](https://github.com/docker/docker-agent/pull/3377) - fix: unblock headless tool-Ask paths (dispatcher + JSON runner)
+- [#3378](https://github.com/docker/docker-agent/pull/3378) - feat(session): add SafetyPolicy primitive and hook pass-through
+- [#3379](https://github.com/docker/docker-agent/pull/3379) - feat: add Hugging Face Inference Providers as a supported model provider
+- [#3380](https://github.com/docker/docker-agent/pull/3380) - docs: tighten comment guidance in AGENTS.md
+- [#3381](https://github.com/docker/docker-agent/pull/3381) - fix(anthropic): use token thinking for effort levels on models without adaptive support
+- [#3382](https://github.com/docker/docker-agent/pull/3382) - fix(tui): keep tool call render stable while args stream
+- [#3383](https://github.com/docker/docker-agent/pull/3383) - feat(hooks/safer_shell): adapt classification to session SafetyPolicy
+- [#3384](https://github.com/docker/docker-agent/pull/3384) - feat: add Moonshot AI (Kimi) as a supported model provider
+- [#3385](https://github.com/docker/docker-agent/pull/3385) - feat: add Vercel AI Gateway as a supported model provider
+- [#3386](https://github.com/docker/docker-agent/pull/3386) - feat(lint): add OTelTracerName cop to enforce scoped tracer names
+- [#3388](https://github.com/docker/docker-agent/pull/3388) - test: make models-list tests hermetic and parallelizable
+- [#3389](https://github.com/docker/docker-agent/pull/3389) - feat: add Cloudflare Workers AI and AI Gateway as model providers
+- [#3390](https://github.com/docker/docker-agent/pull/3390) - feat: add tags field to agent config metadata
+- [#3391](https://github.com/docker/docker-agent/pull/3391) - feat: add mouse support to the agent picker (hover, double-click, wheel)
+- [#3392](https://github.com/docker/docker-agent/pull/3392) - fix(runtime): suppress spurious empty-response warning for benign post-tool stops
+- [#3393](https://github.com/docker/docker-agent/pull/3393) - fix: clamp max_tokens to the context window for OpenAI-compatible providers
+- [#3394](https://github.com/docker/docker-agent/pull/3394) - feat: show metadata tags as coloured chips in the agent picker
+- [#3395](https://github.com/docker/docker-agent/pull/3395) - feat(memory): strengthen default toolset instructions
+- [#3396](https://github.com/docker/docker-agent/pull/3396) - refactor: extract shared calleeObject helper in lint cops
+- [#3397](https://github.com/docker/docker-agent/pull/3397) - perf(config): memoize successful OCI reads to halve warm startup latency
+- [#3398](https://github.com/docker/docker-agent/pull/3398) - refactor(provider): deduplicate provider client boilerplate
+- [#3399](https://github.com/docker/docker-agent/pull/3399) - test: make the test suite faster and sleep-free
+- [#3400](https://github.com/docker/docker-agent/pull/3400) - fix: show lean tui cost and context limit
+- [#3403](https://github.com/docker/docker-agent/pull/3403) - feat(tui): add /effort command to select the model's reasoning level
+
+
 ## [v1.93.0] - 2026-06-30
 
 This release adds OpenRouter as a built-in provider, introduces per-model gateway bypass support, and allows a dedicated model for session compaction, alongside several internal refactoring improvements.
@@ -4139,3 +4247,5 @@ This release improves the terminal user interface with better error handling and
 [v1.92.0]: https://github.com/docker/docker-agent/releases/tag/v1.92.0
 
 [v1.93.0]: https://github.com/docker/docker-agent/releases/tag/v1.93.0
+
+[v1.94.0]: https://github.com/docker/docker-agent/releases/tag/v1.94.0
