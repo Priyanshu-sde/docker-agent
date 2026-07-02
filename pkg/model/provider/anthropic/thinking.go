@@ -253,6 +253,20 @@ func anthropicThinkingDisplay(opts map[string]any) (string, bool) {
 	}
 }
 
+// defaultAdaptiveDisplay returns the thinking display to request with
+// adaptive thinking when the user did not configure one. Newer Claude models
+// (Opus 4.7+, Fable 5) default to omitted server-side, which silently hides
+// all reasoning from the UI — including when an effort level is set via the
+// TUI (/effort, Shift+Tab). Requesting summarized keeps reasoning visible and
+// matches the documented default of older models; thinking_display: omitted
+// remains the explicit opt-out.
+func defaultAdaptiveDisplay(display string) string {
+	if display == "" {
+		return thinkingDisplaySummarized
+	}
+	return display
+}
+
 // applyThinkingConfig configures extended thinking on a standard MessageNewParams
 // based on the model's ThinkingBudget and provider_opts.thinking_display.
 // Returns true when thinking is enabled (i.e., temperature/top_p must not be set).
@@ -264,9 +278,9 @@ func (c *Client) applyThinkingConfig(params *anthropic.MessageNewParams, maxToke
 	display, _ := anthropicThinkingDisplay(c.ModelConfig.ProviderOpts)
 
 	if effortStr, ok := anthropicThinkingEffort(budget); ok {
-		adaptive := &anthropic.ThinkingConfigAdaptiveParam{}
-		if display != "" {
-			adaptive.Display = anthropic.ThinkingConfigAdaptiveDisplay(display)
+		display = defaultAdaptiveDisplay(display)
+		adaptive := &anthropic.ThinkingConfigAdaptiveParam{
+			Display: anthropic.ThinkingConfigAdaptiveDisplay(display),
 		}
 		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: adaptive}
 		params.OutputConfig.Effort = anthropic.OutputConfigEffort(effortStr)
@@ -296,9 +310,9 @@ func (c *Client) applyBetaThinkingConfig(params *anthropic.BetaMessageNewParams,
 	display, _ := anthropicThinkingDisplay(c.ModelConfig.ProviderOpts)
 
 	if effortStr, ok := anthropicThinkingEffort(budget); ok {
-		adaptive := &anthropic.BetaThinkingConfigAdaptiveParam{}
-		if display != "" {
-			adaptive.Display = anthropic.BetaThinkingConfigAdaptiveDisplay(display)
+		display = defaultAdaptiveDisplay(display)
+		adaptive := &anthropic.BetaThinkingConfigAdaptiveParam{
+			Display: anthropic.BetaThinkingConfigAdaptiveDisplay(display),
 		}
 		params.Thinking = anthropic.BetaThinkingConfigParamUnion{OfAdaptive: adaptive}
 		params.OutputConfig.Effort = anthropic.BetaOutputConfigEffort(effortStr)

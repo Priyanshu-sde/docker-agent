@@ -216,7 +216,7 @@ AI, or the Message Batches API.
 
 ## Thinking Display
 
-Controls whether thinking blocks are returned in responses when thinking is enabled. Claude Opus 4.7 hides thinking content by default (`omitted`); earlier Claude 4 models default to `summarized`. Set `thinking_display` in `provider_opts` to override:
+Controls whether thinking blocks are returned in responses when thinking is enabled. Newer Claude models (Opus 4.7+, Fable 5) hide thinking content by default (`omitted`); docker-agent counters this by requesting `summarized` thinking whenever an adaptive/effort-based budget is used without an explicit `thinking_display`, so reasoning stays visible in the UI. Set `thinking_display` in `provider_opts` to override:
 
 ```yaml
 models:
@@ -225,16 +225,16 @@ models:
     model: claude-opus-4-7
     thinking_budget: adaptive
     provider_opts:
-      thinking_display: summarized # "summarized", "display", or "omitted"
+      thinking_display: omitted # "summarized", "display", or "omitted"
 ```
 
 Valid values:
 
-- `summarized`: thinking blocks are returned with summarized thinking text (default for Claude 4 models prior to Opus 4.7).
-- `display`: thinking blocks are returned for display (use this to re-enable thinking output on Opus 4.7).
-- `omitted`: thinking blocks are returned with an empty thinking field; the signature is still returned for multi-turn continuity (default for Opus 4.7). Useful to reduce time-to-first-text-token when streaming.
+- `summarized`: thinking blocks are returned with summarized thinking text (docker-agent's default for adaptive/effort-based budgets).
+- `display`: thinking blocks are returned for display.
+- `omitted`: thinking blocks are returned with an empty thinking field; the signature is still returned for multi-turn continuity. Useful to reduce time-to-first-text-token when streaming.
 
-Note: `thinking_display` applies to both `thinking_budget` with token counts and adaptive/effort-based budgets. Full thinking tokens are billed regardless of the `thinking_display` value.
+Note: `thinking_display` applies to both `thinking_budget` with token counts and adaptive/effort-based budgets. For token-count budgets no default is applied (the API already defaults to `summarized`). Full thinking tokens are billed regardless of the `thinking_display` value.
 
 <div class="callout callout-info" markdown="1">
 <div class="callout-title">Note

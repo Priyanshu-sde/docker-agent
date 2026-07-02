@@ -387,7 +387,7 @@ models:
 
 ## Thinking Display (Anthropic)
 
-For Anthropic Claude models, `thinking_display` controls whether thinking blocks are returned in responses when thinking is enabled. Claude Opus 4.7 hides thinking content by default (`omitted`); set this provider option to receive summarized thinking:
+For Anthropic Claude models, `thinking_display` controls whether thinking blocks are returned in responses when thinking is enabled. Newer Claude models (Opus 4.7+, Fable 5) hide thinking content by default (`omitted`); docker-agent requests `summarized` thinking by default for adaptive/effort-based budgets so reasoning stays visible. Set this provider option to override:
 
 ```yaml
 models:
@@ -396,7 +396,7 @@ models:
     model: claude-opus-4-7
     thinking_budget: adaptive
     provider_opts:
-      thinking_display: summarized # "summarized", "display", or "omitted"
+      thinking_display: omitted # "summarized", "display", or "omitted"
 ```
 
 See the [Anthropic provider page]({{ '/providers/anthropic/#thinking-display' | relative_url }}) for details.

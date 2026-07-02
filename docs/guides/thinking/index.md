@@ -153,7 +153,7 @@ models:
 
 ### Thinking display
 
-Claude Opus 4.7 hides thinking content by default. Use `thinking_display` in `provider_opts` to control what you receive:
+Newer Claude models (Opus 4.7+, Fable 5) hide thinking content by default at the API level. To keep reasoning visible, docker-agent requests `summarized` thinking whenever adaptive/effort-based thinking is used without an explicit `thinking_display`. Use `thinking_display` in `provider_opts` to override:
 
 ```yaml
 models:
@@ -162,14 +162,14 @@ models:
     model: claude-opus-4-7
     thinking_budget: adaptive
     provider_opts:
-      thinking_display: summarized   # summarized | display | omitted
+      thinking_display: omitted   # summarized | display | omitted
 ```
 
 | Value        | Behavior                                                                              |
 | ------------ | ------------------------------------------------------------------------------------- |
-| `summarized` | Thinking blocks returned with a text summary (default for Claude 4 models pre-4.7).  |
+| `summarized` | Thinking blocks returned with a text summary (docker-agent default for adaptive thinking). |
 | `display`    | Full thinking blocks returned for display.                                            |
-| `omitted`    | Thinking blocks hidden — only the signature is returned (default for Opus 4.7).       |
+| `omitted`    | Thinking blocks hidden — only the signature is returned.                               |
 
 Full thinking tokens are billed regardless of `thinking_display`.
 
