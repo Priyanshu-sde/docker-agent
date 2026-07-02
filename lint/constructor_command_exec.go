@@ -54,19 +54,27 @@ var ConstructorCommandExec = &cop.Func{
 }
 
 func commandConstructorCall(p *cop.Pass, call *ast.CallExpr) (string, bool) {
-	if p.Info != nil {
-		switch fun := call.Fun.(type) {
-		case *ast.SelectorExpr:
-			if name, ok := osExecFuncName(p.Info.Uses[fun.Sel]); ok {
-				return name, true
-			}
-		case *ast.Ident:
-			if name, ok := osExecFuncName(p.Info.Uses[fun]); ok {
-				return name, true
-			}
-		}
+	if name, ok := osExecFuncName(calleeObject(p.Info, call)); ok {
+		return name, true
 	}
 	return cop.CallTo(call, "exec", "Command", "CommandContext")
+}
+
+// calleeObject resolves the object a call's callee denotes, whether the callee
+// is a bare identifier (f()) or a selector (pkg.F() / recv.F()). Returns nil
+// when info is unavailable or the callee has no resolvable object.
+func calleeObject(info *types.Info, call *ast.CallExpr) types.Object {
+	if info == nil {
+		return nil
+	}
+	switch fun := call.Fun.(type) {
+	case *ast.SelectorExpr:
+		return info.Uses[fun.Sel]
+	case *ast.Ident:
+		return info.Uses[fun]
+	default:
+		return nil
+	}
 }
 
 func osExecFuncName(obj types.Object) (string, bool) {

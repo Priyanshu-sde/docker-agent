@@ -48,17 +48,8 @@ var ConstructorNetworkIO = &cop.Func{
 }
 
 func networkIOCall(p *cop.Pass, call *ast.CallExpr) (string, string, bool) {
-	if p.Info != nil {
-		switch fun := call.Fun.(type) {
-		case *ast.SelectorExpr:
-			if pkg, name, ok := networkIOFuncName(p.Info.Uses[fun.Sel]); ok {
-				return pkg, name, true
-			}
-		case *ast.Ident:
-			if pkg, name, ok := networkIOFuncName(p.Info.Uses[fun]); ok {
-				return pkg, name, true
-			}
-		}
+	if pkg, name, ok := networkIOFuncName(calleeObject(p.Info, call)); ok {
+		return pkg, name, true
 	}
 
 	if name, ok := cop.CallTo(call, "net", "Dial", "DialTimeout", "Listen", "ListenPacket", "ListenTCP", "ListenUDP", "ListenUnix"); ok {
