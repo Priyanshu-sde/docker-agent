@@ -186,19 +186,22 @@ func (d *Driver) stop() {
 	}
 }
 
-// sendSync delivers a message and blocks until the resulting frame has been
-// captured, so a following Assert observes the post-message frame rather than
-// racing the program's goroutine. captureModel pushes a frame on every Update,
-// so exactly one new frame appears per message.
+// sendSync delivers a message and blocks until the program has processed it,
+// so a following Assert observes the post-message frame rather than racing
+// the program's goroutine. It relies on the message loop being FIFO: a
+// barrier sentinel sent right after msg is only handled once msg's Update —
+// and thus its frame capture — has completed. Counting frames instead would
+// race with frames produced by startup or internal messages.
 func (d *Driver) sendSync(msg tea.Msg) {
-	before := d.frames.count()
+	d.tb.Helper()
+
 	d.program.Send(msg)
-	deadline := time.Now().Add(d.waitTimeout)
-	for time.Now().Before(deadline) {
-		if d.frames.count() > before {
-			return
-		}
-		time.Sleep(pollInterval)
+	done := make(chan struct{})
+	d.program.Send(syncMsg{done: done})
+	select {
+	case <-done:
+	case <-time.After(d.waitTimeout):
+		d.tb.Fatalf("tuitest: timed out after %s waiting for %T to be processed", d.waitTimeout, msg)
 	}
 }
 
@@ -307,10 +310,13 @@ type captureModel struct {
 
 func (c *captureModel) recordFrame() {
 	frame := stripFrame(c.inner.View())
-	c.frames.push(frame)
+	// Feed the sink before the store: the store push is what sendSync/WaitFor
+	// synchronize on, so any sink side effect (dump file, live output) must be
+	// complete by the time a test observes the frame and inspects that output.
 	if c.sink != nil {
 		c.sink.frame(frame)
 	}
+	c.frames.push(frame)
 }
 
 func (c *captureModel) Init() tea.Cmd {
@@ -319,7 +325,15 @@ func (c *captureModel) Init() tea.Cmd {
 	return cmd
 }
 
+// syncMsg is the barrier sentinel used by sendSync. captureModel acks it
+// without touching the inner model or recording a frame.
+type syncMsg struct{ done chan struct{} }
+
 func (c *captureModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if s, ok := msg.(syncMsg); ok {
+		close(s.done)
+		return c, nil
+	}
 	inner, cmd := c.inner.Update(msg)
 	c.inner = inner
 	c.recordFrame()
