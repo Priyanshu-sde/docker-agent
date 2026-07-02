@@ -212,6 +212,9 @@ func TestRuntimeConfig_CLIHooks(t *testing.T) {
 func TestRuntimeConfig_Clone_CopiesHooks(t *testing.T) {
 	t.Parallel()
 	rc := &RuntimeConfig{}
+	rc.GlobalHooks = &latest.HooksConfig{
+		SessionStart: []latest.HookDefinition{{Type: "command", Command: "global"}},
+	}
 	rc.HookPreToolUse = []string{"pre"}
 	rc.HookPostToolUse = []string{"post"}
 	rc.HookSessionStart = []string{"start"}
@@ -220,6 +223,7 @@ func TestRuntimeConfig_Clone_CopiesHooks(t *testing.T) {
 	rc.HookStop = []string{"stop"}
 
 	clone := rc.Clone()
+	assert.Equal(t, rc.GlobalHooks, clone.GlobalHooks)
 	assert.Equal(t, rc.HookPreToolUse, clone.HookPreToolUse)
 	assert.Equal(t, rc.HookPostToolUse, clone.HookPostToolUse)
 	assert.Equal(t, rc.HookSessionStart, clone.HookSessionStart)
