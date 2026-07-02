@@ -315,6 +315,7 @@ func (f *runExecFlags) runOrExec(ctx context.Context, out *cli.Printer, args []s
 	// User settings only apply if the flag wasn't explicitly set by the user
 	userSettings := userconfig.Get()
 	f.applyUserSettings(ctx, userSettings)
+	f.runConfig.GlobalHooks = userSettings.GlobalHooks()
 
 	// Apply alias options if this is an alias reference
 	// Alias options only apply if the flag wasn't explicitly set by the user

@@ -75,6 +75,9 @@ type Settings struct {
 	// and agents. These act as user-wide defaults; session-level and agent-level
 	// permissions override them.
 	Permissions *latest.PermissionsConfig `yaml:"permissions,omitempty"`
+	// Hooks defines global hooks applied to every agent. These are additive with
+	// agent-config and CLI hooks.
+	Hooks *latest.HooksConfig `yaml:"hooks,omitempty"`
 	// Keybindings lets users remap TUI keyboard shortcuts. Each entry maps an
 	// action name to one or more key combinations (Bubbles key format, e.g.
 	// "ctrl+q", "f2"). Unknown actions, malformed keys, and conflicts are
@@ -141,6 +144,14 @@ func (s *Settings) GetSplitDiffView() bool {
 // SnapshotsEnabled returns whether global snapshot auto-injection is enabled.
 func (s *Settings) SnapshotsEnabled() bool {
 	return s != nil && s.Snapshot != nil && *s.Snapshot
+}
+
+// GlobalHooks returns the user-level hooks config, if configured.
+func (s *Settings) GlobalHooks() *latest.HooksConfig {
+	if s == nil {
+		return nil
+	}
+	return s.Hooks
 }
 
 // CredentialHelper contains configuration for a credential helper command

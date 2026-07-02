@@ -1030,3 +1030,49 @@ func TestConfig_SandboxAllowlistRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, original.SandboxAllowlist, loaded.SandboxAllowlist)
 }
+
+func TestConfig_HooksRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+
+	original := &Config{
+		Aliases: make(map[string]*Alias),
+		Settings: &Settings{
+			Hooks: &latest.HooksConfig{
+				SessionStart: []latest.HookDefinition{{Type: "command", Command: "echo start"}},
+				PreCompact:   []latest.HookDefinition{{Type: "command", Command: "echo compact"}},
+			},
+		},
+	}
+
+	require.NoError(t, original.saveTo(configFile))
+
+	loaded, err := loadFrom(configFile, "")
+	require.NoError(t, err)
+	require.NotNil(t, loaded.Settings)
+	require.NotNil(t, loaded.Settings.Hooks)
+	assert.Equal(t, original.Settings.Hooks.SessionStart, loaded.Settings.Hooks.SessionStart)
+	assert.Equal(t, original.Settings.Hooks.PreCompact, loaded.Settings.Hooks.PreCompact)
+
+	reloaded, err := yaml.Marshal(loaded)
+	require.NoError(t, err)
+	assert.Contains(t, string(reloaded), "session_start:")
+	assert.Contains(t, string(reloaded), "pre_compact:")
+}
+
+func TestConfig_Settings_HooksEmpty(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	configFile := filepath.Join(tmpDir, "config.yaml")
+	require.NoError(t, os.WriteFile(configFile, []byte("settings:\n  hide_tool_results: true\n"), 0o644))
+
+	cfg, err := loadFrom(configFile, "")
+	require.NoError(t, err)
+	require.NotNil(t, cfg.Settings)
+	assert.Nil(t, cfg.Settings.Hooks)
+	assert.Nil(t, cfg.Settings.GlobalHooks())
+	assert.Nil(t, (*Settings)(nil).GlobalHooks())
+}

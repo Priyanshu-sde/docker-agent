@@ -768,3 +768,82 @@ func TestLoadRetainsAgentConfig(t *testing.T) {
 	_, ok = team.AgentConfig("missing")
 	assert.False(t, ok, "unknown agent reports no retained config")
 }
+
+func TestLoadWithConfig_GlobalHooks(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+`)
+	runConfig := &config.RuntimeConfig{
+		Config: config.Config{
+			GlobalHooks: &latest.HooksConfig{
+				SessionStart: []latest.HookDefinition{{Type: "command", Command: "global"}},
+			},
+		},
+	}
+
+	team, err := Load(t.Context(), config.NewBytesSource("global-hooks.yaml", data), runConfig, withTestProviderRegistry()...)
+	require.NoError(t, err)
+
+	root, err := team.Agent("root")
+	require.NoError(t, err)
+	require.NotNil(t, root.Hooks())
+	require.Len(t, root.Hooks().SessionStart, 1)
+	assert.Equal(t, "global", root.Hooks().SessionStart[0].Command)
+}
+
+func TestLoadWithConfig_MergesAgentGlobalAndCLIHooks(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+    hooks:
+      session_start:
+        - type: command
+          command: agent
+      pre_tool_use:
+        - matcher: shell
+          hooks:
+            - type: command
+              command: agent-pre
+`)
+	runConfig := &config.RuntimeConfig{
+		Config: config.Config{
+			GlobalHooks: &latest.HooksConfig{
+				SessionStart: []latest.HookDefinition{{Type: "command", Command: "global"}},
+				PreToolUse: []latest.HookMatcherConfig{{
+					Matcher: "edit_file",
+					Hooks:   []latest.HookDefinition{{Type: "command", Command: "global-pre"}},
+				}},
+			},
+			HookSessionStart: []string{"cli"},
+			HookPreToolUse:   []string{"cli-pre"},
+		},
+	}
+
+	team, err := Load(t.Context(), config.NewBytesSource("global-hooks.yaml", data), runConfig, withTestProviderRegistry()...)
+	require.NoError(t, err)
+
+	root, err := team.Agent("root")
+	require.NoError(t, err)
+	hooks := root.Hooks()
+	require.NotNil(t, hooks)
+
+	require.Len(t, hooks.SessionStart, 3)
+	assert.Equal(t, "agent", hooks.SessionStart[0].Command)
+	assert.Equal(t, "global", hooks.SessionStart[1].Command)
+	assert.Equal(t, "cli", hooks.SessionStart[2].Command)
+
+	require.Len(t, hooks.PreToolUse, 3)
+	assert.Equal(t, "shell", hooks.PreToolUse[0].Matcher)
+	assert.Equal(t, "agent-pre", hooks.PreToolUse[0].Hooks[0].Command)
+	assert.Equal(t, "edit_file", hooks.PreToolUse[1].Matcher)
+	assert.Equal(t, "global-pre", hooks.PreToolUse[1].Hooks[0].Command)
+	assert.Empty(t, hooks.PreToolUse[2].Matcher)
+	assert.Equal(t, "cli-pre", hooks.PreToolUse[2].Hooks[0].Command)
+}

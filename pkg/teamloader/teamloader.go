@@ -213,6 +213,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 
 	expander := js.NewJsExpander(env)
 
+	globalHooks := runConfig.GlobalHooks
 	cliHooks := runConfig.CLIHooks()
 
 	for _, agentConfig := range cfg.Agents {
@@ -244,7 +245,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			agent.WithMaxOldToolCallTokens(agentConfig.MaxOldToolCallTokens),
 			agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
 			agent.WithCommands(expander.ExpandCommands(ctx, agentConfig.Commands)),
-			agent.WithHooks(config.MergeHooks(agentConfig.Hooks, cliHooks)),
+			agent.WithHooks(config.MergeHooks(config.MergeHooks(agentConfig.Hooks, globalHooks), cliHooks)),
 		}
 
 		if agentConfig.Cache != nil && agentConfig.Cache.Enabled {

@@ -41,7 +41,8 @@ type Config struct {
 	Models         map[string]latest.ModelConfig
 	Providers      map[string]latest.ProviderConfig
 
-	// Hook overrides from CLI flags
+	// Hook overrides from user config and CLI flags
+	GlobalHooks      *latest.HooksConfig
 	HookPreToolUse   []string
 	HookPostToolUse  []string
 	HookSessionStart []string

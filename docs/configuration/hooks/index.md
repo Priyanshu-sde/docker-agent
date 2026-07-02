@@ -66,6 +66,8 @@ docker-agent dispatches the following hook events:
 
 ## Configuration
 
+You can configure hooks directly in an agent YAML file under the agent's `hooks:` block:
+
 ```yaml
 agents:
   root:
@@ -113,6 +115,35 @@ agents:
         - type: command
           command: "./scripts/alert.sh"
 ```
+
+## Global (user-level) hooks
+
+Global hooks let you apply the same hook configuration to every agent you run. Define them in your user config file at `~/.config/cagent/config.yaml` under `settings.hooks`:
+
+```yaml
+# ~/.config/cagent/config.yaml
+settings:
+  hooks:
+    session_start:
+      - type: command
+        command: "~/.config/cagent/hooks/session-start.sh"
+    pre_compact:
+      - type: command
+        command: "~/.config/cagent/hooks/pre-compact.sh"
+    pre_tool_use:
+      - matcher: "shell"
+        hooks:
+          - type: command
+            command: "~/.config/cagent/hooks/check-shell.sh"
+```
+
+Global hooks use the same schema as agent-level hooks and are additive. If an event is configured in multiple places, all matching hooks run in this order:
+
+1. Agent-config hooks from the agent YAML
+2. Global hooks from `settings.hooks`
+3. CLI hooks from `--hook-*` flags
+
+Global hooks cannot be suppressed by an individual agent. Use them for user-wide audit logging, personal guardrails, notifications, and setup/cleanup behavior that should apply everywhere.
 
 ## Built-in Hooks
 
@@ -879,4 +910,4 @@ $ docker agent run agentcatalog/coder \
 > [!NOTE]
 > **Merging behavior**
 >
-> CLI hooks are **appended** to any hooks already defined in the agent's YAML config. They don't replace existing hooks. Pre/post-tool-use hooks added via CLI match all tools (equivalent to `matcher: "*"`).
+> Agent-config, global, and CLI hooks are additive. For each event, hooks run in this order: agent-config hooks first, then global hooks from `settings.hooks`, then CLI hooks. No source replaces another, and individual agents cannot opt out of global hooks.
