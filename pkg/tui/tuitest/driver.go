@@ -193,7 +193,8 @@ func (d *Driver) stop() {
 // and thus its frame capture — has completed. Counting frames instead would
 // race with frames produced by startup or internal messages. The sentinel is
 // sent separately rather than wrapping msg so the program still applies its
-// internal handling of special messages (window size, quit, ...).
+// internal handling of special messages (window size, quit, ...). Commands
+// returned by msg still complete asynchronously; use WaitFor for their effects.
 func (d *Driver) sendSync(msg tea.Msg) {
 	d.tb.Helper()
 
@@ -203,7 +204,8 @@ func (d *Driver) sendSync(msg tea.Msg) {
 	select {
 	case <-done:
 	case <-d.runDone:
-		// msg quit the program; there is no later frame to wait for.
+		// The program terminated before the barrier was processed; there is
+		// no later frame to wait for.
 	case <-time.After(d.waitTimeout):
 		d.tb.Fatalf("tuitest: timed out after %s waiting for %T to be processed", d.waitTimeout, msg)
 	}

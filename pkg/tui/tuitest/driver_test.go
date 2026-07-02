@@ -83,8 +83,8 @@ func (m *quitModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if key, ok := msg.(tea.KeyPressMsg); ok && key.Code == 'q' {
 		return m, tea.Quit
 	}
-	inner, cmd := m.echoModel.Update(msg)
-	m.echoModel = *inner.(*echoModel)
+	// echoModel.Update mutates the embedded value in place.
+	_, cmd := m.echoModel.Update(msg)
 	return m, cmd
 }
 
