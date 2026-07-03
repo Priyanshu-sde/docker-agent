@@ -73,6 +73,26 @@ render hook) resolve these to the right URL. Never use Liquid
 (`relative_url`) or absolute `/path/` links in `docs/**` content —
 they break when the page is mounted on docs.docker.com.
 
+## Canonical URLs
+
+Every content page is mounted on docs.docker.com, and this site
+tracks `main` while docs.docker.com is pinned to a release — so the
+stable page is the authoritative copy. Each
+`docs/<section>/<page>/index.md` sets `canonical:` in its front
+matter (after `weight:`), derived from its path:
+
+```yaml
+canonical: https://docs.docker.com/ai/docker-agent/<section>/<page>/
+```
+
+The Jekyll layout renders it as the page's `rel=canonical` link;
+docs.docker.com ignores the value and self-canonicalizes. CI
+(`docs-lint` / `scripts/docs-check-canonical.sh`) fails when the
+value is missing or doesn't match the page path — mind it when
+scaffolding a new page from an existing one. The homepage, `404.md`
+and section `_index.md` files are not mirrored pages and don't set
+one.
+
 ## Availability badges
 
 When a page documents a feature that is merged on `main` but not yet

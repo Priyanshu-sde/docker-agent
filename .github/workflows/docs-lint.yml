@@ -18,10 +18,12 @@ on:
     paths:
       - ".github/workflows/docs-lint.yml"
       - "docs/**"
+      - "scripts/docs-check-canonical.sh"
   pull_request:
     paths:
       - ".github/workflows/docs-lint.yml"
       - "docs/**"
+      - "scripts/docs-check-canonical.sh"
 
 jobs:
   markdownlint:
@@ -35,6 +37,17 @@ jobs:
       - name: Lint Markdown
         run: npx --yes markdownlint-cli2@0.22.1
         working-directory: docs
+
+  canonical-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      # Mounted pages must canonicalize to their docs.docker.com URL
+      # (STYLE.md "Canonical URLs"); catches pages added without one.
+      - name: Check canonical front matter
+        run: ./scripts/docs-check-canonical.sh
 
   link-check:
     runs-on: ubuntu-latest
