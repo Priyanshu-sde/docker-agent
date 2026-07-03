@@ -25,7 +25,7 @@ func TestEstimateMessageTokens(t *testing.T) {
 		},
 		{
 			name:     "text-only message",
-			msg:      chat.Message{Content: "Hello, world!"}, // 13 chars → 13/4 = 3 + 5 = 8
+			msg:      chat.Message{Content: "Hello, world!"}, // 13 chars → 13/3.5 = 3 + 5 = 8
 			expected: 8,
 		},
 		{
@@ -36,8 +36,8 @@ func TestEstimateMessageTokens(t *testing.T) {
 					{Type: chat.MessagePartTypeText, Text: "second part"}, // 11 chars
 				},
 			},
-			// 21 total chars → 21/4 = 5 + 5 overhead = 10
-			expected: 10,
+			// 21 total chars → 21/3.5 = 6 + 5 overhead = 11
+			expected: 11,
 		},
 		{
 			name: "message with tool calls",
@@ -51,17 +51,17 @@ func TestEstimateMessageTokens(t *testing.T) {
 					},
 				},
 			},
-			// 33 chars → 33/4 = 8 + 5 overhead = 13
-			expected: 13,
+			// 33 chars → 33/3.5 = 9 + 5 overhead = 14
+			expected: 14,
 		},
 		{
 			name: "message with reasoning content",
 			msg: chat.Message{
 				Content:          "answer",                                         // 6 chars
-				ReasoningContent: "Let me think about this carefully step by step", // 47 chars
+				ReasoningContent: "Let me think about this carefully step by step", // 46 chars
 			},
-			// 53 chars → 53/4 = 13 + 5 overhead = 18
-			expected: 18,
+			// 52 total chars → 52/3.5 = 14 + 5 overhead = 19
+			expected: 19,
 		},
 		{
 			name: "combined content types",
@@ -73,8 +73,87 @@ func TestEstimateMessageTokens(t *testing.T) {
 					{Function: tools.FunctionCall{Name: "cmd", Arguments: `{"x":"y"}`}}, // 3 + 9 = 12 chars
 				},
 			},
-			// 38 total chars → 38/4 = 9 + 5 overhead = 14
-			expected: 14,
+			// 38 total chars → 38/3.5 = 10 + 5 overhead = 15
+			expected: 15,
+		},
+		{
+			name: "inline document text is counted",
+			msg: chat.Message{
+				MultiContent: []chat.MessagePart{
+					{
+						Type: chat.MessagePartTypeDocument,
+						Document: &chat.Document{
+							Name:     "notes.txt",
+							MimeType: "text/plain",
+							Source:   chat.DocumentSource{InlineText: strings.Repeat("x", 35)},
+						},
+					},
+				},
+			},
+			// 35 chars → 35/3.5 = 10 + 5 overhead = 15
+			expected: 15,
+		},
+		{
+			name: "binary attachments get a flat charge",
+			msg: chat.Message{
+				MultiContent: []chat.MessagePart{
+					{
+						Type: chat.MessagePartTypeDocument,
+						Document: &chat.Document{
+							Name:     "screenshot.png",
+							MimeType: "image/png",
+							Source:   chat.DocumentSource{InlineData: []byte{0x89, 0x50}},
+						},
+					},
+					{Type: chat.MessagePartTypeImageURL, ImageURL: &chat.MessageImageURL{URL: "data:image/png;base64,xyz"}},
+				},
+			},
+			// 2 binary parts × 1500 + 5 overhead; base64 payloads are
+			// billed as image tokens by providers, never as text.
+			expected: 3_005,
+		},
+		{
+			name: "provider-reported usage wins over the heuristic",
+			msg: chat.Message{
+				Role:    chat.MessageRoleAssistant,
+				Content: strings.Repeat("a", 4_000), // heuristic would say ~1147
+				Usage:   &chat.Usage{InputTokens: 50_000, OutputTokens: 900},
+			},
+			// 900 reported + 5 overhead; InputTokens describe the prompt,
+			// not this message, and must not leak into the estimate.
+			expected: 905,
+		},
+		{
+			name: "reasoning tokens are excluded when reasoning is not stored",
+			msg: chat.Message{
+				Role:    chat.MessageRoleAssistant,
+				Content: "short answer",
+				Usage:   &chat.Usage{OutputTokens: 5_000, ReasoningTokens: 4_990},
+			},
+			// o-series style: 4990 hidden reasoning tokens never come back
+			// as input → only 10 visible tokens + 5 overhead.
+			expected: 15,
+		},
+		{
+			name: "reasoning tokens stay counted when reasoning is stored",
+			msg: chat.Message{
+				Role:             chat.MessageRoleAssistant,
+				Content:          "answer",
+				ReasoningContent: "stored thinking block",
+				Usage:            &chat.Usage{OutputTokens: 1_000, ReasoningTokens: 800},
+			},
+			// Anthropic style: the thinking block is resent as input, so
+			// the full output count applies.
+			expected: 1_005,
+		},
+		{
+			name: "usage without output tokens falls back to the heuristic",
+			msg: chat.Message{
+				Role:    chat.MessageRoleAssistant,
+				Content: "Hello, world!", // 13 chars → 3 + 5 = 8
+				Usage:   &chat.Usage{InputTokens: 1_000},
+			},
+			expected: 8,
 		},
 	}
 
@@ -85,6 +164,153 @@ func TestEstimateMessageTokens(t *testing.T) {
 			assert.Equal(t, tt.expected, got)
 		})
 	}
+}
+
+// usageMsg builds an assistant anchor message: a turn whose usage
+// carries the provider-reported prompt and output token counts.
+func usageMsg(model string, promptTokens, outputTokens int64) chat.Message {
+	return chat.Message{
+		Role:    chat.MessageRoleAssistant,
+		Content: "ok",
+		Model:   model,
+		Usage:   &chat.Usage{InputTokens: promptTokens, OutputTokens: outputTokens},
+	}
+}
+
+func TestNewEstimator(t *testing.T) {
+	t.Parallel()
+
+	// 7000-char tool result → heuristic 7000/3.5 + 5 = 2005 tokens.
+	toolResult := chat.Message{Role: chat.MessageRoleTool, Content: strings.Repeat("x", 7_000)}
+
+	t.Run("no usage data yields a neutral estimator", func(t *testing.T) {
+		t.Parallel()
+		e := NewSliceEstimator([]chat.Message{
+			{Role: chat.MessageRoleUser, Content: strings.Repeat("a", 10_000)},
+			{Role: chat.MessageRoleAssistant, Content: "reply"},
+		})
+		assert.InEpsilon(t, 1.0, e.Scale(), 1e-9)
+	})
+
+	t.Run("underestimated content scales the heuristic up", func(t *testing.T) {
+		t.Parallel()
+		// Anchor 1 ends at total 1100; anchor 2 reports a prompt of
+		// 4108, so the tool result in between cost 3008 real tokens
+		// against a 2005 heuristic → ratio ≈ 1.5.
+		e := NewSliceEstimator([]chat.Message{
+			{Role: chat.MessageRoleUser, Content: "question"},
+			usageMsg("test/m", 1_000, 100),
+			toolResult,
+			usageMsg("test/m", 4_108, 50),
+		})
+		assert.InDelta(t, 1.5, e.Scale(), 0.01)
+
+		// The scale applies to heuristic estimates only.
+		fresh := chat.Message{Role: chat.MessageRoleTool, Content: strings.Repeat("y", 3_500)}
+		assert.InDelta(t, 1005*1.5, float64(e.EstimateMessageTokens(&fresh)), 2)
+
+		reported := usageMsg("test/m", 9_999, 200)
+		assert.Equal(t, int64(205), e.EstimateMessageTokens(&reported),
+			"provider-reported counts must never be scaled")
+	})
+
+	t.Run("overestimated content scales down but never below the floor", func(t *testing.T) {
+		t.Parallel()
+		// Real cost 600 vs 2005 heuristic → raw ratio ≈0.3, clamped to 0.75.
+		e := NewSliceEstimator([]chat.Message{
+			usageMsg("test/m", 1_000, 100),
+			toolResult,
+			usageMsg("test/m", 1_700, 50),
+		})
+		assert.InEpsilon(t, 0.75, e.Scale(), 1e-9)
+	})
+
+	t.Run("inflated deltas are capped", func(t *testing.T) {
+		t.Parallel()
+		// Real cost 10000 vs 2005 heuristic → raw ratio ≈5, clamped to 2.
+		e := NewSliceEstimator([]chat.Message{
+			usageMsg("test/m", 1_000, 100),
+			toolResult,
+			usageMsg("test/m", 11_100, 50),
+		})
+		assert.InEpsilon(t, 2.0, e.Scale(), 1e-9)
+	})
+
+	t.Run("small samples are not trusted", func(t *testing.T) {
+		t.Parallel()
+		// 100 chars → ~33 heuristic tokens, below calibrationMinTokens.
+		e := NewSliceEstimator([]chat.Message{
+			usageMsg("test/m", 1_000, 100),
+			{Role: chat.MessageRoleTool, Content: strings.Repeat("x", 100)},
+			usageMsg("test/m", 11_100, 50),
+		})
+		assert.InEpsilon(t, 1.0, e.Scale(), 1e-9)
+	})
+
+	t.Run("negative deltas from a mid-window compaction are discarded", func(t *testing.T) {
+		t.Parallel()
+		// The second window's prompt shrank (compaction rebuilt it), so
+		// only the first window's clean 1.5 ratio survives.
+		e := NewSliceEstimator([]chat.Message{
+			usageMsg("test/m", 1_000, 100),
+			toolResult,
+			usageMsg("test/m", 4_108, 50),
+			toolResult,
+			usageMsg("test/m", 500, 50),
+		})
+		assert.InDelta(t, 1.5, e.Scale(), 0.01)
+	})
+
+	t.Run("windows spanning a model switch are discarded", func(t *testing.T) {
+		t.Parallel()
+		e := NewSliceEstimator([]chat.Message{
+			usageMsg("openai/gpt-5", 1_000, 100),
+			toolResult,
+			usageMsg("anthropic/claude", 11_100, 50),
+		})
+		assert.InEpsilon(t, 1.0, e.Scale(), 1e-9)
+	})
+
+	t.Run("exactly sized in-between messages are subtracted from the delta", func(t *testing.T) {
+		t.Parallel()
+		// The in-between assistant turn has an output-only usage report
+		// (5000 tokens, no prompt data → not an anchor). Its exact size
+		// must not dilute the tool result's 2005-vs-3008 ratio.
+		interAssistant := chat.Message{
+			Role:    chat.MessageRoleAssistant,
+			Content: "large reply",
+			Model:   "test/m",
+			Usage:   &chat.Usage{OutputTokens: 5_000},
+		}
+		e := NewSliceEstimator([]chat.Message{
+			usageMsg("test/m", 1_000, 100),
+			interAssistant,
+			toolResult,
+			usageMsg("test/m", 9_113, 50), // delta 8013 − (5000+5) reported = 3008
+		})
+		assert.InDelta(t, 1.5, e.Scale(), 0.01)
+	})
+}
+
+// TestSplitIndexForKeep_UsageCalibration verifies that provider-reported
+// usage recorded on assistant turns shifts the keep boundary: content
+// the heuristic undercounts 2× fills the keep budget twice as fast.
+func TestSplitIndexForKeep_UsageCalibration(t *testing.T) {
+	t.Parallel()
+
+	// Each user message: 40000 chars → heuristic 11433 tokens, but the
+	// anchor deltas report 22866 real tokens (ratio exactly 2.0).
+	messages := []chat.Message{
+		{Role: chat.MessageRoleUser, Content: strings.Repeat("u", 40_000)},
+		usageMsg("test/m", 15_000, 100),
+		{Role: chat.MessageRoleUser, Content: strings.Repeat("v", 40_000)},
+		usageMsg("test/m", 37_966, 100), // 15100 + 22866
+	}
+
+	// Uncalibrated walk would fit messages[1:] in 23k (105 + 11433 +
+	// 105); with the observed 2× correction the kept tail shrinks to
+	// messages[2:] (105 + 22866).
+	assert.Equal(t, 2, SplitIndexForKeep(messages, 23_000))
 }
 
 func TestShouldCompact(t *testing.T) {
@@ -251,14 +477,14 @@ func TestSplitIndexForKeep(t *testing.T) {
 		{
 			name: "recent messages kept, older ones compacted",
 			messages: []chat.Message{
-				msg(chat.MessageRoleUser, strings.Repeat("a", 40000)),      // ~10005 tokens
-				msg(chat.MessageRoleAssistant, strings.Repeat("b", 40000)), // ~10005 tokens
-				msg(chat.MessageRoleUser, strings.Repeat("c", 40000)),      // ~10005 tokens
-				msg(chat.MessageRoleAssistant, strings.Repeat("d", 40000)), // ~10005 tokens
-				msg(chat.MessageRoleUser, strings.Repeat("e", 40000)),      // ~10005 tokens
-				msg(chat.MessageRoleAssistant, strings.Repeat("f", 40000)), // ~10005 tokens
+				msg(chat.MessageRoleUser, strings.Repeat("a", 40000)),      // ~11433 tokens
+				msg(chat.MessageRoleAssistant, strings.Repeat("b", 40000)), // ~11433 tokens
+				msg(chat.MessageRoleUser, strings.Repeat("c", 40000)),      // ~11433 tokens
+				msg(chat.MessageRoleAssistant, strings.Repeat("d", 40000)), // ~11433 tokens
+				msg(chat.MessageRoleUser, strings.Repeat("e", 40000)),      // ~11433 tokens
+				msg(chat.MessageRoleAssistant, strings.Repeat("f", 40000)), // ~11433 tokens
 			},
-			maxTokens: 20_100, // enough for exactly 2 messages
+			maxTokens: 23_000, // enough for exactly 2 messages
 			wantSplit: 4,      // last 2 messages are kept
 		},
 		{
@@ -402,7 +628,7 @@ func TestFirstIndexInBudget(t *testing.T) {
 				msg(chat.MessageRoleUser, strings.Repeat("c", 4000)),
 				msg(chat.MessageRoleAssistant, strings.Repeat("d", 4000)),
 			},
-			budget:    2100, // ~2 messages worth
+			budget:    2400, // ~2 messages worth (~1147 tokens each)
 			wantFirst: 2,
 		},
 	}

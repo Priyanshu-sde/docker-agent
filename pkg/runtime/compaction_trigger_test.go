@@ -233,3 +233,101 @@ func TestCompactIfNeeded_AgentSessionCompactionDisabled(t *testing.T) {
 			"session_compaction: false must suppress the proactive compaction trigger")
 	}
 }
+
+// TestCompactIfNeeded_UsageCalibratedTrigger pins the estimator
+// reconciliation from issue #3437: identical fresh tool results either
+// trigger or don't trigger proactive compaction depending on what the
+// session's provider-reported usage said about earlier, similar
+// content.
+//
+// Both sessions carry ~43k provider-counted tokens and add a 120k-char
+// tool result (heuristic ≈ 34k tokens, uncalibrated total ≈ 77k of the
+// 100k window — under the 90% threshold). The calibrated session's
+// anchors additionally prove the heuristic undercounts this content 2×
+// (prompt deltas of 40k tokens for 70k-char results), pushing the
+// estimate past the threshold.
+func TestCompactIfNeeded_UsageCalibratedTrigger(t *testing.T) {
+	t.Parallel()
+
+	const contextLimit = 100_000
+
+	newRuntime := func(t *testing.T) (*LocalRuntime, *agent.Agent) {
+		t.Helper()
+		prov := &mockProvider{id: "test/model", stream: &mockStream{}}
+		root := agent.New("root", "agent", agent.WithModel(prov))
+		rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)),
+			WithSessionCompaction(true),
+			WithModelStore(mockModelStoreWithLimit{limit: contextLimit}))
+		require.NoError(t, err)
+		return rt, root
+	}
+
+	assistantMsg := func(usage *chat.Usage) *session.Message {
+		return session.NewAgentMessage("root", &chat.Message{
+			Role:      chat.MessageRoleAssistant,
+			Content:   "running tools",
+			Model:     "test/model",
+			Usage:     usage,
+			ToolCalls: []tools.ToolCall{{ID: "t1", Function: tools.FunctionCall{Name: "shell"}}},
+		})
+	}
+	toolMsg := func(size int) *session.Message {
+		return session.NewAgentMessage("root", &chat.Message{
+			Role:       chat.MessageRoleTool,
+			ToolCallID: "t1",
+			Content:    strings.Repeat("z", size),
+		})
+	}
+
+	runScenario := func(t *testing.T, calibrated bool) bool {
+		t.Helper()
+		rt, root := newRuntime(t)
+
+		sess := session.New(session.WithUserMessage("build the app"))
+		var anchors []*chat.Usage
+		if calibrated {
+			// 70k-char tool result between the anchors: heuristic says
+			// ~20_005 tokens, the prompt delta says 40_010 → scale 2.0.
+			anchors = []*chat.Usage{
+				{InputTokens: 3_000, OutputTokens: 100},
+				{InputTokens: 43_110, OutputTokens: 100},
+			}
+		}
+		usageAt := func(i int) *chat.Usage {
+			if anchors == nil {
+				return nil
+			}
+			return anchors[i]
+		}
+		sess.AddMessage(assistantMsg(usageAt(0)))
+		sess.AddMessage(toolMsg(70_000))
+		sess.AddMessage(assistantMsg(usageAt(1)))
+		sess.SetUsage(43_110, 100)
+
+		messageCountBefore := len(sess.OwnMessages())
+		sess.AddMessage(toolMsg(120_000))
+
+		events := make(chan Event, 16)
+		rt.compactIfNeeded(t.Context(), sess, root, contextLimit, messageCountBefore, NewChannelSink(events))
+		close(events)
+
+		for ev := range events {
+			if _, ok := ev.(*SessionCompactionEvent); ok {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("provider-calibrated estimate crosses the threshold", func(t *testing.T) {
+		t.Parallel()
+		assert.True(t, runScenario(t, true),
+			"usage anchors proving 2× undercount must push the estimate past 90%")
+	})
+
+	t.Run("without usage anchors the heuristic stays below the threshold", func(t *testing.T) {
+		t.Parallel()
+		assert.False(t, runScenario(t, false),
+			"same content without usage history must not trigger compaction")
+	})
+}

@@ -1114,10 +1114,23 @@ func (r *LocalRuntime) compactIfNeeded(
 	// never enters this session's prompt, so counting it here would
 	// attribute phantom tokens to a small parent conversation and
 	// trigger a compaction that wipes it (see issue #2871).
-	newMessages := sess.OwnMessages()[messageCountBefore:]
+	//
+	// The estimator is calibrated against the provider-reported usage
+	// already recorded on this session's assistant messages, so the
+	// heuristic guess for the fresh tool results tracks the provider's
+	// actual tokenizer instead of a fixed chars-per-token ratio.
+	ownMessages := sess.OwnMessages()
+	estimator := compaction.NewEstimator(func(yield func(*chat.Message) bool) {
+		for i := range ownMessages {
+			if !yield(&ownMessages[i].Message) {
+				return
+			}
+		}
+	})
+	newMessages := ownMessages[messageCountBefore:]
 	var addedTokens int64
-	for _, msg := range newMessages {
-		addedTokens += compaction.EstimateMessageTokens(&msg.Message)
+	for i := range newMessages {
+		addedTokens += estimator.EstimateMessageTokens(&newMessages[i].Message)
 	}
 
 	if !compaction.ShouldCompact(sess.InputTokens, sess.OutputTokens, addedTokens, contextLimit, a.CompactionThreshold()) {
@@ -1129,6 +1142,7 @@ func (r *LocalRuntime) compactIfNeeded(
 		"input_tokens", sess.InputTokens,
 		"output_tokens", sess.OutputTokens,
 		"added_estimated_tokens", addedTokens,
+		"estimator_scale", estimator.Scale(),
 		"estimated_total", sess.InputTokens+sess.OutputTokens+addedTokens,
 		"context_limit", contextLimit,
 	)
