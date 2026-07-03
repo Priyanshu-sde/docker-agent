@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -913,6 +914,68 @@ func (a *App) ContextBreakdown(ctx context.Context) (*runtime.ContextBreakdown, 
 		return nil, fmt.Errorf("context breakdown: %w", runtime.ErrUnsupported)
 	}
 	return cp.ContextBreakdown(ctx, a.Session())
+}
+
+// DropAttachedFile removes a file from the current session's attached files
+// and returns the absolute path that was dropped. The path is resolved
+// against the session's attachment list: exact match first, then the
+// absolute form of a relative path, then a unique base-name match. Dropping
+// stops the file from being propagated to future sub-agent delegations and
+// skill prompts; content already inlined in past messages is unaffected.
+//
+// Attached files are in-memory session state (recording them never touches
+// the store either), so the store sync afterwards is best-effort: it only
+// refreshes stores that snapshot the attachment list and a failure does not
+// undo the drop.
+func (a *App) DropAttachedFile(ctx context.Context, path string) (string, error) {
+	sess := a.Session()
+	if sess == nil {
+		return "", errors.New("no active session")
+	}
+	resolved, err := resolveAttachedFile(sess.AttachedFilesSnapshot(), path)
+	if err != nil {
+		return "", err
+	}
+	if !sess.RemoveAttachedFile(resolved) {
+		return "", fmt.Errorf("file is not attached to this session: %s", resolved)
+	}
+	if store := a.runtime.SessionStore(); store != nil {
+		if err := store.UpdateSession(ctx, sess); err != nil {
+			slog.WarnContext(ctx, "Failed to sync session store after dropping attachment", "session_id", sess.ID, "path", resolved, "error", err)
+		}
+	}
+	return resolved, nil
+}
+
+// resolveAttachedFile maps user input to one recorded attachment path.
+func resolveAttachedFile(attached []string, path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", errors.New("no file specified")
+	}
+	if len(attached) == 0 {
+		return "", errors.New("no files are attached to this session")
+	}
+	if slices.Contains(attached, path) {
+		return path, nil
+	}
+	if abs, err := filepath.Abs(path); err == nil && slices.Contains(attached, abs) {
+		return abs, nil
+	}
+	var matches []string
+	for _, candidate := range attached {
+		if filepath.Base(candidate) == path {
+			matches = append(matches, candidate)
+		}
+	}
+	switch len(matches) {
+	case 1:
+		return matches[0], nil
+	case 0:
+		return "", fmt.Errorf("file is not attached to this session: %s", path)
+	default:
+		return "", fmt.Errorf("%q matches %d attached files, use the full path", path, len(matches))
+	}
 }
 
 // PermissionsInfo returns combined permissions info from team and session.

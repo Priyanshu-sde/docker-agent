@@ -7,6 +7,7 @@ import (
 	neturl "net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	goruntime "runtime"
 	"strings"
 	"time"
@@ -471,6 +472,16 @@ func (m *appModel) handleShowContextDialog() (tea.Model, tea.Cmd) {
 		}
 		return dialog.OpenDialogMsg{Model: dialog.NewContextDialog(breakdown)}
 	}
+}
+
+// handleDropAttachedFile removes an attached file from the current session
+// so it stops being shared with sub-agents and skill prompts.
+func (m *appModel) handleDropAttachedFile(path string) (tea.Model, tea.Cmd) {
+	dropped, err := m.application.DropAttachedFile(m.ctx(), path)
+	if err != nil {
+		return m, notification.ErrorCmd(fmt.Sprintf("Failed to drop attachment: %v", err))
+	}
+	return m, notification.SuccessCmd(fmt.Sprintf("Dropped %s from the session context.", filepath.Base(dropped)))
 }
 
 func (m *appModel) handleShowPermissionsDialog() (tea.Model, tea.Cmd) {

@@ -28,6 +28,19 @@ func (c *ContextCategory) add(tokens int64) {
 	c.Items++
 }
 
+// ContextFile describes one file contributing to the context window, with
+// the estimated token footprint of its current on-disk content.
+type ContextFile struct {
+	// Path is the file's absolute location on disk.
+	Path string `json:"path"`
+	// Tokens is the estimated in-context footprint of the file. It is 0
+	// for files whose content never reaches the prompt inline (unsupported
+	// types, oversized text files) and for missing files.
+	Tokens int64 `json:"tokens"`
+	// Missing marks files that can no longer be read from disk.
+	Missing bool `json:"missing,omitempty"`
+}
+
 // ContextBreakdown describes the estimated composition of the prompt the
 // runtime would send on the next model call, broken down by category. All
 // token counts are estimates produced by [compaction.EstimateMessageTokens]
@@ -50,6 +63,17 @@ type ContextBreakdown struct {
 	// CompactionSummary covers the synthetic message that carries the
 	// latest compaction summary, when the session has been compacted.
 	CompactionSummary ContextCategory `json:"compaction_summary"`
+
+	// PromptFileItems details the individual files behind the PromptFiles
+	// category, in resolution order.
+	PromptFileItems []ContextFile `json:"prompt_file_items,omitempty"`
+	// AttachedFiles lists the files attached to the session (/attach,
+	// @-mentions), in attach order. Their content was inlined into user
+	// messages at send time, so their tokens are already counted in the
+	// Messages category; the per-file numbers here are re-estimated from
+	// the current on-disk content and are informational, not an extra
+	// bucket in TotalTokens.
+	AttachedFiles []ContextFile `json:"attached_files,omitempty"`
 
 	// ContextLimit is the resolved context window of the effective model,
 	// or 0 when it cannot be determined (harness-backed agents, models
@@ -126,7 +150,8 @@ func (r *LocalRuntime) ContextBreakdown(ctx context.Context, sess *session.Sessi
 		b.ToolDefinitions.add(estimateToolDefinitionTokens(&agentTools[i]))
 	}
 
-	b.PromptFiles = r.promptFilesCategory(ctx, a.AddPromptFiles())
+	b.PromptFiles, b.PromptFileItems = r.promptFilesCategory(ctx, a.AddPromptFiles())
+	b.AttachedFiles = attachedFilesInventory(ctx, estimator, sess.AttachedFilesSnapshot())
 
 	return b, nil
 }
@@ -156,10 +181,14 @@ func estimateToolDefinitionTokens(tool *tools.Tool) int64 {
 // staged kit, keyed off the runtime working directory the hooks executor is
 // built with) and sizes the joined contents as the single system message the
 // hook would produce. Items counts the files found, not the names configured.
-func (r *LocalRuntime) promptFilesCategory(ctx context.Context, names []string) ContextCategory {
+// The returned files detail the same lookup per resolved path; their
+// individual estimates each carry the per-message overhead the category
+// counts once, so their sum can slightly exceed the category total.
+func (r *LocalRuntime) promptFilesCategory(ctx context.Context, names []string) (ContextCategory, []ContextFile) {
 	var category ContextCategory
+	var files []ContextFile
 	if len(names) == 0 {
-		return category
+		return category, nil
 	}
 	home, _ := os.UserHomeDir() // empty string disables the home-dir lookup
 	var parts []string
@@ -172,14 +201,77 @@ func (r *LocalRuntime) promptFilesCategory(ctx context.Context, names []string) 
 			}
 			parts = append(parts, string(content))
 			category.Items++
+			files = append(files, ContextFile{
+				Path: path,
+				Tokens: compaction.EstimateMessageTokens(&chat.Message{
+					Role:    chat.MessageRoleSystem,
+					Content: string(content),
+				}),
+			})
 		}
 	}
 	if len(parts) == 0 {
-		return category
+		return category, files
 	}
 	category.Tokens = compaction.EstimateMessageTokens(&chat.Message{
 		Role:    chat.MessageRoleSystem,
 		Content: strings.Join(parts, "\n\n"),
 	})
-	return category
+	return category, files
+}
+
+// attachedFilesInventory sizes each file attached to the session from its
+// current on-disk content. Files that disappeared or became unreadable are
+// kept in the inventory (marked missing) so users can spot and drop dangling
+// references.
+func attachedFilesInventory(ctx context.Context, estimator compaction.Estimator, paths []string) []ContextFile {
+	if len(paths) == 0 {
+		return nil
+	}
+	files := make([]ContextFile, 0, len(paths))
+	for _, path := range paths {
+		file := ContextFile{Path: path}
+		if fi, err := os.Stat(path); err != nil || !fi.Mode().IsRegular() {
+			file.Missing = true
+		} else {
+			file.Tokens = attachedFileTokens(ctx, estimator, path, fi.Size())
+		}
+		files = append(files, file)
+	}
+	return files
+}
+
+// attachedFileTokens estimates the in-context footprint of one attached
+// file, mirroring how the attachment pipeline shipped it: text files are
+// inlined verbatim (when under the inline size cap), supported binary types
+// (images, PDFs) travel as binary parts sized by the estimator's flat
+// attachment charge, and anything else never reaches the prompt inline.
+func attachedFileTokens(ctx context.Context, estimator compaction.Estimator, path string, size int64) int64 {
+	switch {
+	case chat.IsTextFile(path):
+		if size > chat.MaxInlineFileSize {
+			return 0
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			slog.WarnContext(ctx, "Context breakdown: failed to read attached file", "path", path, "error", err)
+			return 0
+		}
+		return estimator.EstimateMessageTokens(&chat.Message{
+			Role:    chat.MessageRoleUser,
+			Content: string(content),
+		})
+	case chat.IsSupportedMimeType(chat.DetectMimeType(path)):
+		// A synthetic document part with inline data stands in for the real
+		// binary attachment so the estimator applies its flat per-attachment
+		// charge, mirroring how the sent message is sized.
+		return estimator.EstimateMessageTokens(&chat.Message{
+			Role: chat.MessageRoleUser,
+			MultiContent: []chat.MessagePart{
+				{Type: chat.MessagePartTypeDocument, Document: &chat.Document{Source: chat.DocumentSource{InlineData: []byte{0}}}},
+			},
+		})
+	default:
+		return 0
+	}
 }

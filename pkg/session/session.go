@@ -737,6 +737,21 @@ func (s *Session) AddAttachedFile(absPath string) {
 	s.AttachedFiles = append(s.AttachedFiles, absPath)
 }
 
+// RemoveAttachedFile removes absPath from the session's attached files and
+// reports whether it was present. Removing a path only stops it from being
+// propagated to future sub-agent delegations and skill prompts; file content
+// already inlined in past messages is untouched.
+func (s *Session) RemoveAttachedFile(absPath string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	i := slices.Index(s.AttachedFiles, absPath)
+	if i < 0 {
+		return false
+	}
+	s.AttachedFiles = slices.Delete(s.AttachedFiles, i, i+1)
+	return true
+}
+
 // AttachedFilesSnapshot returns a copy of the session's attached file paths.
 // Callers may freely mutate the returned slice without affecting the session.
 func (s *Session) AttachedFilesSnapshot() []string {

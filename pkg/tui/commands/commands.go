@@ -129,6 +129,22 @@ func builtInSessionCommands() []Item {
 			},
 		},
 		{
+			ID:           "session.drop",
+			Label:        "Drop",
+			SlashCommand: "/drop",
+			Description:  "Remove an attached file from the session context (usage: /drop [path])",
+			Category:     "Session",
+			Immediate:    true,
+			Execute: func(arg string) tea.Cmd {
+				if arg = strings.TrimSpace(arg); arg != "" {
+					return core.CmdHandler(messages.DropAttachedFileMsg{Path: arg})
+				}
+				// Without an argument, the /context dialog is the inventory
+				// from which attachments can be reviewed and dropped.
+				return core.CmdHandler(messages.ShowContextDialogMsg{})
+			},
+		},
+		{
 			ID:           "session.cost",
 			Label:        "Cost",
 			SlashCommand: "/cost",

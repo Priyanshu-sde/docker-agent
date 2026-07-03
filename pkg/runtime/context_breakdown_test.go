@@ -203,6 +203,109 @@ func TestContextBreakdown_NoPromptFiles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Zero(t, b.PromptFiles.Items)
 	assert.Zero(t, b.PromptFiles.Tokens)
+	assert.Empty(t, b.PromptFileItems)
+}
+
+func TestContextBreakdown_PromptFileItems(t *testing.T) {
+	t.Parallel()
+
+	promptDir := t.TempDir()
+	promptFile := "PROMPT_ITEMS_TEST.md"
+	promptContent := "Be concise. Prefer tables over prose when reporting results."
+	require.NoError(t, os.WriteFile(filepath.Join(promptDir, promptFile), []byte(promptContent), 0o600))
+
+	rt := newBreakdownRuntime(t, agent.WithAddPromptFiles([]string{promptFile}))
+	rt.workingDir = promptDir
+
+	b, err := rt.ContextBreakdown(t.Context(), session.New(session.WithUserMessage("hi")))
+	require.NoError(t, err)
+
+	require.Len(t, b.PromptFileItems, 1)
+	item := b.PromptFileItems[0]
+	assert.Equal(t, filepath.Join(promptDir, promptFile), item.Path)
+	assert.False(t, item.Missing)
+	expected := compaction.EstimateMessageTokens(&chat.Message{
+		Role:    chat.MessageRoleSystem,
+		Content: promptContent,
+	})
+	assert.Equal(t, expected, item.Tokens)
+}
+
+func TestContextBreakdown_AttachedFiles(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	textPath := filepath.Join(dir, "notes.md")
+	textContent := "Attached notes: the retry loop lives in pkg/runtime and backs off exponentially."
+	require.NoError(t, os.WriteFile(textPath, []byte(textContent), 0o600))
+	missingPath := filepath.Join(dir, "deleted.txt")
+
+	rt := newBreakdownRuntime(t)
+	sess := session.New(session.WithUserMessage("hello"))
+	sess.AddAttachedFile(textPath)
+	sess.AddAttachedFile(missingPath)
+
+	b, err := rt.ContextBreakdown(t.Context(), sess)
+	require.NoError(t, err)
+
+	require.Len(t, b.AttachedFiles, 2)
+
+	text := b.AttachedFiles[0]
+	assert.Equal(t, textPath, text.Path)
+	assert.False(t, text.Missing)
+	expected := compaction.EstimateMessageTokens(&chat.Message{
+		Role:    chat.MessageRoleUser,
+		Content: textContent,
+	})
+	assert.Equal(t, expected, text.Tokens)
+
+	missing := b.AttachedFiles[1]
+	assert.Equal(t, missingPath, missing.Path)
+	assert.True(t, missing.Missing)
+	assert.Zero(t, missing.Tokens)
+
+	// Attached-file estimates detail content already counted in Messages;
+	// they must not inflate the estimated prompt total.
+	assert.Equal(t,
+		b.SystemPrompt.Tokens+b.ToolDefinitions.Tokens+b.PromptFiles.Tokens+
+			b.Messages.Tokens+b.ToolResults.Tokens+b.CompactionSummary.Tokens,
+		b.TotalTokens())
+}
+
+func TestContextBreakdown_NoAttachedFiles(t *testing.T) {
+	t.Parallel()
+
+	rt := newBreakdownRuntime(t)
+	b, err := rt.ContextBreakdown(t.Context(), session.New(session.WithUserMessage("hi")))
+	require.NoError(t, err)
+	assert.Empty(t, b.AttachedFiles)
+}
+
+func TestAttachedFileTokens_Kinds(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	estimator := compaction.Estimator{}
+
+	// A minimal valid PNG header makes content sniffing classify the file
+	// as a supported binary type, which is sized as a flat attachment charge.
+	pngPath := filepath.Join(dir, "shot.png")
+	pngHeader := append([]byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A}, make([]byte, 64)...)
+	require.NoError(t, os.WriteFile(pngPath, pngHeader, 0o600))
+	binaryTokens := attachedFileTokens(t.Context(), estimator, pngPath, int64(len(pngHeader)))
+	expectedBinary := compaction.EstimateMessageTokens(&chat.Message{
+		Role: chat.MessageRoleUser,
+		MultiContent: []chat.MessagePart{
+			{Type: chat.MessagePartTypeDocument, Document: &chat.Document{Source: chat.DocumentSource{InlineData: []byte{0}}}},
+		},
+	})
+	assert.Equal(t, expectedBinary, binaryTokens)
+
+	// Text files above the inline cap were never inlined, so they
+	// contribute nothing.
+	textPath := filepath.Join(dir, "big.txt")
+	require.NoError(t, os.WriteFile(textPath, []byte("content"), 0o600))
+	assert.Zero(t, attachedFileTokens(t.Context(), estimator, textPath, chat.MaxInlineFileSize+1))
 }
 
 func TestEstimateToolDefinitionTokens(t *testing.T) {

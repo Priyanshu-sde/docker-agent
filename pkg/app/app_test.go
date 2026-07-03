@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -520,4 +521,85 @@ func TestApp_InjectUserMessage(t *testing.T) {
 	default:
 		t.Fatal("expected a SendMsg to be emitted")
 	}
+}
+
+func TestApp_DropAttachedFile(t *testing.T) {
+	t.Parallel()
+
+	newAppWithAttachments := func(store session.Store, paths ...string) (*App, *session.Session) {
+		sess := session.New(session.WithAttachedFiles(paths))
+		return New(t.Context(), &mockRuntime{store: store}, sess), sess
+	}
+
+	t.Run("drops by exact path and syncs the store", func(t *testing.T) {
+		t.Parallel()
+		store := session.NewInMemorySessionStore()
+		app, sess := newAppWithAttachments(store, "/abs/foo.go", "/abs/bar.go")
+
+		dropped, err := app.DropAttachedFile(t.Context(), "/abs/foo.go")
+		require.NoError(t, err)
+		assert.Equal(t, "/abs/foo.go", dropped)
+		assert.Equal(t, []string{"/abs/bar.go"}, sess.AttachedFilesSnapshot())
+
+		stored, err := store.GetSession(t.Context(), sess.ID)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"/abs/bar.go"}, stored.AttachedFilesSnapshot())
+	})
+
+	t.Run("drops by unique base name", func(t *testing.T) {
+		t.Parallel()
+		app, sess := newAppWithAttachments(nil, "/abs/dir/foo.go", "/abs/dir/bar.go")
+
+		dropped, err := app.DropAttachedFile(t.Context(), "foo.go")
+		require.NoError(t, err)
+		assert.Equal(t, "/abs/dir/foo.go", dropped)
+		assert.Equal(t, []string{"/abs/dir/bar.go"}, sess.AttachedFilesSnapshot())
+	})
+
+	t.Run("rejects ambiguous base names", func(t *testing.T) {
+		t.Parallel()
+		app, sess := newAppWithAttachments(nil, "/abs/a/foo.go", "/abs/b/foo.go")
+
+		_, err := app.DropAttachedFile(t.Context(), "foo.go")
+		require.ErrorContains(t, err, "matches 2 attached files")
+		assert.Len(t, sess.AttachedFilesSnapshot(), 2)
+	})
+
+	t.Run("rejects unknown files and blank input", func(t *testing.T) {
+		t.Parallel()
+		app, _ := newAppWithAttachments(nil, "/abs/foo.go")
+
+		_, err := app.DropAttachedFile(t.Context(), "/abs/other.go")
+		require.ErrorContains(t, err, "not attached")
+
+		_, err = app.DropAttachedFile(t.Context(), "   ")
+		require.ErrorContains(t, err, "no file specified")
+	})
+
+	t.Run("reports when nothing is attached", func(t *testing.T) {
+		t.Parallel()
+		app, _ := newAppWithAttachments(nil)
+
+		_, err := app.DropAttachedFile(t.Context(), "foo.go")
+		require.ErrorContains(t, err, "no files are attached")
+	})
+
+	t.Run("returns error when no session", func(t *testing.T) {
+		t.Parallel()
+		app := &App{runtime: &mockRuntime{}}
+
+		_, err := app.DropAttachedFile(t.Context(), "foo.go")
+		require.ErrorContains(t, err, "no active session")
+	})
+}
+
+func TestResolveAttachedFile_RelativePath(t *testing.T) {
+	t.Parallel()
+
+	abs, err := filepath.Abs("notes.md")
+	require.NoError(t, err)
+
+	resolved, err := resolveAttachedFile([]string{abs}, "notes.md")
+	require.NoError(t, err)
+	assert.Equal(t, abs, resolved)
 }

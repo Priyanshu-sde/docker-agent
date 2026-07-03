@@ -134,6 +134,25 @@ func TestParseSlashCommand_OtherCommands(t *testing.T) {
 		assert.True(t, ok)
 	})
 
+	t.Run("drop command with path", func(t *testing.T) {
+		t.Parallel()
+		cmd := parser.Parse("/drop notes.md")
+		require.NotNil(t, cmd)
+		msg := cmd()
+		dropMsg, ok := msg.(messages.DropAttachedFileMsg)
+		require.True(t, ok)
+		assert.Equal(t, "notes.md", dropMsg.Path)
+	})
+
+	t.Run("drop command without path opens the context dialog", func(t *testing.T) {
+		t.Parallel()
+		cmd := parser.Parse("/drop")
+		require.NotNil(t, cmd)
+		msg := cmd()
+		_, ok := msg.(messages.ShowContextDialogMsg)
+		assert.True(t, ok)
+	})
+
 	t.Run("effort command with level", func(t *testing.T) {
 		t.Parallel()
 		cmd := parser.Parse("/effort high")

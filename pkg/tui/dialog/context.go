@@ -3,6 +3,8 @@ package dialog
 import (
 	"fmt"
 	"image/color"
+	"path/filepath"
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/key"
@@ -10,11 +12,13 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 
+	pathx "github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/tui/components/notification"
 	"github.com/docker/docker-agent/pkg/tui/components/scrollview"
 	"github.com/docker/docker-agent/pkg/tui/core"
 	"github.com/docker/docker-agent/pkg/tui/core/layout"
+	"github.com/docker/docker-agent/pkg/tui/messages"
 	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
@@ -28,20 +32,30 @@ type contextDialog struct {
 	breakdown  *runtime.ContextBreakdown
 	keyMap     contextDialogKeyMap
 	scrollview *scrollview.Model
+
+	// selected indexes breakdown.AttachedFiles; -1 when the inventory has
+	// nothing to select.
+	selected int
+	// attachedLines maps each attached file to its line index in the
+	// scrollable content region. Rebuilt on every render and used to keep
+	// the selection visible while navigating.
+	attachedLines []int
 }
 
 type contextDialogKeyMap struct {
-	Close, Copy key.Binding
+	Close, Copy, Up, Down, Drop key.Binding
 }
 
 // NewContextDialog creates the /context dialog showing the estimated
-// context-window composition by category.
+// context-window composition by category, plus the per-file inventory of
+// attached files (droppable) and prompt files.
 func NewContextDialog(breakdown *runtime.ContextBreakdown) Dialog {
 	if breakdown == nil {
 		breakdown = &runtime.ContextBreakdown{}
 	}
-	return &contextDialog{
+	d := &contextDialog{
 		breakdown: breakdown,
+		selected:  -1,
 		scrollview: scrollview.New(
 			scrollview.WithKeyMap(scrollview.ReadOnlyScrollKeyMap()),
 			scrollview.WithReserveScrollbarSpace(true),
@@ -49,30 +63,86 @@ func NewContextDialog(breakdown *runtime.ContextBreakdown) Dialog {
 		keyMap: contextDialogKeyMap{
 			Close: key.NewBinding(key.WithKeys("esc", "enter", "q"), key.WithHelp("Esc", "close")),
 			Copy:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "copy")),
+			Up:    key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("↑", "select")),
+			Down:  key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("↓", "select")),
+			Drop:  key.NewBinding(key.WithKeys("d", "x", "backspace", "delete"), key.WithHelp("d", "drop")),
 		},
 	}
+	if len(breakdown.AttachedFiles) > 0 {
+		d.selected = 0
+	}
+	return d
 }
 
 func (d *contextDialog) Init() tea.Cmd { return nil }
 
 func (d *contextDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
+	if keyMsg, ok := msg.(tea.KeyPressMsg); ok {
+		if cmd, handled := d.handleKey(keyMsg); handled {
+			return d, cmd
+		}
+	}
 	if handled, cmd := d.scrollview.Update(msg); handled {
 		return d, cmd
 	}
-	switch msg := msg.(type) {
-	case tea.WindowSizeMsg:
+	if msg, ok := msg.(tea.WindowSizeMsg); ok {
 		cmd := d.SetSize(msg.Width, msg.Height)
 		return d, cmd
-	case tea.KeyPressMsg:
-		switch {
-		case key.Matches(msg, d.keyMap.Close):
-			return d, core.CmdHandler(CloseDialogMsg{})
-		case key.Matches(msg, d.keyMap.Copy):
-			_ = clipboard.WriteAll(d.renderPlainText())
-			return d, notification.SuccessCmd("Context breakdown copied to clipboard.")
-		}
 	}
 	return d, nil
+}
+
+// handleKey processes dialog-level keys. Up/Down are claimed for selection
+// only while attached files are listed; without them the keys fall through
+// to the scrollview and keep their plain scrolling behavior.
+func (d *contextDialog) handleKey(msg tea.KeyPressMsg) (tea.Cmd, bool) {
+	hasAttached := len(d.breakdown.AttachedFiles) > 0
+	switch {
+	case key.Matches(msg, d.keyMap.Close):
+		return core.CmdHandler(CloseDialogMsg{}), true
+	case key.Matches(msg, d.keyMap.Copy):
+		_ = clipboard.WriteAll(d.renderPlainText())
+		return notification.SuccessCmd("Context breakdown copied to clipboard."), true
+	case key.Matches(msg, d.keyMap.Up) && hasAttached:
+		d.moveSelection(-1)
+		return nil, true
+	case key.Matches(msg, d.keyMap.Down) && hasAttached:
+		d.moveSelection(1)
+		return nil, true
+	case key.Matches(msg, d.keyMap.Drop) && hasAttached:
+		return d.dropSelected(), true
+	}
+	return nil, false
+}
+
+// moveSelection moves the attached-file selection by delta, clamped to the
+// list bounds, and scrolls the selected row into view.
+func (d *contextDialog) moveSelection(delta int) {
+	n := len(d.breakdown.AttachedFiles)
+	if n == 0 {
+		return
+	}
+	d.selected = min(max(d.selected+delta, 0), n-1)
+	if d.selected < len(d.attachedLines) {
+		d.scrollview.EnsureLineVisible(d.attachedLines[d.selected])
+	}
+}
+
+// dropSelected removes the selected attached file from the local inventory
+// and asks the app to drop it from the session. The local removal is
+// optimistic, mirroring the session-browser delete flow; the handler reports
+// success or failure through a notification.
+func (d *contextDialog) dropSelected() tea.Cmd {
+	files := d.breakdown.AttachedFiles
+	if d.selected < 0 || d.selected >= len(files) {
+		return nil
+	}
+	path := files[d.selected].Path
+	d.breakdown.AttachedFiles = slices.Delete(files, d.selected, d.selected+1)
+	if d.selected >= len(d.breakdown.AttachedFiles) {
+		d.selected = len(d.breakdown.AttachedFiles) - 1
+	}
+	return core.CmdHandler(messages.DropAttachedFileMsg{Path: path})
 }
 
 func (d *contextDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
@@ -172,9 +242,17 @@ const (
 	contextRowMarker = "■"
 )
 
+// contextHeaderLines is the number of fixed (non-scrolling) lines at the top
+// of the dialog: title (with its meta line) + separator + spacer.
+const contextHeaderLines = 3
+
 // contextEstimateNote labels every figure in the dialog as an estimate, as
 // the counts come from a heuristic rather than the provider's tokenizer.
 const contextEstimateNote = "Token counts are estimates; the provider's tokenizer may count differently."
+
+// contextDropNote explains the scope of dropping an attachment: the file
+// stops being shared forward, but past messages keep their inlined copy.
+const contextDropNote = "Dropping a file removes it from the session's attachment list (sub-agents and skills stop receiving it); content already inlined in past messages stays until compaction."
 
 // categoryColors returns the per-category accent colors, aligned with the
 // order of contextRows. Hues are used categorically (Error's rose tint
@@ -216,10 +294,118 @@ func (d *contextDialog) renderContent(contentWidth, maxHeight int) string {
 		lines = append(lines, renderContextRow(&row, scale, labelWidth, markerColor(i, row, colors)))
 	}
 
+	lines = d.appendInventory(lines, scale, contentWidth)
+
 	lines = append(lines, "")
 	lines = append(lines, wrapMutedLines(contextEstimateNote, contentWidth)...)
+	if len(b.AttachedFiles) > 0 {
+		lines = append(lines, wrapMutedLines(contextDropNote, contentWidth)...)
+	}
 
 	return d.applyScrolling(lines, contentWidth, maxHeight)
+}
+
+// appendInventory renders the per-file inventory under the category rows:
+// the session's attached files (selectable, droppable) and the resolved
+// prompt files (config-driven, read-only). Empty sections are omitted. The
+// content-region line index of every attached row is recorded so navigation
+// can keep the selection visible.
+func (d *contextDialog) appendInventory(lines []string, scale int64, contentWidth int) []string {
+	d.attachedLines = d.attachedLines[:0]
+	b := d.breakdown
+	labelWidth := fileLabelWidth(b)
+
+	if len(b.AttachedFiles) > 0 {
+		lines = append(lines, "", sectionStyle().Render("Attached files"))
+		for i := range b.AttachedFiles {
+			d.attachedLines = append(d.attachedLines, len(lines)-contextHeaderLines)
+			lines = append(lines, renderContextFileRow(&b.AttachedFiles[i], scale, labelWidth, contentWidth, i == d.selected))
+		}
+	}
+	if len(b.PromptFileItems) > 0 {
+		lines = append(lines, "", sectionStyle().Render("Prompt files"))
+		for i := range b.PromptFileItems {
+			lines = append(lines, renderContextFileRow(&b.PromptFileItems[i], scale, labelWidth, contentWidth, false))
+		}
+	}
+	return lines
+}
+
+// fileLabelWidth returns the display width of the inventory file-name
+// column, sized to the longest base name across both sections and clamped
+// so one long name cannot push the token columns off screen.
+func fileLabelWidth(b *runtime.ContextBreakdown) int {
+	width := 0
+	for _, files := range [][]runtime.ContextFile{b.AttachedFiles, b.PromptFileItems} {
+		for i := range files {
+			width = max(width, lipgloss.Width(filepath.Base(files[i].Path)))
+		}
+	}
+	return min(max(width, 4), 24)
+}
+
+// truncateName shortens name to maxWidth display cells, ellipsizing the end.
+func truncateName(name string, maxWidth int) string {
+	if lipgloss.Width(name) <= maxWidth {
+		return name
+	}
+	r := []rune(name)
+	for len(r) > 0 && lipgloss.Width(string(r))+1 > maxWidth {
+		r = r[:len(r)-1]
+	}
+	return string(r) + "…"
+}
+
+// renderContextFileRow renders one inventory line:
+// "▶ main.go   2.1K   2%  ~/proj/main.go".
+func renderContextFileRow(file *runtime.ContextFile, scale int64, labelWidth, contentWidth int, selected bool) string {
+	prefix := "  "
+	nameStyle := labelStyle()
+	if selected {
+		prefix = accentStyle().Render("▶ ")
+		nameStyle = nameStyle.Foreground(styles.Highlight)
+	}
+	name := truncateName(filepath.Base(file.Path), labelWidth)
+	pad := strings.Repeat(" ", max(0, labelWidth-lipgloss.Width(name)))
+
+	line := fmt.Sprintf("%s%s%s  %s  %s",
+		prefix,
+		nameStyle.Render(name),
+		pad,
+		valueStyle().Render(padRight(fileTokensLabel(file))),
+		valueStyle().Render(fmt.Sprintf("%4s", percentLabel(file.Tokens, scale))))
+
+	if suffix := filePathSuffix(file, contentWidth-lipgloss.Width(line)-2); suffix != "" {
+		line += "  " + suffix
+	}
+	return line
+}
+
+// fileTokensLabel formats a file's token estimate, "-" when it contributes
+// nothing inline (missing, binary-unsupported, or oversized files).
+func fileTokensLabel(file *runtime.ContextFile) string {
+	if file.Tokens <= 0 {
+		return "-"
+	}
+	return formatTokenCount(file.Tokens)
+}
+
+// filePathSuffix renders the muted, home-shortened path (plus a missing
+// marker) that trails a file row, truncated to the available width. The
+// path is omitted when there is no room for a meaningful fragment.
+func filePathSuffix(file *runtime.ContextFile, available int) string {
+	const missingMark = "(missing)"
+	var parts []string
+	if file.Missing {
+		available -= lipgloss.Width(missingMark) + 1
+	}
+	if available >= 8 {
+		parts = append(parts, styles.MutedStyle.Render(truncatePath(pathx.ShortenHome(file.Path), available)))
+	}
+	if file.Missing {
+		parts = append(parts, styles.ErrorStyle.Render(missingMark))
+	}
+	return strings.Join(parts, " ")
 }
 
 // wrapMutedLines wraps text to width in the muted style and returns the
@@ -326,23 +512,31 @@ func renderContextRow(row *contextRow, scale int64, labelWidth int, markerCol co
 }
 
 func (d *contextDialog) applyScrolling(allLines []string, contentWidth, maxHeight int) string {
-	const headerLines = 3 // title + separator + space
 	const footerLines = 2 // space + help
 
-	visibleLines := max(1, maxHeight-headerLines-footerLines-4)
-	contentLines := allLines[headerLines:]
+	visibleLines := max(1, maxHeight-contextHeaderLines-footerLines-4)
+	contentLines := allLines[contextHeaderLines:]
 
 	regionWidth := contentWidth + d.scrollview.ReservedCols()
 	d.scrollview.SetSize(regionWidth, visibleLines)
 
 	dialogRow, dialogCol := d.Position()
-	d.scrollview.SetPosition(dialogCol+3, dialogRow+2+headerLines)
+	d.scrollview.SetPosition(dialogCol+3, dialogRow+2+contextHeaderLines)
 	d.scrollview.SetContent(contentLines, len(contentLines))
 
-	parts := make([]string, 0, headerLines+3)
-	parts = append(parts, allLines[:headerLines]...)
-	parts = append(parts, d.scrollview.View(), "", RenderHelpKeys(regionWidth, "↑↓", "scroll", "c", "copy", "Esc", "close"))
+	parts := make([]string, 0, contextHeaderLines+3)
+	parts = append(parts, allLines[:contextHeaderLines]...)
+	parts = append(parts, d.scrollview.View(), "", RenderHelpKeys(regionWidth, d.helpKeys()...))
 	return lipgloss.JoinVertical(lipgloss.Left, parts...)
+}
+
+// helpKeys returns the footer bindings; the selection/drop pair appears
+// only while attached files are listed.
+func (d *contextDialog) helpKeys() []string {
+	if len(d.breakdown.AttachedFiles) > 0 {
+		return []string{"↑↓", "select", "d", "drop", "c", "copy", "Esc", "close"}
+	}
+	return []string{"↑↓", "scroll", "c", "copy", "Esc", "close"}
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +566,28 @@ func (d *contextDialog) renderPlainText() string {
 		lines = append(lines, line)
 	}
 
+	if len(b.AttachedFiles) > 0 {
+		lines = append(lines, "", "Attached files")
+		for i := range b.AttachedFiles {
+			lines = append(lines, plainFileLine(&b.AttachedFiles[i], scale))
+		}
+	}
+	if len(b.PromptFileItems) > 0 {
+		lines = append(lines, "", "Prompt files")
+		for i := range b.PromptFileItems {
+			lines = append(lines, plainFileLine(&b.PromptFileItems[i], scale))
+		}
+	}
+
 	lines = append(lines, "", contextEstimateNote)
 	return strings.Join(lines, "\n")
+}
+
+// plainFileLine formats one inventory file for the clipboard copy.
+func plainFileLine(file *runtime.ContextFile, scale int64) string {
+	line := fmt.Sprintf("%-8s %4s  %s", fileTokensLabel(file), percentLabel(file.Tokens, scale), file.Path)
+	if file.Missing {
+		line += " (missing)"
+	}
+	return line
 }

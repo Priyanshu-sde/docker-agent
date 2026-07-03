@@ -81,7 +81,8 @@ Type `/` during a session to see available commands, or press <kbd>Ctrl</kbd>+<k
 | `/attach`          | Attach a file to your message                                                        |
 | `/shell`           | Open a shell                                                                         |
 | `/star`            | Star/unstar the current session                                                      |
-| `/context`         | Show a context-window breakdown: estimated tokens per category (system prompt, tool definitions, prompt files, messages, tool results, compaction summary) |
+| `/context`         | Show a context-window breakdown: estimated tokens per category (system prompt, tool definitions, prompt files, messages, tool results, compaction summary), plus a per-file inventory of attached files and prompt files. Select an attached file with the arrow keys and press <kbd>d</kbd> to drop it |
+| `/drop`            | Remove an attached file from the session context (`/drop <path>`, or `/drop` alone to review and drop from the `/context` dialog)  |
 | `/cost`            | Show cost breakdown for this session                                                 |
 | `/eval`            | Create an evaluation report                                                          |
 | `/pause`           | Pause/resume the runtime loop. While the agent is mid-request, the resize handle shows "Pausing…" until the in-flight request completes; once the loop is blocked the indicator changes to "⏸ Paused". Run `/pause` again to resume. |
@@ -184,6 +185,8 @@ Explain what the code in @pkg/agent/agent.go does
 ```
 
 The agent receives the full file contents in a structured `<attachments>` block, while the UI shows just the reference.
+
+Attached files are also recorded on the session so sub-agents spawned by task transfer can read them. To review what is attached, open `/context`: the dialog lists every attached file (and resolved prompt file) with a per-file token estimate. Use <kbd>↑</kbd>/<kbd>↓</kbd> to select an attached file and press <kbd>d</kbd> (or <kbd>x</kbd>/<kbd>Del</kbd>) to drop it, or run `/drop <path>` directly. Dropping stops sharing the file with sub-agents and skills; content already inlined in earlier messages stays in the conversation until compaction, and the file can always be re-attached with `@` or `/attach`.
 
 ## Runtime Model Switching
 

@@ -101,4 +101,9 @@ type (
 
 	// SendAttachmentMsg is a message for the first message with an attachment.
 	SendAttachmentMsg struct{ Content *session.Message }
+
+	// DropAttachedFileMsg removes a previously attached file from the
+	// current session so it stops being shared with sub-agents. Path may be
+	// an exact recorded path, a relative path, or a unique base name.
+	DropAttachedFileMsg struct{ Path string }
 )

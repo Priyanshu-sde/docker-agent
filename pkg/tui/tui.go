@@ -1086,6 +1086,9 @@ func (m *appModel) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case messages.ShowContextDialogMsg:
 		return m.handleShowContextDialog()
 
+	case messages.DropAttachedFileMsg:
+		return m.handleDropAttachedFile(msg.Path)
+
 	case messages.ShowPermissionsDialogMsg:
 		return m.handleShowPermissionsDialog()
 

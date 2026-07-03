@@ -3,11 +3,13 @@ package dialog
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/runtime"
+	"github.com/docker/docker-agent/pkg/tui/messages"
 )
 
 func testBreakdown() *runtime.ContextBreakdown {
@@ -21,6 +23,19 @@ func testBreakdown() *runtime.ContextBreakdown {
 		ContextLimit:      128_000,
 		Model:             "openai/gpt-4o",
 	}
+}
+
+func testBreakdownWithFiles() *runtime.ContextBreakdown {
+	b := testBreakdown()
+	b.AttachedFiles = []runtime.ContextFile{
+		{Path: "/proj/main.go", Tokens: 2100},
+		{Path: "/proj/docs/readme.md", Tokens: 300},
+		{Path: "/tmp/deleted.txt", Missing: true},
+	}
+	b.PromptFileItems = []runtime.ContextFile{
+		{Path: "/proj/AGENTS.md", Tokens: 600},
+	}
+	return b
 }
 
 func TestNewContextDialog(t *testing.T) {
@@ -163,4 +178,145 @@ func TestContextDialogPlainText(t *testing.T) {
 	assert.Contains(t, text, "Free space")
 	assert.Contains(t, text, "estimates")
 	assert.NotContains(t, text, "\x1b[", "plain text must carry no ANSI escapes")
+}
+
+// ---------------------------------------------------------------------------
+// File inventory (attached files, prompt files)
+// ---------------------------------------------------------------------------
+
+func TestContextDialogViewInventory(t *testing.T) {
+	t.Parallel()
+
+	dialog := NewContextDialog(testBreakdownWithFiles())
+	dialog.SetSize(120, 50)
+	view := dialog.View()
+
+	assert.Contains(t, view, "Attached files")
+	assert.Contains(t, view, "main.go")
+	assert.Contains(t, view, "readme.md")
+	assert.Contains(t, view, "deleted.txt")
+	assert.Contains(t, view, "(missing)")
+	assert.Contains(t, view, "Prompt files")
+	assert.Contains(t, view, "AGENTS.md")
+	assert.Contains(t, view, "drop", "help must advertise the drop key")
+}
+
+func TestContextDialogViewNoInventory(t *testing.T) {
+	t.Parallel()
+
+	dialog := NewContextDialog(testBreakdown())
+	dialog.SetSize(100, 50)
+	view := dialog.View()
+
+	assert.NotContains(t, view, "Attached files")
+	assert.NotContains(t, view, "drop")
+}
+
+func keyPress(key rune) tea.KeyPressMsg {
+	return tea.KeyPressMsg{Code: key, Text: string(key)}
+}
+
+func TestContextDialogSelectionNavigation(t *testing.T) {
+	t.Parallel()
+
+	d := NewContextDialog(testBreakdownWithFiles()).(*contextDialog)
+	d.SetSize(100, 50)
+	d.View()
+
+	require.Equal(t, 0, d.selected, "selection starts on the first attached file")
+
+	d.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Equal(t, 1, d.selected)
+
+	d.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	d.Update(tea.KeyPressMsg{Code: tea.KeyDown}) // clamped at the last row
+	assert.Equal(t, 2, d.selected)
+
+	d.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	d.Update(tea.KeyPressMsg{Code: tea.KeyUp})
+	d.Update(tea.KeyPressMsg{Code: tea.KeyUp}) // clamped at the first row
+	assert.Equal(t, 0, d.selected)
+}
+
+func TestContextDialogDropSelected(t *testing.T) {
+	t.Parallel()
+
+	d := NewContextDialog(testBreakdownWithFiles()).(*contextDialog)
+	d.SetSize(100, 50)
+	d.View()
+
+	d.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	_, cmd := d.Update(keyPress('d'))
+	require.NotNil(t, cmd)
+
+	msg := cmd()
+	dropMsg, ok := msg.(messages.DropAttachedFileMsg)
+	require.True(t, ok, "expected DropAttachedFileMsg, got %T", msg)
+	assert.Equal(t, "/proj/docs/readme.md", dropMsg.Path)
+
+	// The row is removed optimistically and the selection stays in bounds.
+	require.Len(t, d.breakdown.AttachedFiles, 2)
+	assert.Equal(t, "/proj/main.go", d.breakdown.AttachedFiles[0].Path)
+	assert.Equal(t, "/tmp/deleted.txt", d.breakdown.AttachedFiles[1].Path)
+	assert.Equal(t, 1, d.selected)
+}
+
+func TestContextDialogDropLastAttachment(t *testing.T) {
+	t.Parallel()
+
+	b := testBreakdown()
+	b.AttachedFiles = []runtime.ContextFile{{Path: "/proj/only.go", Tokens: 10}}
+	d := NewContextDialog(b).(*contextDialog)
+	d.SetSize(100, 50)
+	d.View()
+
+	_, cmd := d.Update(keyPress('x'))
+	require.NotNil(t, cmd)
+	assert.Empty(t, d.breakdown.AttachedFiles)
+	assert.Equal(t, -1, d.selected)
+
+	// Further drop/navigation keys are inert and must not panic; up/down
+	// fall back to scrolling.
+	_, cmd = d.Update(keyPress('d'))
+	assert.Nil(t, cmd)
+	d.Update(tea.KeyPressMsg{Code: tea.KeyDown})
+	assert.Equal(t, -1, d.selected)
+
+	view := d.View()
+	assert.NotContains(t, view, "Attached files")
+}
+
+func TestContextDialogPlainTextInventory(t *testing.T) {
+	t.Parallel()
+
+	d := &contextDialog{breakdown: testBreakdownWithFiles()}
+	text := d.renderPlainText()
+
+	assert.Contains(t, text, "Attached files")
+	assert.Contains(t, text, "/proj/main.go")
+	assert.Contains(t, text, "2.1K")
+	assert.Contains(t, text, "/tmp/deleted.txt (missing)")
+	assert.Contains(t, text, "Prompt files")
+	assert.Contains(t, text, "/proj/AGENTS.md")
+	assert.NotContains(t, text, "\x1b[", "plain text must carry no ANSI escapes")
+}
+
+func TestTruncateName(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "short.go", truncateName("short.go", 24))
+	assert.Equal(t, "a_very_long_file_name_w…", truncateName("a_very_long_file_name_with_suffix.go", 24))
+	assert.LessOrEqual(t, lipgloss.Width(truncateName("日本語の長いファイル名.md", 10)), 10)
+}
+
+func TestFileLabelWidthClamped(t *testing.T) {
+	t.Parallel()
+
+	b := &runtime.ContextBreakdown{
+		AttachedFiles: []runtime.ContextFile{{Path: "/p/a_very_long_file_name_that_exceeds_the_column_cap.go"}},
+	}
+	assert.Equal(t, 24, fileLabelWidth(b))
+
+	b = &runtime.ContextBreakdown{AttachedFiles: []runtime.ContextFile{{Path: "/p/a.go"}}}
+	assert.Equal(t, 4, fileLabelWidth(b))
 }

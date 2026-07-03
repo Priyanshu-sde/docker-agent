@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestWithWorkingDir_SetsAllowedDirectories(t *testing.T) {
@@ -105,6 +106,45 @@ func TestAddAttachedFile(t *testing.T) {
 		s.AddAttachedFile("/abs/foo.go")
 		snap := s.AttachedFilesSnapshot()
 		snap[0] = "mutated"
+		assert.Equal(t, []string{"/abs/foo.go"}, s.AttachedFilesSnapshot())
+	})
+}
+
+func TestRemoveAttachedFile(t *testing.T) {
+	t.Parallel()
+	t.Run("removes and reports presence", func(t *testing.T) {
+		t.Parallel()
+		s := New()
+		s.AddAttachedFile("/abs/foo.go")
+		s.AddAttachedFile("/abs/bar.go")
+		s.AddAttachedFile("/abs/baz.go")
+
+		assert.True(t, s.RemoveAttachedFile("/abs/bar.go"))
+		assert.Equal(t, []string{"/abs/foo.go", "/abs/baz.go"}, s.AttachedFilesSnapshot())
+	})
+
+	t.Run("reports absent paths", func(t *testing.T) {
+		t.Parallel()
+		s := New()
+		s.AddAttachedFile("/abs/foo.go")
+		assert.False(t, s.RemoveAttachedFile("/abs/other.go"))
+		assert.False(t, s.RemoveAttachedFile(""))
+		assert.Equal(t, []string{"/abs/foo.go"}, s.AttachedFilesSnapshot())
+	})
+
+	t.Run("no-op on empty list", func(t *testing.T) {
+		t.Parallel()
+		s := New()
+		assert.False(t, s.RemoveAttachedFile("/abs/foo.go"))
+		assert.Empty(t, s.AttachedFilesSnapshot())
+	})
+
+	t.Run("file can be re-attached after removal", func(t *testing.T) {
+		t.Parallel()
+		s := New()
+		s.AddAttachedFile("/abs/foo.go")
+		require.True(t, s.RemoveAttachedFile("/abs/foo.go"))
+		s.AddAttachedFile("/abs/foo.go")
 		assert.Equal(t, []string{"/abs/foo.go"}, s.AttachedFilesSnapshot())
 	})
 }
