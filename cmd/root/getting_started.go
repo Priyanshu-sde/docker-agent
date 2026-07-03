@@ -23,7 +23,7 @@ func newGettingStartedCmd() *cobra.Command {
 		Long: `Learn docker agent by doing: a short interactive tour inside the chat UI.
 
 It walks through sending messages, approving tool calls, the command palette
-(Ctrl+k), slash commands, and how agents are configured — about 2 minutes,
+(Ctrl+k), slash commands, and how agents are configured. About 2 minutes,
 skippable at any point with Esc. Replay it anytime with this command or the
 /getting-started slash command inside the TUI.`,
 		Example: `  docker-agent getting-started`,

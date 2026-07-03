@@ -389,7 +389,7 @@ func builtInHelpCommands() []Item {
 			ID:           "help.getting-started",
 			Label:        "Getting Started Tour",
 			SlashCommand: "/getting-started",
-			Description:  "Learn docker agent by doing — a 2-minute interactive tour",
+			Description:  "Learn docker agent by doing, a 2-minute interactive tour",
 			Category:     "Help",
 			Immediate:    true,
 			Execute: func(string) tea.Cmd {

@@ -15,7 +15,7 @@ import (
 // that the user has seen it, so the first-run offer is not shown again.
 func (m *appModel) handleStartTour() (tea.Model, tea.Cmd) {
 	if m.leanMode {
-		return m, notification.InfoCmd("The tour needs the full TUI — run without --lean to take it")
+		return m, notification.InfoCmd("The tour needs the full TUI. Run without --lean to take it")
 	}
 	if err := tourstate.MarkDone(); err != nil {
 		slog.Warn("Failed to persist tour state", "error", err)
@@ -28,9 +28,9 @@ func (m *appModel) handleStartTour() (tea.Model, tea.Cmd) {
 // handleTourFinished reacts to the tour ending, either completed or quit.
 func (m *appModel) handleTourFinished(completed bool) (tea.Model, tea.Cmd) {
 	if completed {
-		return m, notification.SuccessCmd("🎉 Tour complete — go build something. Replay anytime with /getting-started")
+		return m, notification.SuccessCmd("🎉 Tour complete. Go build something! Replay anytime with /getting-started")
 	}
-	return m, notification.InfoCmd("Tour closed — /getting-started brings it back anytime")
+	return m, notification.InfoCmd("Tour closed. /getting-started brings it back anytime")
 }
 
 // handleTourOfferResult applies the user's answer to the first-run offer.
@@ -44,9 +44,9 @@ func (m *appModel) handleTourOfferResult(choice dialog.TourOfferChoice) (tea.Mod
 		if err := tourstate.MarkNever(); err != nil {
 			slog.Warn("Failed to persist tour state", "error", err)
 		}
-		return m, notification.InfoCmd("Got it — never again. /getting-started if you change your mind")
+		return m, notification.InfoCmd("Got it, never again. /getting-started if you change your mind")
 	default:
-		return m, notification.InfoCmd("Maybe later — /getting-started starts the tour anytime")
+		return m, notification.InfoCmd("Maybe later. /getting-started starts the tour anytime")
 	}
 }
 

@@ -16,35 +16,35 @@ import (
 func buildSteps() []step {
 	return []step{
 		{
-			title:     "💬 Talk to your agent",
+			title:     "Talk to your agent",
 			body:      "This is a conversation, not a form. Plain language works.",
-			action:    "Type anything in the chat and press Enter — try \"write a haiku about containers\".",
+			action:    "Type anything in the chat and press Enter. Try \"write a haiku about containers\".",
 			check:     checkMessageSent,
-			celebrate: "Message away — the reply streams in live.",
+			celebrate: "Message away. The reply streams in live.",
 		},
 		{
-			title:     "🛠 Tools run with your OK",
-			body:      "Agents get real work done with tools: shell, files, fetch. Nothing runs until you approve it.",
-			action:    "Ask \"what's in this folder?\" and approve the tool call. (Ctrl+y toggles yolo: auto-approve)",
+			title:     "Tools run with your OK",
+			body:      "Agents get real work done with tools: shell, files, fetch. Anything with side effects waits for your approval.",
+			action:    "Ask \"run ls in the shell\" and approve the tool call. (Ctrl+y toggles yolo: auto-approve)",
 			check:     checkToolCallApproved,
-			celebrate: "That's the approval flow — you decide what runs.",
+			celebrate: "That's the approval flow. You decide what runs.",
 		},
 		{
-			title:     "🎛 One menu for everything",
-			body:      "The command palette holds every feature — searchable, nothing to memorize.",
+			title:     "One menu for everything",
+			body:      "The command palette holds every feature: searchable, nothing to memorize.",
 			action:    "Press Ctrl+k and look around. (Esc closes it)",
 			check:     checkPaletteOpened,
 			celebrate: "You found the control room.",
 		},
 		{
-			title:     "⚡ Slash commands",
+			title:     "Slash commands",
 			body:      "Prefer typing? Slash commands are the shortcut: /model, /sessions, /theme, /compact…",
-			action:    "Try /model to see — and switch — the current model.",
+			action:    "Try /model to see and switch the current model.",
 			check:     checkSlashCommandUsed,
 			celebrate: "Slash commands unlocked.",
 		},
 		{
-			title: "📦 Agents are just YAML",
+			title: "Agents are just YAML",
 			body: "The agent you're talking to is one YAML file: a model, instructions, and tools.\n\n" +
 				"Build your own:\n  docker agent new\n\n" +
 				"Or run one from the catalog:\n  docker agent run agentcatalog/pirate",
@@ -60,7 +60,7 @@ func buildSteps() []step {
 }
 
 // checkMessageSent matches the user sending a regular chat message (slash
-// commands don't count — they have their own step).
+// commands don't count; they have their own step).
 func checkMessageSent(msg tea.Msg) bool {
 	send, ok := msg.(messages.SendMsg)
 	if !ok {
@@ -95,7 +95,7 @@ func checkPaletteOpened(msg tea.Msg) bool {
 }
 
 // checkSlashCommandUsed matches the messages produced by the slash commands
-// the step suggests. The command palette can emit them too — either way the
+// the step suggests. The command palette can emit them too; either way the
 // user learned a discoverable path to the feature.
 func checkSlashCommandUsed(msg tea.Msg) bool {
 	switch msg.(type) {
