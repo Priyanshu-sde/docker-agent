@@ -68,6 +68,33 @@ COPY --from=builder-cross /binaries/docker-agent-$TARGETOS-$TARGETARCH* docker-a
 FROM scratch AS cross
 COPY --from=builder-cross /binaries .
 
+# Sandbox template for docker/sandboxes, pushed as
+# docker/docker-agent-sbx-templates: layers the binary built above onto the
+# sandboxes shell-docker base (tools stack, tini entrypoint, and
+# com.docker.sandboxes.* labels — including start-docker, which sbx keys DinD
+# setup on), so the template ships the exact same binary as the docker-agent
+# image.
+FROM docker/sandbox-templates:shell-docker AS template
+ARG TARGETOS TARGETARCH
+# The sandboxes tools base ships no editor; agents and users expect vi.
+USER root
+RUN <<EOF
+set -euxo pipefail
+apt-get update
+apt-get install -yy --no-install-recommends vim
+apt-get clean
+rm -rf /var/lib/apt/lists/*
+EOF
+USER agent
+# Skip the first-run getting-started tour offer and welcome/telemetry banner
+# in sandboxes; /getting-started and --tour still work on demand, and
+# telemetry itself stays governed by TELEMETRY_ENABLED.
+ENV DOCKER_AGENT_NO_TOUR=1 \
+    DOCKER_AGENT_HIDE_TELEMETRY_BANNER=1
+COPY --from=builder-linux --chmod=0755 /binaries/docker-agent-$TARGETOS-$TARGETARCH /usr/local/bin/docker-agent
+LABEL com.docker.sandboxes.flavor="docker-agent-docker"
+CMD [ "docker-agent" ]
+
 FROM alpine:${ALPINE_VERSION}
 RUN apk add --no-cache ca-certificates docker-cli && \
     addgroup -S docker-agent && adduser -S -G docker-agent docker-agent && \

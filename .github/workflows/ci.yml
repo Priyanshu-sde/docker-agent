@@ -123,6 +123,22 @@ jobs:
           cache-from: type=gha,scope=buildx-${{ matrix.platform }}
           cache-to: type=gha,mode=min,scope=buildx-${{ matrix.platform }}
 
+      # The sandbox template shares the builder-linux stage, so it reuses the
+      # binary compiled by the step above.
+      - name: Build template
+        uses: docker/build-push-action@ee4ca427a2f43b6a16632044ca514c076267da23 # v6.19.0
+        with:
+          context: .
+          target: template
+          platforms: ${{ matrix.platform }}
+          push: false
+          sbom: false
+          provenance: false
+          build-args: |
+            GIT_TAG=pr
+            GIT_COMMIT=dev
+          cache-from: type=gha,scope=buildx-${{ matrix.platform }}
+
   build-and-push-image:
     if: github.event_name != 'pull_request' && !github.event.repository.fork
     needs: [lint, build-and-test, license-check]
@@ -192,6 +208,39 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+      # The sandbox template is a stage of the same Dockerfile with identical
+      # build args, so it reuses the builder-linux layer from the image build
+      # above and embeds the exact same binary.
+      - name: Build and push template by digest
+        id: build-template
+        uses: docker/build-push-action@ee4ca427a2f43b6a16632044ca514c076267da23 # v6.19.0
+        with:
+          context: .
+          target: template
+          platforms: ${{ matrix.platform }}
+          sbom: true
+          provenance: mode=max
+          outputs: type=image,name=docker/docker-agent-sbx-templates,push-by-digest=true,name-canonical=true,push=true
+          build-args: |
+            GIT_TAG=${{ github.ref_name }}
+            GIT_COMMIT=${{ github.sha }}
+          cache-from: type=gha,scope=buildx-${{ matrix.platform }}
+
+      - name: Export template digest
+        env:
+          DIGEST: ${{ steps.build-template.outputs.digest }}
+        run: |
+          mkdir -p "${RUNNER_TEMP}/template-digests"
+          touch "${RUNNER_TEMP}/template-digests/${DIGEST#sha256:}"
+
+      - name: Upload template digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: template-digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/template-digests/*
+          if-no-files-found: error
+          retention-days: 1
+
   merge-and-push-image:
     if: github.event_name != 'pull_request' && !github.event.repository.fork
     needs: [build-and-push-image]
@@ -236,3 +285,45 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect docker/docker-agent:${{ steps.meta.outputs.version }}
+
+  merge-and-push-template:
+    if: github.event_name != 'pull_request' && !github.event.repository.fork
+    needs: [build-and-push-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download template digests
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/template-digests
+          pattern: template-digests-*
+          merge-multiple: true
+
+      - name: Hub login
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          username: ${{ vars.DOCKERPUBLICBOT_USERNAME }}
+          password: ${{ secrets.DOCKERPUBLICBOT_WRITE_PAT }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+
+      # Assemble the multi-arch manifest list from the per-arch digests pushed
+      # by build-and-push-image. On main only the edge tag moves; on a v* tag
+      # both the version tag and the floating latest tag that sandboxes pulls
+      # by default.
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/template-digests
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            tags=(-t "docker/docker-agent-sbx-templates:${GITHUB_REF_NAME#v}" -t "docker/docker-agent-sbx-templates:latest")
+          else
+            tags=(-t "docker/docker-agent-sbx-templates:edge")
+          fi
+          args=()
+          for digest in *; do args+=("docker/docker-agent-sbx-templates@sha256:${digest}"); done
+          docker buildx imagetools create "${tags[@]}" "${args[@]}"
+
+      - name: Inspect template
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then tag="${GITHUB_REF_NAME#v}"; else tag="edge"; fi
+          docker buildx imagetools inspect "docker/docker-agent-sbx-templates:${tag}"
