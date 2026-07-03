@@ -22,6 +22,21 @@ func stReasoning() lipgloss.Style {
 	return lipgloss.NewStyle().Foreground(styles.TextMutedGray).Italic(true)
 }
 
+func stToolBox(width int) lipgloss.Style {
+	if width < 1 {
+		width = 1
+	}
+	horizontalPadding := 1
+	if width < 4 {
+		horizontalPadding = 0
+	}
+	return lipgloss.NewStyle().
+		Foreground(styles.TextMutedGray).
+		Background(styles.BackgroundAlt).
+		Padding(1, horizontalPadding).
+		Width(width)
+}
+
 const (
 	promptText   = "❯ "
 	promptWidth  = 2

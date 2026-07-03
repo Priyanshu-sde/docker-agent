@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker-agent/pkg/tui/animation"
 	toolcomponent "github.com/docker/docker-agent/pkg/tui/components/tool"
 	"github.com/docker/docker-agent/pkg/tui/service"
+	"github.com/docker/docker-agent/pkg/tui/styles"
 	tuitypes "github.com/docker/docker-agent/pkg/tui/types"
 )
 
@@ -56,14 +57,17 @@ func renderToolWithState(t *toolView, width, frame int, sessionState service.Ses
 		sessionState = service.StaticSessionState{}
 	}
 
+	boxStyle := stToolBox(width)
+	innerWidth := max(width-boxStyle.GetHorizontalFrameSize(), 1)
+
 	view := toolcomponent.New(t.message, sessionState)
-	view.SetSize(width, 0)
+	view.SetSize(innerWidth, 0)
 	if t.message.ToolStatus == tuitypes.ToolStatusPending || t.message.ToolStatus == tuitypes.ToolStatusRunning {
 		view, _ = view.Update(animation.TickMsg{Frame: frame})
 		defer animation.StopView(view)
 	}
 
-	lines := splitRenderedTool(view.View(), width)
+	lines := splitRenderedTool(renderToolBox(view.View(), width), width)
 	for _, img := range t.images {
 		lines = append(lines, renderInlineImage(img, width)...)
 	}
@@ -79,6 +83,14 @@ func renderToolWithState(t *toolView, width, frame int, sessionState service.Ses
 		t.lastWidth = 0
 	}
 	return lines
+}
+
+func renderToolBox(content string, width int) string {
+	content = strings.TrimRight(content, "\n")
+	if content == "" {
+		return ""
+	}
+	return styles.RenderComposite(stToolBox(width), content)
 }
 
 func (t *toolView) shouldKeepLastPendingLines(width int, lines []string) bool {
