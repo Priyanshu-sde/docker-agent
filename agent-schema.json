@@ -2182,6 +2182,10 @@
           "type": "boolean",
           "description": "Opt in to a sudo privilege escalation flow for the shell toolset (only valid for type 'shell'). When enabled, sudo commands prompt the user for their password through the host UI via SUDO_ASKPASS; in non-interactive runs the prompt is declined automatically. Only a bare 'sudo ...' invocation in a POSIX shell is handled. No effect on Windows. Default false."
         },
+        "recall": {
+          "type": "boolean",
+          "description": "Opt in to background-job recall for the shell toolset (only valid for type 'shell'). When enabled, run_background_job exposes a recall boolean parameter. If the agent sets recall=true for a background job, the runtime injects a steering message with a short completion sentence and the job output when the job finishes. Default false."
+        },
         "safer": {
           "type": "boolean",
           "description": "Opt in to destructive-command detection for the shell toolset (only valid for type 'shell'). When enabled, the agent auto-registers the safer_shell builtin under the pre_tool_use hook event with preempt_yolo:true. Destructive commands (rm -rf, docker volume rm, mkfs, ...) get an Ask verdict with a blast-radius classification; known-safe reads (ls, git status, docker ps, ...) flow through silently; everything else asks with blast_radius=unknown so the user sees the prompt before --yolo or permission allow-rules can auto-approve it. Default false."

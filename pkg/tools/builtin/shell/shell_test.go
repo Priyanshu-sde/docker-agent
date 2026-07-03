@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/docker/docker-agent/pkg/config"
+	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
@@ -134,6 +135,16 @@ func TestRunShellBackgroundArgs_UnmarshalJSON_AcceptsCmdAndCommand(t *testing.T)
 	var blankCmd RunShellBackgroundArgs
 	require.NoError(t, json.Unmarshal([]byte(`{"cmd":"   ","command":"sleep 1"}`), &blankCmd))
 	assert.Equal(t, "sleep 1", blankCmd.Cmd)
+}
+
+func TestRunShellBackgroundRecallArgs_UnmarshalJSON_AcceptsRecall(t *testing.T) {
+	t.Parallel()
+
+	var withRecall RunShellBackgroundRecallArgs
+	require.NoError(t, json.Unmarshal([]byte(`{"command":"sleep 1","cwd":"/tmp","recall":true}`), &withRecall))
+	assert.Equal(t, "sleep 1", withRecall.Cmd)
+	assert.Equal(t, "/tmp", withRecall.Cwd)
+	assert.True(t, withRecall.Recall)
 }
 
 // Exercises the end-to-end dispatch path: a tool-call whose raw arguments
@@ -393,6 +404,106 @@ func TestShellTool_RunBackgroundJob(t *testing.T) {
 	result, err := tool.handler.RunShellBackground(t.Context(), RunShellBackgroundArgs{Cmd: "echo test"})
 	require.NoError(t, err)
 	assert.Contains(t, result.Output, "Background job started with ID:")
+}
+
+func TestShellTool_RunBackgroundJobRecall(t *testing.T) {
+	t.Parallel()
+	tool := New(nil, &config.RuntimeConfig{Config: config.Config{WorkingDir: t.TempDir()}})
+	tool.handler.recall = true
+	err := tool.Start(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_ = tool.Stop(t.Context())
+	})
+
+	recalls := make(chan string, 1)
+	ctx := tools.WithToolRecallEmitter(t.Context(), func(message string) bool {
+		recalls <- message
+		return true
+	})
+	result, err := tool.handler.RunShellBackgroundWithRecall(ctx, RunShellBackgroundRecallArgs{Cmd: "echo recall-output", Recall: true})
+	require.NoError(t, err)
+	assert.Contains(t, result.Output, "Recall: requested")
+
+	select {
+	case msg := <-recalls:
+		assert.Contains(t, msg, "Background job")
+		assert.Contains(t, msg, "finished with status completed")
+		assert.Contains(t, msg, "recall-output")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for background job recall")
+	}
+}
+
+func TestShellTool_RunBackgroundJobRecallRequiresConfig(t *testing.T) {
+	t.Parallel()
+	tool := New(nil, &config.RuntimeConfig{Config: config.Config{WorkingDir: t.TempDir()}})
+	ctx := tools.WithToolRecallEmitter(t.Context(), func(string) bool { return true })
+
+	result, err := tool.handler.RunShellBackgroundWithRecall(ctx, RunShellBackgroundRecallArgs{Cmd: "echo test", Recall: true})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	assert.Contains(t, result.Output, "recall")
+	assert.Contains(t, result.Output, "not enabled")
+	assert.Equal(t, 0, tool.handler.jobs.Length())
+}
+
+func TestShellTool_RunBackgroundJobRecallRequiresCallback(t *testing.T) {
+	t.Parallel()
+	tool := New(nil, &config.RuntimeConfig{Config: config.Config{WorkingDir: t.TempDir()}})
+	tool.handler.recall = true
+
+	result, err := tool.handler.RunShellBackgroundWithRecall(t.Context(), RunShellBackgroundRecallArgs{Cmd: "echo test", Recall: true})
+	require.NoError(t, err)
+	require.True(t, result.IsError)
+	assert.Contains(t, result.Output, "no recall handler")
+	assert.Equal(t, 0, tool.handler.jobs.Length())
+}
+
+func TestCreateToolSetEnablesRecall(t *testing.T) {
+	t.Parallel()
+
+	recall := true
+	toolSet, err := CreateToolSet(t.Context(), latest.Toolset{Type: "shell", Recall: &recall}, &config.RuntimeConfig{Config: config.Config{WorkingDir: t.TempDir()}})
+	require.NoError(t, err)
+
+	shellToolSet, ok := toolSet.(*ToolSet)
+	require.True(t, ok)
+	assert.True(t, shellToolSet.handler.recall)
+}
+
+func TestShellTool_RunBackgroundJobSchemaRecall(t *testing.T) {
+	t.Parallel()
+
+	withoutRecall := New(nil, &config.RuntimeConfig{Config: config.Config{WorkingDir: t.TempDir()}})
+	withoutTools, err := withoutRecall.Tools(t.Context())
+	require.NoError(t, err)
+	withoutSchema, err := tools.SchemaToMap(findShellTool(t, withoutTools, ToolNameRunShellBackground).Parameters)
+	require.NoError(t, err)
+	withoutProps, ok := withoutSchema["properties"].(map[string]any)
+	require.True(t, ok)
+	assert.NotContains(t, withoutProps, "recall")
+
+	withRecall := New(nil, &config.RuntimeConfig{Config: config.Config{WorkingDir: t.TempDir()}})
+	withRecall.handler.recall = true
+	withTools, err := withRecall.Tools(t.Context())
+	require.NoError(t, err)
+	withSchema, err := tools.SchemaToMap(findShellTool(t, withTools, ToolNameRunShellBackground).Parameters)
+	require.NoError(t, err)
+	withProps, ok := withSchema["properties"].(map[string]any)
+	require.True(t, ok)
+	assert.Contains(t, withProps, "recall")
+}
+
+func findShellTool(t *testing.T, toolList []tools.Tool, name string) tools.Tool {
+	t.Helper()
+	for _, tool := range toolList {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("tool %q not found", name)
+	return tools.Tool{}
 }
 
 func TestShellTool_ListBackgroundJobs(t *testing.T) {

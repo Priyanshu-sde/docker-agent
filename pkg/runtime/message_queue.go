@@ -14,6 +14,11 @@ type QueuedMessage struct {
 	MultiContent []chat.MessagePart
 }
 
+// RecallHandler delivers a tool-produced message through an embedder-owned
+// wake-up path. Embedders use it to resume an idle UI/session when background
+// work completes after the active RunStream has stopped.
+type RecallHandler func(ctx context.Context, msg QueuedMessage) bool
+
 // MessageQueue is the interface for storing messages that are injected into
 // the agent loop. Implementations must be safe for concurrent use: Enqueue
 // is called from API handlers while Dequeue/Drain are called from the agent

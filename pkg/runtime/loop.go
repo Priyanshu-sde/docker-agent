@@ -226,7 +226,13 @@ func (r *LocalRuntime) RunStream(ctx context.Context, sess *session.Session) <-c
 	slog.DebugContext(ctx, "Starting runtime stream", "agent", r.currentAgentName(), "session_id", sess.ID)
 	events := make(chan Event, defaultEventChannelCapacity)
 
-	go r.runStreamLoop(ctx, sess, events)
+	go func() {
+		if !sess.IsSubSession() {
+			r.activeRootStreams.Add(1)
+			defer r.activeRootStreams.Add(-1)
+		}
+		r.runStreamLoop(ctx, sess, events)
+	}()
 	return r.observe(ctx, sess, events)
 }
 

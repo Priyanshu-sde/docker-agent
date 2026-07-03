@@ -47,6 +47,9 @@ func (r *LocalRuntime) processToolCalls(ctx context.Context, sess *session.Sessi
 		AgentFor:    r.resolveSessionAgent,
 		Permissions: r.permissionCheckers,
 		Handlers:    handlers,
+		Recall: func(ctx context.Context, _ *session.Session, _ *agent.Agent, message string) error {
+			return r.recall(ctx, QueuedMessage{Content: message})
+		},
 	}
 	return d.Process(ctx, sess, calls, agentTools, &sinkEmitter{events: events})
 }

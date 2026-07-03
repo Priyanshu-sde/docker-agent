@@ -50,7 +50,15 @@ type ToolHandler func(ctx context.Context, toolCall ToolCall) (*ToolCallResult, 
 // command output or other long-running progress is available.
 type ToolOutputEmitter func(output string)
 
-type toolOutputEmitterKey struct{}
+// ToolRecallEmitter receives messages that should be injected back into the
+// running agent loop, typically when background work completes after the tool
+// call that started it has already returned.
+type ToolRecallEmitter func(message string) bool
+
+type (
+	toolOutputEmitterKey struct{}
+	toolRecallEmitterKey struct{}
+)
 
 // WithToolOutputEmitter returns a context carrying emit as the callback used
 // by tool handlers to stream incremental output. A nil emitter leaves ctx
@@ -69,6 +77,22 @@ func ToolOutputEmitterFromContext(ctx context.Context) (ToolOutputEmitter, bool)
 	return emit, ok
 }
 
+// WithToolRecallEmitter returns a context carrying emit as the callback used
+// by tool handlers to steer the running agent loop when background work
+// finishes. A nil emitter leaves ctx unchanged.
+func WithToolRecallEmitter(ctx context.Context, emit ToolRecallEmitter) context.Context {
+	if emit == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, toolRecallEmitterKey{}, emit)
+}
+
+// ToolRecallEmitterFromContext returns the recall emitter attached to ctx, if any.
+func ToolRecallEmitterFromContext(ctx context.Context) (ToolRecallEmitter, bool) {
+	emit, ok := ctx.Value(toolRecallEmitterKey{}).(ToolRecallEmitter)
+	return emit, ok
+}
+
 // EmitOutput streams output through the emitter in ctx. It returns false when
 // no emitter is attached or output is empty.
 func EmitOutput(ctx context.Context, output string) bool {
@@ -81,6 +105,19 @@ func EmitOutput(ctx context.Context, output string) bool {
 	}
 	emit(output)
 	return true
+}
+
+// EmitRecall sends message through the recall emitter in ctx. It returns false
+// when no emitter is attached, message is empty, or the emitter rejects it.
+func EmitRecall(ctx context.Context, message string) bool {
+	if message == "" {
+		return false
+	}
+	emit, ok := ToolRecallEmitterFromContext(ctx)
+	if !ok {
+		return false
+	}
+	return emit(message)
 }
 
 type ToolCall struct {

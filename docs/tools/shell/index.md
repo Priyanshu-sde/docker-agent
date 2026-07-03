@@ -27,6 +27,7 @@ toolsets:
 | Property       | Type    | Description                                                                                          |
 | -------------- | ------- | --------------------------------------------------------------------------------------------------- |
 | `env`          | object  | Environment variables to set for all shell commands                                                 |
+| `recall`       | boolean | Let `run_background_job` expose a `recall` parameter so jobs can steer the agent when they finish (see [Background job recall](#background-job-recall)). Default `false`. |
 | `safer`        | boolean | Detect destructive shell commands and force confirmation regardless of `--yolo` or permission rules (see [Safer mode](#safer-mode)). Default `false`. |
 | `sudo_askpass` | boolean | Opt in to prompting for a `sudo` password (see [Sudo support](#sudo-support)). Default `false`.     |
 
@@ -39,6 +40,20 @@ toolsets:
       MY_VAR: "value"
       PATH: "${env.PATH}:/custom/bin"
 ```
+
+### Background job recall
+
+Set `recall: true` to let the `run_background_job` tool expose a `recall` boolean parameter:
+
+```yaml
+toolsets:
+  - type: shell
+    recall: true
+```
+
+When the agent starts a background job with `recall: true`, docker-agent sends a steering message back into the running agent loop after the job finishes. The message contains a short completion sentence and the job output, so the agent can react without polling `view_background_job`.
+
+Use recall for finite background work where completion matters (for example, a long build or test suite). Avoid it for servers and watchers that are expected to run until stopped. See [`examples/shell_recall.yaml`](https://github.com/docker/docker-agent/blob/main/examples/shell_recall.yaml) for a complete configuration.
 
 ### Safer mode
 
@@ -114,8 +129,9 @@ Background job output is captured up to 10 MB per job. All background jobs are a
 
 | Parameter | Type   | Required | Description                                                             |
 | --------- | ------ | -------- | ----------------------------------------------------------------------- |
-| `cmd`     | string | ✓        | The shell command to execute in the background.                         |
-| `cwd`     | string | ✗        | Working directory to run the command in (default: `.`).                 |
+| `cmd`     | string  | ✓        | The shell command to execute in the background.                         |
+| `cwd`     | string  | ✗        | Working directory to run the command in (default: `.`).                 |
+| `recall`  | boolean | ✗        | Only available when the shell toolset has `recall: true`. When true, send a steering message with the job output when the job finishes. |
 
 `view_background_job` and `stop_background_job` each take a single required `job_id` string returned by `run_background_job` or `list_background_jobs`.
 

@@ -268,6 +268,9 @@ func (t *Toolset) validate() error {
 	if t.SudoAskpass != nil && t.Type != "shell" {
 		return errors.New("sudo_askpass can only be used with type 'shell'")
 	}
+	if t.Recall != nil && t.Type != "shell" {
+		return errors.New("recall can only be used with type 'shell'")
+	}
 	if t.Safer != nil && t.Type != "shell" {
 		return errors.New("safer can only be used with type 'shell'")
 	}

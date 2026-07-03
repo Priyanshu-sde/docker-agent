@@ -499,6 +499,70 @@ func TestToolCallSequence(t *testing.T) {
 	require.True(t, hasEventType(t, events, &StreamStoppedEvent{}), "Expected StreamStoppedEvent")
 }
 
+func TestRecallUsesSteerWhileRootStreamActive(t *testing.T) {
+	t.Parallel()
+
+	rt := &LocalRuntime{steerQueue: NewInMemoryMessageQueue(1)}
+	rt.activeRootStreams.Store(1)
+	handlerCalled := false
+	rt.SetRecallHandler(func(context.Context, QueuedMessage) bool {
+		handlerCalled = true
+		return true
+	})
+
+	recall := QueuedMessage{Content: "job finished"}
+	require.NoError(t, rt.recall(t.Context(), recall))
+	assert.False(t, handlerCalled)
+
+	got, ok := rt.steerQueue.Dequeue(t.Context())
+	require.True(t, ok)
+	assert.Equal(t, recall, got)
+}
+
+func TestProcessToolCallsRecallEnqueuesSteeringMessage(t *testing.T) {
+	t.Parallel()
+
+	const recallMessage = "Background job job_1 finished with status completed.\n--- Output ---\nhello"
+	agentTools := []tools.Tool{{
+		Name:       "recall_tool",
+		Parameters: map[string]any{},
+		Handler: func(ctx context.Context, _ tools.ToolCall) (*tools.ToolCallResult, error) {
+			require.True(t, tools.EmitRecall(ctx, recallMessage))
+			return tools.ResultSuccess("started"), nil
+		},
+	}}
+
+	prov := &mockProvider{id: "test/mock-model", stream: &mockStream{}}
+	root := agent.New("root", "You are a test agent",
+		agent.WithModel(prov),
+		agent.WithToolSets(newStubToolSet(nil, agentTools, nil)),
+	)
+	rt, err := NewLocalRuntime(t.Context(), team.New(team.WithAgents(root)), WithSessionCompaction(false), WithModelStore(mockModelStore{}))
+	require.NoError(t, err)
+
+	sess := session.New(session.WithUserMessage("Test"), session.WithToolsApproved(true))
+	events := make(chan Event, 16)
+	stopRun, stopMsg := rt.processToolCalls(t.Context(), sess, []tools.ToolCall{{
+		ID:       "call_1",
+		Type:     "function",
+		Function: tools.FunctionCall{Name: "recall_tool", Arguments: "{}"},
+	}}, agentTools, NewChannelSink(events))
+	require.False(t, stopRun)
+	require.Empty(t, stopMsg)
+
+	sr := rt.drainAndEmitSteered(t.Context(), sess, root, NewChannelSink(events))
+	require.True(t, sr.drained)
+	close(events)
+
+	var sawRecall bool
+	for ev := range events {
+		if msg, ok := ev.(*UserMessageEvent); ok && msg.Message == recallMessage {
+			sawRecall = true
+		}
+	}
+	assert.True(t, sawRecall, "recall message should be emitted as a steered user message")
+}
+
 // TestXMLToolCallFallback verifies that <tool_call> blocks in text content
 // are extracted as tool calls and not leaked as AgentChoice events.
 func TestXMLToolCallFallback(t *testing.T) {

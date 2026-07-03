@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -276,6 +277,17 @@ type LocalRuntime struct {
 	// followUpQueue stores end-of-turn messages. The agent loop pops
 	// exactly ONE message after the model stops and stop-hooks have run.
 	followUpQueue MessageQueue
+
+	// activeRootStreams tracks top-level RunStream loops. Recalls use this to
+	// preserve mid-turn steering while still waking the embedder once the parent
+	// stream has gone idle.
+	activeRootStreams atomic.Int32
+
+	// recallHandler wakes embedders (TUI/App) when a tool recall arrives after
+	// the active RunStream has gone idle. Protected by recallMu because tool
+	// callbacks can fire from background goroutines.
+	recallMu      sync.RWMutex
+	recallHandler RecallHandler
 
 	// onToolsChanged is called when an MCP toolset reports a tool list change.
 	onToolsChanged func(Event)
@@ -1791,6 +1803,32 @@ func (r *LocalRuntime) Steer(ctx context.Context, msg QueuedMessage) error {
 func (r *LocalRuntime) FollowUp(ctx context.Context, msg QueuedMessage) error {
 	if !r.followUpQueue.Enqueue(ctx, msg) {
 		return errors.New("follow-up queue full")
+	}
+	return nil
+}
+
+// SetRecallHandler registers an embedder-owned wake-up path for tool recalls.
+// When unset, recalls fall back to the steer queue and are consumed by the next
+// active RunStream.
+func (r *LocalRuntime) SetRecallHandler(handler RecallHandler) {
+	r.recallMu.Lock()
+	defer r.recallMu.Unlock()
+	r.recallHandler = handler
+}
+
+func (r *LocalRuntime) recall(ctx context.Context, msg QueuedMessage) error {
+	if r.activeRootStreams.Load() > 0 {
+		return r.Steer(ctx, msg)
+	}
+
+	r.recallMu.RLock()
+	handler := r.recallHandler
+	r.recallMu.RUnlock()
+	if handler == nil {
+		return r.Steer(ctx, msg)
+	}
+	if !handler(ctx, msg) {
+		return errors.New("recall handler rejected message")
 	}
 	return nil
 }

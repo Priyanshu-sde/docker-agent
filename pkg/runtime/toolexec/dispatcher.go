@@ -168,6 +168,10 @@ type Dispatcher struct {
 	// their toolset Handler.
 	Handlers map[string]ToolHandler
 
+	// Recall enqueues a tool-produced steering message. Tool handlers get this
+	// through their context and may call it after the handler has returned.
+	Recall func(ctx context.Context, sess *session.Session, a *agent.Agent, message string) error
+
 	confirmationMu sync.Mutex
 	approvalMu     sync.Mutex
 }
@@ -877,6 +881,16 @@ func (c *call) invoke(ctx context.Context, spanName string, exec func(ctx contex
 		output = c.applyToolResponseTransform(ctx, output, false)
 		c.em.EmitToolCallOutput(c.tc.ID, c.tool, output, c.a.Name())
 	})
+	if c.d.Recall != nil {
+		recallCtx := context.WithoutCancel(ctx)
+		toolCtx = tools.WithToolRecallEmitter(toolCtx, func(message string) bool {
+			if err := c.d.Recall(recallCtx, c.sess, c.a, message); err != nil {
+				slog.WarnContext(recallCtx, "Failed to enqueue tool recall", "tool", c.tc.Function.Name, "session_id", c.sess.ID, "error", err)
+				return false
+			}
+			return true
+		})
+	}
 	res, duration, err := exec(toolCtx)
 	telemetry.RecordToolCall(ctx, c.tc.Function.Name, c.sess.ID, c.a.Name(), duration, err)
 
