@@ -13,7 +13,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
-	"github.com/docker/docker-agent/pkg/paths"
 	"github.com/docker/docker-agent/pkg/session"
 )
 
@@ -555,16 +554,4 @@ func TestSessionBrowserNavigationSkipsHeaders(t *testing.T) {
 		d.Update(upKey)
 	}
 	require.Equal(t, 0, d.selected)
-}
-
-func TestAbbreviateHome(t *testing.T) {
-	home := paths.GetHomeDir()
-	if home == "" {
-		t.Skip("home directory unknown")
-	}
-
-	require.Equal(t, "~", abbreviateHome(home))
-	require.Equal(t, filepath.Join("~", "code"), abbreviateHome(filepath.Join(home, "code")))
-	require.Equal(t, home+"2", abbreviateHome(home+"2"), "sibling dirs sharing the prefix must not be abbreviated")
-	require.Equal(t, "/somewhere/else", abbreviateHome("/somewhere/else"))
 }

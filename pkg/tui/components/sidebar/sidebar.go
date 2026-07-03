@@ -17,7 +17,7 @@ import (
 
 	"github.com/docker/docker-agent/pkg/effort"
 	"github.com/docker/docker-agent/pkg/gitbranch"
-	"github.com/docker/docker-agent/pkg/paths"
+	pathx "github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/runtime"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tools"
@@ -573,15 +573,7 @@ func formatWorkingDirectory(rawDir string) (display, branch string) {
 	if rawDir == "" {
 		return "", ""
 	}
-
-	branch = gitbranch.Current(rawDir)
-
-	display = rawDir
-	if homeDir := paths.GetHomeDir(); homeDir != "" && strings.HasPrefix(display, homeDir) {
-		display = "~" + display[len(homeDir):]
-	}
-
-	return display, branch
+	return pathx.ShortenHome(rawDir), gitbranch.Current(rawDir)
 }
 
 // getCurrentWorkingDirectory returns the current working directory with home directory

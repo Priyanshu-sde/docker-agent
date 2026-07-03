@@ -2,7 +2,6 @@ package dialog
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"slices"
@@ -16,7 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 
-	"github.com/docker/docker-agent/pkg/paths"
+	pathx "github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tui/components/notification"
 	"github.com/docker/docker-agent/pkg/tui/components/scrollview"
@@ -112,20 +111,6 @@ func workspacePathsEqual(a, b string) bool {
 		return strings.EqualFold(a, b)
 	}
 	return a == b
-}
-
-// abbreviateHome replaces a $HOME prefix with "~" for compact display.
-func abbreviateHome(dir string) string {
-	home := paths.GetHomeDir()
-	if home == "" || !strings.HasPrefix(dir, home) {
-		return dir
-	}
-	rest := dir[len(home):]
-	// Reject prefix matches that fall inside a path component (/home/bob2).
-	if rest != "" && rest[0] != os.PathSeparator {
-		return dir
-	}
-	return "~" + rest
 }
 
 type sessionBrowserDialog struct {
@@ -619,7 +604,7 @@ func (d *sessionBrowserDialog) sessionDirLabel(sess session.Summary) string {
 	if dir == "" || d.workspace.matches(dir) {
 		return ""
 	}
-	return truncatePath(abbreviateHome(dir), sessionBrowserDirMaxLen)
+	return truncatePath(pathx.ShortenHome(dir), sessionBrowserDirMaxLen)
 }
 
 // renderSectionHeader renders a workspace group header. The current-workspace
@@ -635,7 +620,7 @@ func (d *sessionBrowserDialog) renderSectionHeader(header string, maxWidth int) 
 	if header == sessionBrowserHeaderWorkspace && d.workspaceDir != "" {
 		available := maxWidth - lipgloss.Width(label) - 3 // " · " separator
 		if available >= 8 {
-			dir = " · " + truncatePath(abbreviateHome(d.workspaceDir), available)
+			dir = " · " + truncatePath(pathx.ShortenHome(d.workspaceDir), available)
 		}
 	}
 
