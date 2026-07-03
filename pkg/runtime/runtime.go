@@ -1836,9 +1836,9 @@ func (r *LocalRuntime) Summarize(ctx context.Context, sess *session.Session, add
 //
 // reason is reported to BeforeCompaction / AfterCompaction hooks as
 // CompactionReason. Use [compactionReasonThreshold] for proactive
-// 90%-of-context triggers, [compactionReasonOverflow] for post-overflow
-// auto-recovery, [compactionReasonToolOverflow] for tool-result-driven
-// 90% triggers, or [compactionReasonManual] for user-invoked compactions.
+// threshold-of-context triggers (90% by default, tunable via
+// compaction_threshold), [compactionReasonOverflow] for post-overflow
+// auto-recovery, or [compactionReasonManual] for user-invoked compactions.
 //
 // PreCompact hooks fire first via the legacy [hooks.Input.Source] field
 // ("auto" / "tool_overflow" / "overflow" / "manual"); they may cancel the

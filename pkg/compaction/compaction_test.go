@@ -96,6 +96,7 @@ func TestShouldCompact(t *testing.T) {
 		output       int64
 		added        int64
 		contextLimit int64
+		threshold    float64
 		want         bool
 	}{
 		{
@@ -154,12 +155,66 @@ func TestShouldCompact(t *testing.T) {
 			contextLimit: 100000,
 			want:         false,
 		},
+		{
+			name:         "custom threshold triggers earlier than default",
+			input:        60000,
+			output:       0,
+			added:        0,
+			contextLimit: 100000,
+			threshold:    0.5,
+			want:         true, // 60000 > 50000, would not trigger at the 0.9 default
+		},
+		{
+			name:         "custom threshold not reached",
+			input:        40000,
+			output:       0,
+			added:        0,
+			contextLimit: 100000,
+			threshold:    0.5,
+			want:         false,
+		},
+		{
+			name:         "threshold of 1 only triggers past the full window",
+			input:        99999,
+			output:       0,
+			added:        0,
+			contextLimit: 100000,
+			threshold:    1,
+			want:         false,
+		},
+		{
+			name:         "zero threshold falls back to the 90% default",
+			input:        90001,
+			output:       0,
+			added:        0,
+			contextLimit: 100000,
+			threshold:    0,
+			want:         true,
+		},
+		{
+			name:         "negative threshold falls back to the 90% default",
+			input:        89000,
+			output:       0,
+			added:        0,
+			contextLimit: 100000,
+			threshold:    -0.5,
+			want:         false,
+		},
+		{
+			name:         "threshold above 1 falls back to the 90% default",
+			input:        90001,
+			output:       0,
+			added:        0,
+			contextLimit: 100000,
+			threshold:    1.5,
+			want:         true,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			got := ShouldCompact(tt.input, tt.output, tt.added, tt.contextLimit)
+			got := ShouldCompact(tt.input, tt.output, tt.added, tt.contextLimit, tt.threshold)
 			assert.Equal(t, tt.want, got)
 		})
 	}

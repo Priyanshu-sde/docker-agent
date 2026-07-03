@@ -15,20 +15,28 @@ var (
 	UserPrompt string
 )
 
-// contextThreshold is the fraction of the context window at which compaction
-// is triggered. When the estimated token usage exceeds this fraction of the
-// context limit, compaction is recommended.
-const contextThreshold = 0.9
+// DefaultThreshold is the fraction of the context window at which compaction
+// is triggered when no custom threshold is configured. When the estimated
+// token usage exceeds this fraction of the context limit, compaction is
+// recommended. Overridable per agent (and per model) via the
+// `compaction_threshold` config key.
+const DefaultThreshold = 0.9
 
 // ShouldCompact reports whether a session's context usage has crossed the
 // compaction threshold. It returns true when the total token count
-// (input + output + addedTokens) exceeds [contextThreshold] (90%) of
-// contextLimit.
-func ShouldCompact(inputTokens, outputTokens, addedTokens, contextLimit int64) bool {
+// (input + output + addedTokens) exceeds threshold*contextLimit.
+//
+// threshold is the fraction of the context window that triggers compaction;
+// values outside (0, 1] (including 0 for "not configured") fall back to
+// [DefaultThreshold], so callers can pass an unset value verbatim.
+func ShouldCompact(inputTokens, outputTokens, addedTokens, contextLimit int64, threshold float64) bool {
 	if contextLimit <= 0 {
 		return false
 	}
-	return (inputTokens + outputTokens + addedTokens) > int64(float64(contextLimit)*contextThreshold)
+	if threshold <= 0 || threshold > 1 {
+		threshold = DefaultThreshold
+	}
+	return (inputTokens + outputTokens + addedTokens) > int64(float64(contextLimit)*threshold)
 }
 
 // EstimateMessageTokens returns a rough token-count estimate for a single

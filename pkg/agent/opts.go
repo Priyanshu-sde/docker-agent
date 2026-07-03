@@ -100,6 +100,28 @@ func WithCompactionModel(model provider.Provider) Opt {
 	}
 }
 
+// WithCompactionThreshold sets the fraction of the context window at which
+// proactive auto-compaction triggers. Values outside (0, 1] are ignored and
+// the default (0.9) applies; config validation rejects them before this
+// point, so the guard only protects programmatic callers.
+func WithCompactionThreshold(threshold float64) Opt {
+	return func(a *Agent) {
+		if threshold > 0 && threshold <= 1 {
+			a.compactionThreshold = threshold
+		}
+	}
+}
+
+// WithSessionCompaction toggles automatic session compaction (proactive
+// threshold trigger and post-overflow auto-recovery) for this agent.
+// Enabled by default; the runtime only auto-compacts a session when both
+// this flag and the runtime-level session-compaction option are on.
+func WithSessionCompaction(enabled bool) Opt {
+	return func(a *Agent) {
+		a.sessionCompactionOff = !enabled
+	}
+}
+
 func WithSubAgents(subAgents ...*Agent) Opt {
 	return func(a *Agent) {
 		a.subAgents = subAgents

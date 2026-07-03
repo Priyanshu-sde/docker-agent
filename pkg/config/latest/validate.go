@@ -28,6 +28,9 @@ func (t *Config) Validate() error {
 		if err := m.validateFirstAvailable(); err != nil {
 			return fmt.Errorf("models.%s: %w", name, err)
 		}
+		if err := validateCompactionThreshold(m.CompactionThreshold); err != nil {
+			return fmt.Errorf("models.%s: %w", name, err)
+		}
 		if err := m.Auth.Validate(EffectiveProviderType(m, t.Providers)); err != nil {
 			return fmt.Errorf("models.%s: %w", name, err)
 		}
@@ -54,6 +57,9 @@ func (t *Config) Validate() error {
 		}
 		if err := agent.validateHarness(); err != nil {
 			return err
+		}
+		if err := validateCompactionThreshold(agent.CompactionThreshold); err != nil {
+			return fmt.Errorf("agents.%s: %w", agent.Name, err)
 		}
 
 		for j := range agent.Toolsets {
@@ -132,10 +138,25 @@ func (m *ModelConfig) validateFirstAvailable() error {
 	if m.CompactionModel != "" {
 		return errors.New("first_available cannot be combined with compaction_model")
 	}
+	if m.CompactionThreshold != nil {
+		return errors.New("first_available cannot be combined with compaction_threshold")
+	}
 	for i, ref := range m.FirstAvailable {
 		if strings.TrimSpace(ref) == "" {
 			return fmt.Errorf("first_available[%d] must not be empty", i)
 		}
+	}
+	return nil
+}
+
+// validateCompactionThreshold rejects a compaction_threshold outside (0, 1].
+// nil (unset) is valid and means "use the default".
+func validateCompactionThreshold(v *float64) error {
+	if v == nil {
+		return nil
+	}
+	if *v <= 0 || *v > 1 {
+		return fmt.Errorf("compaction_threshold must be greater than 0 and at most 1, got %v", *v)
 	}
 	return nil
 }

@@ -67,6 +67,55 @@ func TestValidationErrors(t *testing.T) {
 	}
 }
 
+func TestCompactionThresholdValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		threshold float64
+		wantErr   bool
+	}{
+		{name: "valid low", threshold: 0.1},
+		{name: "valid default", threshold: 0.9},
+		{name: "valid max", threshold: 1},
+		{name: "zero rejected", threshold: 0, wantErr: true},
+		{name: "negative rejected", threshold: -0.5, wantErr: true},
+		{name: "above one rejected", threshold: 1.5, wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run("model "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := latest.Config{Models: map[string]latest.ModelConfig{
+				"primary": {Provider: "openai", Model: "gpt-4o", CompactionThreshold: new(tt.threshold)},
+			}}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "models.primary: compaction_threshold must be greater than 0 and at most 1")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+
+		t.Run("agent "+tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := latest.Config{Agents: []latest.AgentConfig{
+				{Name: "root", Model: "openai/gpt-4o", CompactionThreshold: new(tt.threshold)},
+			}}
+			err := cfg.Validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "agents.root: compaction_threshold must be greater than 0 and at most 1")
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
 func TestLoadConfig_UnsupportedVersion(t *testing.T) {
 	t.Parallel()
 

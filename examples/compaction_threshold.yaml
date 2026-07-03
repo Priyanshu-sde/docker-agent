@@ -1,0 +1,48 @@
+# Compaction Threshold Example
+#
+# This example demonstrates how to tune (or disable) automatic session
+# compaction via the `compaction_threshold` and `session_compaction` fields.
+#
+# By default, docker-agent proactively compacts a session when the estimated
+# token usage crosses 90% of the model's context window. Lowering the
+# threshold compacts earlier (keeping requests smaller and cheaper), raising
+# it compacts later (keeping more verbatim history in context).
+#
+# `compaction_threshold` accepts a fraction greater than 0 and at most 1 and
+# can be set in two places:
+#   - on an agent: applies to that agent's sessions
+#   - on a model (next to `compaction_model`): applies to agents running
+#     that model and takes precedence over the agent-level value
+#
+# `session_compaction: false` disables automatic compaction entirely for an
+# agent: no proactive threshold trigger and no post-overflow auto-compaction.
+# The manual `/compact` command remains available.
+
+models:
+  primary:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    # Summarize with a cheaper model, and start compacting at 80% of the
+    # window instead of the default 90%. The model-level threshold overrides
+    # any agent-level `compaction_threshold`.
+    compaction_model: fast
+    compaction_threshold: 0.8
+  fast:
+    provider: anthropic
+    model: claude-haiku-4-5
+
+agents:
+  root:
+    model: primary
+    description: An assistant that compacts earlier than the default.
+    instruction: You are a helpful assistant.
+    sub_agents: [archivist]
+
+  archivist:
+    model: primary
+    description: An assistant that never auto-compacts its sessions.
+    instruction: You keep full conversation history and never lose context.
+    # Disable both automatic compaction triggers for this agent. Only use
+    # this when full history matters more than the risk of hitting the
+    # model's context limit.
+    session_compaction: false

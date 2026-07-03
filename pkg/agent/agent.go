@@ -31,6 +31,8 @@ type Agent struct {
 	fallbackCooldown        time.Duration                       // Duration to stick with fallback after non-retryable error
 	titleModel              provider.Provider                   // Optional dedicated model for session-title generation
 	compactionModel         provider.Provider                   // Optional dedicated model for session compaction (summary generation)
+	compactionThreshold     float64                             // Custom proactive-compaction trigger fraction; 0 means "use the default"
+	sessionCompactionOff    bool                                // True when the agent opted out of automatic session compaction
 	modelOverrides          atomic.Pointer[[]provider.Provider] // Optional model override(s) set at runtime (supports alloy)
 	subAgents               []*Agent
 	handoffs                []*Agent
@@ -334,6 +336,25 @@ func (a *Agent) TitleModels(ctx context.Context) []provider.Provider {
 // configured compaction model after the conversation model has been changed.
 func (a *Agent) CompactionModel() provider.Provider {
 	return a.compactionModel
+}
+
+// CompactionThreshold returns the configured fraction of the context window
+// at which proactive auto-compaction triggers, or 0 when the agent uses the
+// default. Callers pass the value verbatim to [compaction.ShouldCompact],
+// which maps 0 (and any out-of-range value) to the package default. Like
+// CompactionModel, it is resolved at load time and not affected by runtime
+// model switching.
+func (a *Agent) CompactionThreshold() float64 {
+	return a.compactionThreshold
+}
+
+// SessionCompaction reports whether automatic session compaction (the
+// proactive threshold trigger and post-overflow auto-recovery) is enabled
+// for this agent. Defaults to true; disabled only by an explicit
+// `session_compaction: false` in the agent's config. Manual /compact is
+// not affected by this flag.
+func (a *Agent) SessionCompaction() bool {
+	return !a.sessionCompactionOff
 }
 
 // Commands returns the named commands configured for this agent.

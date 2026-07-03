@@ -161,7 +161,7 @@ func (r *LocalRuntime) handleStreamError(
 	// request instead of surfacing raw errors. We allow at most
 	// r.maxOverflowCompactions consecutive attempts to avoid an infinite
 	// loop when compaction cannot reduce the context enough.
-	if _, ok := errors.AsType[*modelerrors.ContextOverflowError](err); ok && r.sessionCompaction && *overflowCompactions < r.maxOverflowCompactions {
+	if _, ok := errors.AsType[*modelerrors.ContextOverflowError](err); ok && r.sessionCompactionEnabled(a) && *overflowCompactions < r.maxOverflowCompactions {
 		*overflowCompactions++
 		slog.WarnContext(ctx, "Context window overflow detected, attempting auto-compaction",
 			"agent", a.Name(),

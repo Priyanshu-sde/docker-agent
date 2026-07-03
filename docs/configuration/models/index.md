@@ -40,6 +40,7 @@ models:
       key: value
     title_model: string # Optional: model used for session-title generation
     compaction_model: string # Optional: model used for session-compaction (summary generation)
+    compaction_threshold: float # Optional: context-window fraction that triggers auto-compaction (0–1, default: 0.9)
     bypass_models_gateway: boolean # Optional: skip the models gateway for this model
 ```
 
@@ -66,6 +67,7 @@ models:
 | `provider_opts`       | object     | ✗        | Provider-specific options (see provider pages)                                        |
 | `title_model`         | string     | ✗        | Model used for session-title generation. Can be a named model from the `models:` section or an inline `provider/model` string. When omitted, the agent's primary model generates titles. Cannot be combined with `first_available`. |
 | `compaction_model`    | string     | ✗        | Model used for session compaction (summary generation). Can be a named model or an inline `provider/model` string. When omitted, the primary model compacts. Cannot be combined with `first_available`. See [Delegating Session Compaction](#delegating-session-compaction). |
+| `compaction_threshold` | float     | ✗        | Fraction of the context window at which proactive auto-compaction triggers for agents running this model. Must be greater than `0` and at most `1`. Takes precedence over the agent-level `compaction_threshold`. Cannot be combined with `first_available`. Default: `0.9`. |
 | `bypass_models_gateway` | boolean  | ✗        | When `true`, this model connects directly to its provider even when a models gateway (`--models-gateway` / `CAGENT_MODELS_GATEWAY`) is configured. See [Gateway Bypass](#gateway-bypass). |
 
 ## Attachment Capability Overrides
@@ -152,12 +154,32 @@ call can always ingest the full conversation. Pair the primary with a
 compaction model whose window is at least as large to keep the proactive
 trigger aligned with the primary's window.
 
+By default the proactive trigger fires when the estimated token usage crosses
+**90%** of the context window. The `compaction_threshold` field tunes that
+fraction (greater than `0`, at most `1`): lower values compact earlier and
+keep requests smaller, higher values compact later and keep more verbatim
+history. It can be set on the model (as above, taking precedence) or on the
+agent, and automatic compaction can be disabled entirely per agent with
+`session_compaction: false` — see [Agent Config](../agents/index.md#properties-reference).
+
+```yaml
+models:
+  primary:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    compaction_model: fast
+    # Compact at 80% of the window instead of the default 90%.
+    compaction_threshold: 0.8
+```
+
 > [!WARNING]
 > **Constraint**
 >
 > `compaction_model` cannot be combined with `first_available` model selection — the combination is rejected at validation time.
 
-See [`examples/compaction_model.yaml`](https://github.com/docker/docker-agent/blob/main/examples/compaction_model.yaml) for a complete example.
+See [`examples/compaction_model.yaml`](https://github.com/docker/docker-agent/blob/main/examples/compaction_model.yaml)
+and [`examples/compaction_threshold.yaml`](https://github.com/docker/docker-agent/blob/main/examples/compaction_threshold.yaml)
+for complete examples.
 
 ## Gateway Bypass
 

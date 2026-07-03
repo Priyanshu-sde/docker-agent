@@ -369,6 +369,141 @@ agents:
 	})
 }
 
+func TestCompactionThresholdResolution(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+	t.Setenv("ANTHROPIC_API_KEY", "dummy")
+
+	t.Run("agent-level threshold", func(t *testing.T) {
+		data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    compaction_threshold: 0.75
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("threshold.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		assert.InEpsilon(t, 0.75, root.CompactionThreshold(), 1e-9)
+	})
+
+	t.Run("model-level threshold", func(t *testing.T) {
+		data := []byte(`models:
+  primary:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    compaction_threshold: 0.6
+agents:
+  root:
+    model: primary
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("threshold.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		assert.InEpsilon(t, 0.6, root.CompactionThreshold(), 1e-9)
+	})
+
+	t.Run("model-level threshold overrides agent-level", func(t *testing.T) {
+		data := []byte(`models:
+  primary:
+    provider: anthropic
+    model: claude-sonnet-4-5
+    compaction_threshold: 0.6
+agents:
+  root:
+    model: primary
+    compaction_threshold: 0.75
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("threshold.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		assert.InEpsilon(t, 0.6, root.CompactionThreshold(), 1e-9)
+	})
+
+	t.Run("unset threshold reports zero so the default applies", func(t *testing.T) {
+		data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("threshold.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		assert.Zero(t, root.CompactionThreshold())
+	})
+}
+
+func TestSessionCompactionKnob(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "dummy")
+
+	t.Run("enabled by default", func(t *testing.T) {
+		data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("session_compaction.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		assert.True(t, root.SessionCompaction())
+	})
+
+	t.Run("explicitly disabled", func(t *testing.T) {
+		data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    session_compaction: false
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("session_compaction.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		assert.False(t, root.SessionCompaction())
+	})
+
+	t.Run("explicitly enabled", func(t *testing.T) {
+		data := []byte(`agents:
+  root:
+    model: openai/gpt-4o
+    session_compaction: true
+    instruction: test
+`)
+
+		team, err := Load(t.Context(), config.NewBytesSource("session_compaction.yaml", data), &config.RuntimeConfig{}, withTestProviderRegistry()...)
+		require.NoError(t, err)
+
+		root, err := team.Agent("root")
+		require.NoError(t, err)
+
+		assert.True(t, root.SessionCompaction())
+	})
+}
+
 func TestLoadHarnessAgentWithoutModel(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "dummy")
 

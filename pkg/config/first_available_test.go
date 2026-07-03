@@ -268,6 +268,11 @@ func TestValidateFirstAvailable(t *testing.T) {
 			wantErr: "cannot be combined with compaction_model",
 		},
 		{
+			name:    "combined with compaction_threshold",
+			model:   latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}, CompactionThreshold: new(0.8)},
+			wantErr: "cannot be combined with compaction_threshold",
+		},
+		{
 			name:    "combined with token key",
 			model:   latest.ModelConfig{FirstAvailable: []string{"openai/gpt-5"}, TokenKey: "CUSTOM_API_KEY"},
 			wantErr: "cannot be combined with token_key",

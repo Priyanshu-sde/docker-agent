@@ -648,6 +648,22 @@
           "description": "Number of history items to keep",
           "minimum": 0
         },
+        "session_compaction": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enabled by default. When true (the default), the runtime automatically compacts the session: proactively when the estimated context usage crosses the compaction threshold, and reactively to recover from a context-overflow error. Set to false to disable both automatic triggers for this agent; the manual /compact command remains available."
+        },
+        "compaction_threshold": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.9,
+          "description": "Fraction of the model's context window at which proactive auto-compaction triggers for this agent. Must be greater than 0 and at most 1. Defaults to 0.9 (90% of the context window). A compaction_threshold set on the agent's model takes precedence over this value.",
+          "examples": [
+            0.75,
+            0.9
+          ]
+        },
         "add_prompt_files": {
           "type": "array",
           "description": "List of prompt files to add",
@@ -1617,6 +1633,17 @@
           "examples": [
             "openai/gpt-4o-mini",
             "fast"
+          ]
+        },
+        "compaction_threshold": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1,
+          "default": 0.9,
+          "description": "Fraction of the context window at which proactive auto-compaction triggers for agents running this model. Must be greater than 0 and at most 1. Defaults to 0.9 (90% of the context window). Takes precedence over the agent-level compaction_threshold. Cannot be combined with first_available.",
+          "examples": [
+            0.75,
+            0.9
           ]
         },
         "capabilities": {

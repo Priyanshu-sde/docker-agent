@@ -546,17 +546,29 @@ type AgentConfig struct {
 	// Pointer (tri-state) so we can distinguish "unset" (nil → default
 	// on) from "explicitly disabled" (false). Use
 	// [AgentConfig.RedactSecretsEnabled] to read the effective value.
-	RedactSecrets           *bool             `json:"redact_secrets,omitempty"`
-	CodeModeTools           bool              `json:"code_mode_tools,omitempty"`
-	AddDescriptionParameter bool              `json:"add_description_parameter,omitempty"`
-	MaxIterations           int               `json:"max_iterations,omitempty"`
-	MaxConsecutiveToolCalls int               `json:"max_consecutive_tool_calls,omitempty"`
-	MaxOldToolCallTokens    int               `json:"max_old_tool_call_tokens,omitempty"`
-	NumHistoryItems         int               `json:"num_history_items,omitempty"`
-	AddPromptFiles          []string          `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
-	Commands                types.Commands    `json:"commands,omitempty"`
-	StructuredOutput        *StructuredOutput `json:"structured_output,omitempty"`
-	Skills                  SkillsConfig      `json:"skills,omitzero"`
+	RedactSecrets           *bool `json:"redact_secrets,omitempty"`
+	CodeModeTools           bool  `json:"code_mode_tools,omitempty"`
+	AddDescriptionParameter bool  `json:"add_description_parameter,omitempty"`
+	MaxIterations           int   `json:"max_iterations,omitempty"`
+	MaxConsecutiveToolCalls int   `json:"max_consecutive_tool_calls,omitempty"`
+	MaxOldToolCallTokens    int   `json:"max_old_tool_call_tokens,omitempty"`
+	NumHistoryItems         int   `json:"num_history_items,omitempty"`
+	// SessionCompaction toggles automatic session compaction for this agent:
+	// the proactive threshold trigger and the post-overflow auto-recovery.
+	// Manual /compact stays available regardless. Pointer (tri-state) so
+	// "unset" (nil → default on) is distinguishable from an explicit
+	// `session_compaction: false`. Use [AgentConfig.SessionCompactionEnabled]
+	// to read the effective value.
+	SessionCompaction *bool `json:"session_compaction,omitempty"`
+	// CompactionThreshold is the fraction of the context window at which
+	// proactive auto-compaction triggers for this agent. Must be greater than
+	// 0 and at most 1; defaults to 0.9 when unset. A `compaction_threshold`
+	// set on the agent's model takes precedence.
+	CompactionThreshold *float64          `json:"compaction_threshold,omitempty"`
+	AddPromptFiles      []string          `json:"add_prompt_files,omitempty" yaml:"add_prompt_files,omitempty"`
+	Commands            types.Commands    `json:"commands,omitempty"`
+	StructuredOutput    *StructuredOutput `json:"structured_output,omitempty"`
+	Skills              SkillsConfig      `json:"skills,omitzero"`
 	// UseCommands and UseSkills reference reusable groups defined in the
 	// top-level Config.Commands / Config.Skills sections. The referenced
 	// groups are merged into Commands / Skills during config resolution;
@@ -866,6 +878,17 @@ func (a *AgentConfig) RedactSecretsEnabled() bool {
 	return *a.RedactSecrets
 }
 
+// SessionCompactionEnabled reports the effective value of the agent's
+// session_compaction flag. Automatic compaction is on by default: a nil
+// pointer (the field omitted from YAML) means enabled, an explicit
+// `session_compaction: false` is the only way to disable it.
+func (a *AgentConfig) SessionCompactionEnabled() bool {
+	if a == nil || a.SessionCompaction == nil {
+		return true
+	}
+	return *a.SessionCompaction
+}
+
 // SaferShellEnabled reports whether any of the agent's shell toolsets
 // has opted into destructive-command detection. The flag lives on the
 // toolset (not the agent), so this aggregates across all of an agent's
@@ -991,6 +1014,13 @@ type ModelConfig struct {
 	// primary, compaction is triggered against the smaller window so the
 	// summary call can always ingest the conversation it must compact.
 	CompactionModel string `json:"compaction_model,omitempty"`
+	// CompactionThreshold overrides, for agents running this model, the
+	// fraction of the context window at which proactive auto-compaction
+	// triggers. Must be greater than 0 and at most 1. It takes precedence over
+	// the agent-level `compaction_threshold`; when both are unset the default
+	// of 0.9 applies. Useful next to CompactionModel: a model that compacts
+	// with a slower/smaller summarizer may want to trigger earlier.
+	CompactionThreshold *float64 `json:"compaction_threshold,omitempty"`
 	// Capabilities optionally declares the model's attachment capabilities,
 	// overriding the automatic models.dev-based detection. See [CapabilitiesConfig].
 	Capabilities *CapabilitiesConfig `json:"capabilities,omitempty"`
@@ -1188,6 +1218,7 @@ func (f *FlexibleModelConfig) isShorthandOnly() bool {
 		f.FirstAvailable == nil &&
 		f.TitleModel == "" &&
 		f.CompactionModel == "" &&
+		f.CompactionThreshold == nil &&
 		f.Capabilities == nil
 }
 

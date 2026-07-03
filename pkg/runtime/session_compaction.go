@@ -24,13 +24,21 @@ const (
 	compactionReasonManual    = "manual"
 )
 
+// sessionCompactionEnabled reports whether automatic compaction (proactive
+// threshold trigger, post-overflow recovery) is active for the given agent:
+// the runtime-wide option ANDed with the agent's own `session_compaction`
+// config. Manual /compact is intentionally not gated by either flag.
+func (r *LocalRuntime) sessionCompactionEnabled(a *agent.Agent) bool {
+	return r.sessionCompaction && a.SessionCompaction()
+}
+
 // doCompact orchestrates a session compaction. It is intentionally thin:
 // the heavy lifting (extracting the conversation, running the LLM, computing
 // the kept-tail boundary) lives in [pkg/runtime/compactor]; this function
 // owns only what's runtime-private: hook dispatch, session mutation, event
 // emission, and persistence.
 //
-// reason is one of [compactionReasonThreshold] (proactive 90% trigger),
+// reason is one of [compactionReasonThreshold] (proactive threshold trigger),
 // [compactionReasonOverflow] (post-overflow recovery) or
 // [compactionReasonManual] (user-invoked /compact). It is forwarded to
 // BeforeCompaction / AfterCompaction hooks.
@@ -192,8 +200,9 @@ func (r *LocalRuntime) compactionContextLimit(ctx context.Context, a *agent.Agen
 // operates within: the primary model's window, capped by the dedicated
 // compaction model's (smaller) window when one is configured. It drives both
 // the proactive compaction trigger and the UI context gauge, so the gauge
-// fills to ~90% right as compaction fires and the summary call can always
-// ingest the conversation it must compact. This is the maintainers' resolution
+// fills to the compaction threshold (~90% by default) right as compaction
+// fires and the summary call can always ingest the conversation it must
+// compact. This is the maintainers' resolution
 // for issue #3241 for the case where the dedicated compaction model has the
 // smaller context window.
 //

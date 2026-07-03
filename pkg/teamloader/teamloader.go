@@ -244,6 +244,7 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			agent.WithMaxConsecutiveToolCalls(agentConfig.MaxConsecutiveToolCalls),
 			agent.WithMaxOldToolCallTokens(agentConfig.MaxOldToolCallTokens),
 			agent.WithNumHistoryItems(agentConfig.NumHistoryItems),
+			agent.WithSessionCompaction(agentConfig.SessionCompactionEnabled()),
 			agent.WithCommands(expander.ExpandCommands(ctx, agentConfig.Commands)),
 			agent.WithHooks(config.MergeHooks(config.MergeHooks(agentConfig.Hooks, globalHooks), cliHooks)),
 		}
@@ -311,6 +312,10 @@ func LoadWithConfig(ctx context.Context, agentSource config.Source, runConfig *c
 			}
 			if compactionModel != nil {
 				opts = append(opts, agent.WithCompactionModel(compactionModel))
+			}
+
+			if threshold := compactionThresholdForAgent(cfg, &agentConfig); threshold != nil {
+				opts = append(opts, agent.WithCompactionThreshold(*threshold))
 			}
 		}
 
@@ -661,6 +666,20 @@ func getCompactionModelForAgent(ctx context.Context, cfg *latest.Config, a *late
 		return nil, fmt.Errorf("failed to create compaction model '%s': %w", compactionRef, err)
 	}
 	return model, nil
+}
+
+// compactionThresholdForAgent resolves the proactive-compaction threshold for
+// an agent, or nil when neither the agent nor its models set one (the
+// compaction package default then applies). The `compaction_threshold` of the
+// first of the agent's configured models that sets it wins (mirroring
+// getCompactionModelForAgent); the agent-level value is the fallback.
+func compactionThresholdForAgent(cfg *latest.Config, a *latest.AgentConfig) *float64 {
+	for name := range strings.SplitSeq(a.Model, ",") {
+		if modelCfg, ok := cfg.Models[name]; ok && modelCfg.CompactionThreshold != nil {
+			return modelCfg.CompactionThreshold
+		}
+	}
+	return a.CompactionThreshold
 }
 
 // getToolsForAgent returns the tool definitions for an agent based on its
