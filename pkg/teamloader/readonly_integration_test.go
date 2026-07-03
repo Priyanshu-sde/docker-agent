@@ -45,7 +45,7 @@ func TestGetToolsForAgent_ToolsetReadOnly(t *testing.T) {
 	require.Len(t, got, 1)
 
 	names := shellToolNames(t, got[0])
-	assert.ElementsMatch(t, []string{"list_background_jobs", "view_background_job"}, names)
+	assert.ElementsMatch(t, []string{"list_background_jobs", "view_background_job", "wait_background_job"}, names)
 }
 
 func TestGetToolsForAgent_AgentReadOnly(t *testing.T) {
@@ -72,7 +72,7 @@ func TestGetToolsForAgent_AgentReadOnly(t *testing.T) {
 	require.Len(t, got, 1)
 
 	names := shellToolNames(t, got[0])
-	assert.ElementsMatch(t, []string{"list_background_jobs", "view_background_job"}, names)
+	assert.ElementsMatch(t, []string{"list_background_jobs", "view_background_job", "wait_background_job"}, names)
 }
 
 func TestGetToolsForAgent_NoReadOnlyKeepsAllTools(t *testing.T) {
@@ -98,6 +98,6 @@ func TestGetToolsForAgent_NoReadOnlyKeepsAllTools(t *testing.T) {
 	names := shellToolNames(t, got[0])
 	assert.ElementsMatch(t, []string{
 		"shell", "run_background_job", "list_background_jobs",
-		"view_background_job", "stop_background_job",
+		"view_background_job", "stop_background_job", "wait_background_job",
 	}, names)
 }

@@ -33,6 +33,7 @@ const (
 	ToolNameListBackgroundJobs = "list_background_jobs"
 	ToolNameViewBackgroundJob  = "view_background_job"
 	ToolNameStopBackgroundJob  = "stop_background_job"
+	ToolNameWaitBackgroundJob  = "wait_background_job"
 )
 
 // ToolSet provides shell command execution capabilities.
@@ -88,6 +89,8 @@ type backgroundJob struct {
 	status       atomic.Int32
 	exitCode     int
 	err          error
+	// done is closed by monitorJob when the job finishes (any terminal state).
+	done chan struct{}
 }
 
 // limitedWriter wraps a buffer and stops writing after maxSize bytes.
@@ -210,6 +213,11 @@ type ViewBackgroundJobArgs struct {
 
 type StopBackgroundJobArgs struct {
 	JobID string `json:"job_id" jsonschema:"Background job ID"`
+}
+
+type WaitBackgroundJobArgs struct {
+	JobID   string `json:"job_id" jsonschema:"Background job ID"`
+	Timeout int    `json:"timeout,omitempty" jsonschema:"Maximum seconds to wait (default 60). Returns current output with a timeout notice if the job is still running when the limit is reached."`
 }
 
 // statusStrings maps job status constants to their string representations
@@ -347,6 +355,7 @@ func (h *shellHandler) RunShellBackground(ctx context.Context, params RunShellBa
 		cwd:       params.Cwd,
 		output:    &bytes.Buffer{},
 		startTime: time.Now(),
+		done:      make(chan struct{}),
 	}
 
 	// The limitedWriter shares the job's outputMu so that readers
@@ -380,6 +389,10 @@ func (h *shellHandler) RunShellBackground(ctx context.Context, params RunShellBa
 }
 
 func (h *shellHandler) monitorJob(job *backgroundJob, cmd *exec.Cmd) {
+	// close done after all fields are written so WaitBackgroundJob readers see
+	// the final state. Defers are LIFO: Unlock runs before close(done).
+	defer close(job.done)
+
 	err := cmd.Wait()
 
 	job.outputMu.Lock()
@@ -433,12 +446,8 @@ func (h *shellHandler) ListBackgroundJobs(_ context.Context, _ map[string]any) (
 	return tools.ResultSuccess(output.String()), nil
 }
 
-func (h *shellHandler) ViewBackgroundJob(_ context.Context, params ViewBackgroundJobArgs) (*tools.ToolCallResult, error) {
-	job, exists := h.jobs.Load(params.JobID)
-	if !exists {
-		return tools.ResultError("Job not found: " + params.JobID), nil
-	}
-
+// renderBackgroundJob formats the current state of a background job for tool output.
+func renderBackgroundJob(job *backgroundJob) string {
 	status := job.status.Load()
 
 	job.outputMu.RLock()
@@ -451,7 +460,8 @@ func (h *shellHandler) ViewBackgroundJob(_ context.Context, params ViewBackgroun
 	fmt.Fprintf(&result, "Command: %s\n", job.cmd)
 	fmt.Fprintf(&result, "Status: %s\n", statusToString(status))
 	fmt.Fprintf(&result, "Runtime: %s\n", time.Since(job.startTime).Round(time.Second))
-	if status != statusRunning {
+	switch status {
+	case statusCompleted, statusFailed:
 		fmt.Fprintf(&result, "Exit Code: %d\n", exitCode)
 	}
 	result.WriteString("\n--- Output ---\n")
@@ -463,8 +473,46 @@ func (h *shellHandler) ViewBackgroundJob(_ context.Context, params ViewBackgroun
 			result.WriteString("\n\n[Output truncated at 10MB limit]")
 		}
 	}
+	return result.String()
+}
 
-	return tools.ResultSuccess(result.String()), nil
+func (h *shellHandler) ViewBackgroundJob(_ context.Context, params ViewBackgroundJobArgs) (*tools.ToolCallResult, error) {
+	job, exists := h.jobs.Load(params.JobID)
+	if !exists {
+		return tools.ResultError("Job not found: " + params.JobID), nil
+	}
+	return tools.ResultSuccess(renderBackgroundJob(job)), nil
+}
+
+// defaultWaitTimeout is used by WaitBackgroundJob when no timeout is supplied.
+const defaultWaitTimeout = 60 * time.Second
+
+func (h *shellHandler) WaitBackgroundJob(ctx context.Context, params WaitBackgroundJobArgs) (*tools.ToolCallResult, error) {
+	job, exists := h.jobs.Load(params.JobID)
+	if !exists {
+		return tools.ResultError("Job not found: " + params.JobID), nil
+	}
+
+	timeout := defaultWaitTimeout
+	if params.Timeout > 0 {
+		timeout = time.Duration(params.Timeout) * time.Second
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case <-job.done:
+		status := statusStrings[job.status.Load()]
+		header := fmt.Sprintf("Job %s %s.\n\n", job.id, status)
+		return tools.ResultSuccess(header + renderBackgroundJob(job)), nil
+	case <-timer.C:
+		header := fmt.Sprintf("Timed out after %s waiting for job %s; it is still running.\n\n",
+			timeout.Round(time.Second), job.id)
+		return tools.ResultSuccess(header + renderBackgroundJob(job)), nil
+	case <-ctx.Done():
+		return tools.ResultError(fmt.Sprintf("Wait cancelled for job %s: %s", job.id, ctx.Err())), nil
+	}
 }
 
 func (h *shellHandler) StopBackgroundJob(_ context.Context, params StopBackgroundJobArgs) (*tools.ToolCallResult, error) {
@@ -590,7 +638,9 @@ func (t *ToolSet) Instructions() string {
 
 ### Background Jobs
 
-Use run_background_job for long-running processes (servers, watchers). Output capped at 10MB per job. All jobs auto-terminate when the agent stops.`
+Use run_background_job for long-running processes (servers, watchers). Output capped at 10MB per job. All jobs auto-terminate when the agent stops.
+
+Use wait_background_job to block until a job finishes and retrieve its exit code and full output. Pass an optional timeout (seconds) to cap how long to wait; the job keeps running if the timeout fires.`
 }
 
 func (t *ToolSet) Tools(context.Context) ([]tools.Tool, error) {
@@ -642,6 +692,16 @@ func (t *ToolSet) Tools(context.Context) ([]tools.Tool, error) {
 			OutputSchema:            tools.MustSchemaFor[string](),
 			Handler:                 tools.NewHandler(t.handler.StopBackgroundJob),
 			Annotations:             tools.ToolAnnotations{Title: "Stop Background Job"},
+			AddDescriptionParameter: true,
+		},
+		{
+			Name:                    ToolNameWaitBackgroundJob,
+			Category:                "shell",
+			Description:             `Blocks until a background job completes (or the optional timeout expires) and returns its exit code and captured output. Safe to call on an already-finished job — returns the cached result immediately. Use this instead of polling view_background_job in a loop.`,
+			Parameters:              tools.MustSchemaFor[WaitBackgroundJobArgs](),
+			OutputSchema:            tools.MustSchemaFor[string](),
+			Handler:                 tools.NewHandler(t.handler.WaitBackgroundJob),
+			Annotations:             tools.ToolAnnotations{Title: "Wait for Background Job", ReadOnlyHint: true},
 			AddDescriptionParameter: true,
 		},
 	}, nil

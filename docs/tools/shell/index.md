@@ -89,7 +89,7 @@ Notes and limitations:
 
 ## Available Tools
 
-The shell toolset exposes five tools:
+The shell toolset exposes six tools:
 
 | Tool Name              | Description                                                                                    |
 | ---------------------- | ---------------------------------------------------------------------------------------------- |
@@ -98,6 +98,7 @@ The shell toolset exposes five tools:
 | `list_background_jobs` | List all background jobs with their status, runtime, and metadata.                             |
 | `view_background_job`  | View the buffered output and status of a specific background job by ID.                        |
 | `stop_background_job`  | Stop a running background job. Child processes are terminated too.                             |
+| `wait_background_job`  | Block until a job finishes and return its exit code and output. Safe on already-finished jobs. |
 
 Background job output is captured up to 10 MB per job. All background jobs are automatically terminated when the agent session ends.
 
@@ -117,6 +118,13 @@ Background job output is captured up to 10 MB per job. All background jobs are a
 | `cwd`     | string | ✗        | Working directory to run the command in (default: `.`).                 |
 
 `view_background_job` and `stop_background_job` each take a single required `job_id` string returned by `run_background_job` or `list_background_jobs`.
+
+### `wait_background_job` parameters
+
+| Parameter | Type    | Required | Description                                                                                                    |
+| --------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------- |
+| `job_id`  | string  | ✓        | Job ID returned by `run_background_job` or `list_background_jobs`.                                             |
+| `timeout` | integer | ✗        | Maximum seconds to wait (default: `60`). If the job is still running when the limit fires, the tool returns the current output with a notice and the job continues in the background. |
 
 > [!WARNING]
 > **Safety**
