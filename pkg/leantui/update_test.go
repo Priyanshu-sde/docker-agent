@@ -122,7 +122,7 @@ func TestShiftTabCyclesThinkingLevel(t *testing.T) {
 
 	assert.Equal(t, 1, rt.cycleCalls)
 	assert.Equal(t, "high", m.status.thinking)
-	assert.Empty(t, m.blocks)
+	assert.Empty(t, m.transcript.blocks)
 }
 
 func TestShiftTabReportsUnsupportedThinkingLevel(t *testing.T) {
@@ -135,7 +135,7 @@ func TestShiftTabReportsUnsupportedThinkingLevel(t *testing.T) {
 
 	assert.Equal(t, 1, rt.cycleCalls)
 	assert.Empty(t, m.status.thinking)
-	assert.Len(t, m.blocks, 1)
+	assert.Len(t, m.transcript.blocks, 1)
 }
 
 func TestEffortCommandSetsThinkingLevel(t *testing.T) {
@@ -161,5 +161,5 @@ func TestEffortCommandRejectsUnknownLevel(t *testing.T) {
 
 	assert.Zero(t, rt.setCalls)
 	assert.Empty(t, m.status.thinking)
-	assert.Len(t, m.blocks, 1)
+	assert.Len(t, m.transcript.blocks, 1)
 }

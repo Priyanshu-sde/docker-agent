@@ -132,18 +132,6 @@ func readKeys(r io.Reader, keys chan<- key, done <-chan struct{}) {
 	}
 }
 
-type blockKind int
-
-const (
-	blockReasoning blockKind = iota
-	blockAssistant
-)
-
-type pendingBlock struct {
-	kind blockKind
-	text strings.Builder
-}
-
 type model struct {
 	app  *app.App
 	term *terminal
@@ -157,21 +145,13 @@ type model struct {
 
 	status       statusData
 	sessionState *service.SessionState
+	usage        *usageTracker
 
-	usageBySession       map[string]usageSnapshot
-	rootSessionID        string
-	latestUsageSessionID string
-	sessionStack         []string
-
-	blocks       []*block
+	transcript   *transcript
 	busy         bool
 	spinnerFrame int
-	pending      *pendingBlock
-	tools        map[string]*toolView
-	toolOrder    []string
-
-	runCancel context.CancelFunc
-	queue     []string
+	runCancel    context.CancelFunc
+	queue        []string
 
 	confirm *confirmState
 
@@ -204,10 +184,10 @@ func newModel(term *terminal, cfg Config) *model {
 		height:           h,
 		editor:           newEditor("Type a message, / for commands"),
 		ac:               newAutocomplete(),
-		tools:            make(map[string]*toolView),
+		transcript:       newTranscript(),
 		status:           statusData{workingDir: cfg.WorkingDir, branch: gitBranch(cfg.WorkingDir)},
 		sessionState:     sessionState,
-		usageBySession:   make(map[string]usageSnapshot),
+		usage:            newUsageTracker(),
 		appName:          appName,
 		disabledCommands: disabled,
 	}
@@ -222,18 +202,13 @@ func (m *model) render() {
 // renderFinal repaints the current state, then erases the input box and footer
 // so only the conversation remains once the program exits.
 func (m *model) renderFinal() {
-	m.flushPending()
+	m.transcript.flushPending()
 	m.render()
-	m.r.eraseBelow(len(m.conversationLines(m.width)))
-}
-
-// addBlock appends a finalized, lazily-rendered block to the conversation.
-func (m *model) addBlock(render func(width int) []string) {
-	m.blocks = append(m.blocks, &block{render: render})
+	m.r.eraseBelow(len(m.transcript.lines(m.width, m.spinnerFrame, m.busy, m.sessionState)))
 }
 
 func (m *model) commitWelcome() {
-	m.addBlock(func(int) []string {
+	m.transcript.addBlock(func(int) []string {
 		lines := make([]string, 0, bannerTopPadding+len(bannerLines)+2)
 		for range bannerTopPadding {
 			lines = append(lines, "")

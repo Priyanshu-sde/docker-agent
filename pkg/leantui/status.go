@@ -24,13 +24,6 @@ type statusData struct {
 	costKnown     bool
 }
 
-type usageSnapshot struct {
-	contextLength int64
-	contextLimit  int64
-	tokens        int64
-	cost          float64
-}
-
 // renderStatus builds the two-line footer:
 //
 //	<working dir>  ⎇ <branch>                          <agent>

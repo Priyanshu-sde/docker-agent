@@ -133,7 +133,7 @@ func TestTokenUsageBeforeStreamUsesFirstSessionAsRoot(t *testing.T) {
 		Cost:          0.05,
 	}))
 
-	assert.Equal(t, "root-session", m.rootSessionID)
+	assert.Equal(t, "root-session", m.usage.rootSessionID)
 	assert.Equal(t, int64(3_000), m.status.tokens)
 	assert.InDelta(t, 0.15, m.status.cost, 0.0001)
 }

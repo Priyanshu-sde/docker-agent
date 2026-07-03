@@ -23,15 +23,15 @@ func bareModel(height int) *model {
 	var buf bytes.Buffer
 	w := bufio.NewWriter(&buf)
 	return &model{
-		width:          width,
-		height:         height,
-		r:              newRenderer(w, width, height),
-		editor:         newEditor("type here"),
-		ac:             newAutocomplete(),
-		tools:          map[string]*toolView{},
-		status:         statusData{workingDir: "/tmp/project"},
-		sessionState:   service.NewSessionState(nil),
-		usageBySession: map[string]usageSnapshot{},
+		width:        width,
+		height:       height,
+		r:            newRenderer(w, width, height),
+		editor:       newEditor("type here"),
+		ac:           newAutocomplete(),
+		transcript:   newTranscript(),
+		status:       statusData{workingDir: "/tmp/project"},
+		sessionState: service.NewSessionState(nil),
+		usage:        newUsageTracker(),
 	}
 }
 
@@ -41,9 +41,9 @@ func TestStreamingGrowthScrollsAndRendersMarkdown(t *testing.T) {
 	m.busy = true
 	m.render() // initial frame
 
-	m.pending = &pendingBlock{kind: blockAssistant}
+	m.transcript.pending = &pendingBlock{kind: blockAssistant}
 	for i := range 40 {
-		m.pending.text.WriteString("Paragraph " + strconv.Itoa(i) + " with some streamed text.\n\n")
+		m.transcript.pending.text.WriteString("Paragraph " + strconv.Itoa(i) + " with some streamed text.\n\n")
 		lines, cl, cc := m.buildLines()
 		require.NotPanics(t, func() { m.r.frame(lines, cl, cc) })
 	}
@@ -53,8 +53,8 @@ func TestStreamingGrowthScrollsAndRendersMarkdown(t *testing.T) {
 
 	// Finalizing the stream turns it into a cached block; the visible output is
 	// unchanged because it was already rendered as markdown live.
-	m.flushPending()
-	assert.Len(t, m.blocks, 1)
+	m.transcript.flushPending()
+	assert.Len(t, m.transcript.blocks, 1)
 	require.NotPanics(t, func() {
 		lines, cl, cc := m.buildLines()
 		m.r.frame(lines, cl, cc)
@@ -77,7 +77,7 @@ func TestConversationLinesShowsSpinnerWhenBusy(t *testing.T) {
 	t.Parallel()
 	m := bareModel(24)
 	m.busy = true
-	lines := m.conversationLines(80)
+	lines := m.transcript.lines(80, m.spinnerFrame, m.busy, m.sessionState)
 	assert.Contains(t, strings.Join(lines, ""), "Working")
 }
 
@@ -85,14 +85,14 @@ func TestToolConfirmationReplacesRunningTool(t *testing.T) {
 	t.Parallel()
 	m := bareModel(24)
 	tv := shellToolView(tuitypes.ToolStatusRunning)
-	m.upsertTool("root", tv.message.ToolCall, tv.message.ToolDefinition, tuitypes.ToolStatusRunning)
-	require.Len(t, m.toolOrder, 1)
+	m.transcript.upsertTool("root", tv.message.ToolCall, tv.message.ToolDefinition, tuitypes.ToolStatusRunning)
+	require.Len(t, m.transcript.toolz.order, 1)
 
 	event := runtime.ToolCallConfirmation(tv.message.ToolCall, tv.message.ToolDefinition, "root", nil)
 	m.handleEvent(t.Context(), event)
 
-	assert.Empty(t, m.toolOrder)
-	assert.Empty(t, m.tools)
+	assert.Empty(t, m.transcript.toolz.order)
+	assert.Empty(t, m.transcript.toolz.byID)
 	require.NotNil(t, m.confirm)
 }
 
