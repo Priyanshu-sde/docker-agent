@@ -176,8 +176,11 @@ func addRunOrExecFlags(cmd *cobra.Command, flags *runExecFlags) {
 	cmd.PersistentFlags().StringVar(&flags.sandboxTemplate, "template", "docker/sandbox-templates:docker-agent", "Template image for the sandbox (passed to docker sandbox create -t)")
 	cmd.PersistentFlags().BoolVar(&flags.sbx, "sbx", true, "Prefer the sbx CLI backend when available (set --sbx=false to force docker sandbox)")
 	cmd.PersistentFlags().BoolVar(&flags.noKit, "no-kit", false, "Do not stage a docker-agent kit (skills, prompt files) when running in a sandbox")
-	cmd.PersistentFlags().StringVar(&flags.agentPickerSpec, "agent-picker", "", "Show a full-screen picker to choose an agent before launching. Optional comma-separated list of agent refs (defaults to \"default,coder\")")
-	cmd.PersistentFlags().Lookup("agent-picker").NoOptDefVal = strings.Join(defaultAgentPickerRefs, ",")
+	cmd.PersistentFlags().StringVar(&flags.agentPickerSpec, "agent-picker", "", "Show a full-screen picker to choose an agent before launching. Optional comma-separated list of agent refs (defaults to the built-in agents plus any configs in ~/.agents)")
+	// A blank NoOptDefVal lets `--agent-picker` be passed without a value;
+	// parseAgentPickerRefs maps blank input to the defaults at parse time so
+	// the ~/.agents scan isn't frozen into the flag definition.
+	cmd.PersistentFlags().Lookup("agent-picker").NoOptDefVal = " "
 	cmd.PersistentFlags().StringVarP(&flags.worktreeName, "worktree", "w", "", "Run the agent in a fresh git worktree of the working directory (isolates changes from your checkout). Optionally name it: --worktree=my-name")
 	cmd.PersistentFlags().Lookup("worktree").NoOptDefVal = worktreeAutoName
 	cmd.PersistentFlags().StringVar(&flags.worktreePR, "worktree-pr", "", "Run the agent in a git worktree checked out on an existing GitHub pull request (number or URL). Continues the PR's branch; requires the GitHub CLI (gh).")

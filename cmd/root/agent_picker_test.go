@@ -2,6 +2,8 @@ package root
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestRenderTags(t *testing.T) {
@@ -38,13 +41,10 @@ func TestParseAgentPickerRefs(t *testing.T) {
 		raw  string
 		want []string
 	}{
-		{"empty defaults", "", []string{"default", "coder"}},
-		{"whitespace defaults", "   ", []string{"default", "coder"}},
 		{"single ref", "coder", []string{"coder"}},
 		{"multiple refs", "default,coder", []string{"default", "coder"}},
 		{"trims whitespace", " default , coder ", []string{"default", "coder"}},
 		{"drops empty entries", "default,,coder,", []string{"default", "coder"}},
-		{"only commas defaults", ",,,", []string{"default", "coder"}},
 		{"external refs", "default,agentcatalog/pirate", []string{"default", "agentcatalog/pirate"}},
 	}
 	for _, tt := range tests {
@@ -54,12 +54,84 @@ func TestParseAgentPickerRefs(t *testing.T) {
 	}
 }
 
+func TestParseAgentPickerRefsDefaults(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+
+	// Without ~/.agents, only the built-in agents are offered.
+	for _, raw := range []string{"", "   ", ",,,"} {
+		assert.Equal(t, []string{"default", "coder"}, parseAgentPickerRefs(raw))
+	}
+
+	// Config files in ~/.agents are appended to the built-ins; directories
+	// (e.g. skills) and non-config files are ignored.
+	agentsDir := filepath.Join(home, ".agents")
+	require.NoError(t, os.MkdirAll(filepath.Join(agentsDir, "skills"), 0o755))
+	for _, name := range []string{"assistant.yaml", "gopher.yml", "notes.txt"} {
+		require.NoError(t, os.WriteFile(filepath.Join(agentsDir, name), nil, 0o644))
+	}
+
+	want := []string{
+		"default",
+		"coder",
+		filepath.Join(agentsDir, "assistant.yaml"),
+		filepath.Join(agentsDir, "gopher.yml"),
+	}
+	assert.Equal(t, want, parseAgentPickerRefs(""))
+
+	// An explicit list bypasses the defaults entirely.
+	assert.Equal(t, []string{"coder"}, parseAgentPickerRefs("coder"))
+}
+
 func TestPrependAgentRef(t *testing.T) {
 	t.Parallel()
 
 	assert.Equal(t, []string{"coder"}, prependAgentRef("coder", nil))
 	assert.Equal(t, []string{"coder", "hello"}, prependAgentRef("coder", []string{"hello"}))
 	assert.Equal(t, []string{"coder", "a", "b"}, prependAgentRef("coder", []string{"a", "b"}))
+}
+
+func TestIsLocalConfigRef(t *testing.T) {
+	t.Parallel()
+
+	assert.True(t, isLocalConfigRef("/home/user/.agents/assistant.yaml"))
+	assert.True(t, isLocalConfigRef("./agent.yml"))
+	assert.True(t, isLocalConfigRef("agent.hcl"))
+	assert.False(t, isLocalConfigRef("default"))
+	assert.False(t, isLocalConfigRef("agentcatalog/pirate"))
+	assert.False(t, isLocalConfigRef("https://example.com/agent.yaml"))
+}
+
+func TestAgentPickerCardShowsDescriptionForLocalConfigs(t *testing.T) {
+	t.Parallel()
+
+	m := newAgentPickerModel(nil)
+
+	// Local config files show the description as the title, with the path
+	// demoted to the detail line.
+	card := ansi.Strip(m.renderCard(agentChoice{ref: "/tmp/agents/gopher.yaml", description: "Golang expert"}, 70, false))
+	assert.Less(t, strings.Index(card, "Golang expert"), strings.Index(card, "/tmp/agents/gopher.yaml"))
+
+	// Without a description the path remains the title.
+	card = ansi.Strip(m.renderCard(agentChoice{ref: "/tmp/agents/gopher.yaml"}, 70, false))
+	assert.Contains(t, card, "/tmp/agents/gopher.yaml")
+	assert.Contains(t, card, "No description available")
+
+	// Non-path refs keep the ref as title with the description below.
+	card = ansi.Strip(m.renderCard(agentChoice{ref: "default", description: "A helpful assistant"}, 70, false))
+	assert.Less(t, strings.Index(card, "default"), strings.Index(card, "A helpful assistant"))
+}
+
+func TestAgentPickerCardShortensHomePath(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // os.UserHomeDir on Windows
+
+	ref := filepath.Join(home, ".agents", "gopher.yaml")
+	card := ansi.Strip(newAgentPickerModel(nil).renderCard(agentChoice{ref: ref, description: "Golang expert"}, 70, false))
+	assert.Contains(t, card, filepath.Join("~", ".agents", "gopher.yaml"))
+	assert.NotContains(t, card, home)
 }
 
 func TestTruncateDetail(t *testing.T) {

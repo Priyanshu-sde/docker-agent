@@ -3,6 +3,8 @@ package root
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,14 +18,43 @@ import (
 
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/environment"
+	"github.com/docker/docker-agent/pkg/path"
 	"github.com/docker/docker-agent/pkg/tui/components/scrollbar"
 	"github.com/docker/docker-agent/pkg/tui/components/toolcommon"
 	"github.com/docker/docker-agent/pkg/tui/styles"
 )
 
-// defaultAgentPickerRefs is the list of agent refs offered by the picker when
-// the user doesn't pass --agent-picker with an explicit list.
-var defaultAgentPickerRefs = []string{"default", "coder"}
+// defaultAgentPickerRefs returns the agent refs offered by the picker when
+// the user doesn't pass --agent-picker with an explicit list: the built-in
+// agents plus any agent config files found in ~/.agents.
+func defaultAgentPickerRefs() []string {
+	refs := []string{"default", "coder"}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return refs
+	}
+	return append(refs, agentRefsInDir(filepath.Join(home, ".agents"))...)
+}
+
+// agentRefsInDir returns the agent config files directly inside dir, sorted
+// by name. A missing or unreadable directory yields nothing.
+func agentRefsInDir(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var refs []string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		switch strings.ToLower(filepath.Ext(entry.Name())) {
+		case ".yaml", ".yml", ".hcl":
+			refs = append(refs, filepath.Join(dir, entry.Name()))
+		}
+	}
+	return refs
+}
 
 // errAgentPickerCancelled is returned when the user aborts the picker
 // (Esc / Ctrl-C) without choosing an agent.
@@ -628,7 +659,7 @@ func (m *agentPickerModel) renderDetails() string {
 	dw, _ := m.detailsDialogSize()
 	contentWidth := dw - detailsChromeCols + scrollbar.Width
 
-	ref := m.choices[m.cursor].ref
+	ref := displayRef(m.choices[m.cursor].ref)
 	title := styles.DialogTitleStyle.Width(contentWidth).Render(toolcommon.TruncateText(ref, contentWidth))
 
 	// Place the scrollbar immediately to the right of the viewport content.
@@ -670,6 +701,29 @@ func percentLabel(frac float64) string {
 	return strconv.Itoa(pct) + "%"
 }
 
+// isLocalConfigRef reports whether ref points at a local agent config file
+// (as opposed to a built-in name, OCI image, or URL).
+func isLocalConfigRef(ref string) bool {
+	if config.IsURLReference(ref) {
+		return false
+	}
+	switch strings.ToLower(filepath.Ext(ref)) {
+	case ".yaml", ".yml", ".hcl":
+		return true
+	default:
+		return false
+	}
+}
+
+// displayRef returns the ref as shown to the user: local config paths are
+// shortened with "~", everything else is unchanged.
+func displayRef(ref string) string {
+	if isLocalConfigRef(ref) {
+		return path.ShortenHome(ref)
+	}
+	return ref
+}
+
 func (m *agentPickerModel) renderCard(choice agentChoice, cardWidth int, selected bool) string {
 	marker := "  "
 	nameStyle := styles.BoldStyle
@@ -681,24 +735,26 @@ func (m *agentPickerModel) renderCard(choice agentChoice, cardWidth int, selecte
 	}
 
 	// The marker occupies 2 columns and the card chrome (border + padding)
-	// 4, so the ref text gets cardWidth-6.
-	header := marker + nameStyle.Render(toolcommon.TruncateText(choice.ref, cardWidth-6))
-
-	// Descriptions and load errors can come from arbitrary (including
-	// remote) configs, so collapse them to a single line and truncate to fit
-	// the card. The detail sits behind a 2-space indent and inside the card's
-	// border (1) + padding (1) on each side, matching the header's budget of
-	// cardWidth-6.
+	// 4, so the title and detail text get cardWidth-6. Titles and details can
+	// come from arbitrary (including remote) configs, so collapse them to a
+	// single line and truncate to fit the card.
 	detailWidth := cardWidth - 6
+	title := displayRef(choice.ref)
 	var detail string
 	switch {
 	case choice.err != nil:
 		detail = styles.ErrorStyle.Render(truncateDetail("failed to load: "+choice.err.Error(), detailWidth))
+	case choice.description != "" && isLocalConfigRef(choice.ref):
+		// Local config files show their description as the title; the path is
+		// demoted to the detail line.
+		title = choice.description
+		detail = styles.MutedStyle.Render(truncateDetail(displayRef(choice.ref), detailWidth))
 	case choice.description != "":
 		detail = styles.SecondaryStyle.Render(truncateDetail(choice.description, detailWidth))
 	default:
 		detail = styles.MutedStyle.Render("No description available")
 	}
+	header := marker + nameStyle.Render(truncateDetail(title, detailWidth))
 
 	card := lipgloss.JoinVertical(lipgloss.Left, header, "  "+detail, "  "+renderTags(choice.tags, detailWidth))
 
@@ -771,7 +827,7 @@ func prependAgentRef(ref string, args []string) []string {
 // yields the built-in defaults.
 func parseAgentPickerRefs(raw string) []string {
 	if strings.TrimSpace(raw) == "" {
-		return defaultAgentPickerRefs
+		return defaultAgentPickerRefs()
 	}
 	var refs []string
 	for part := range strings.SplitSeq(raw, ",") {
@@ -780,7 +836,7 @@ func parseAgentPickerRefs(raw string) []string {
 		}
 	}
 	if len(refs) == 0 {
-		return defaultAgentPickerRefs
+		return defaultAgentPickerRefs()
 	}
 	return refs
 }
