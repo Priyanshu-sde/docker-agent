@@ -211,6 +211,7 @@ Each error message includes a clickable **↻ retry** button. Clicking it resume
 docker-agent automatically saves your sessions. Use `/sessions` to browse past conversations:
 
 - **Browse** past sessions with search and filtering
+- **Workspace grouping**: sessions started in the current directory are listed first under "This workspace", everything else under "Other locations" with its originating directory shown next to each entry; press <kbd>Ctrl</kbd>+<kbd>G</kbd> in the browser to cycle between all, current-directory only, and other-directory views. Restoring a session reopens it in its original directory, so the label always matches where a restore will land
 - **Star** important sessions with `/star`
 - **Branch** conversations by editing any previous user message — preserving the original session history
 - **Resume** sessions with `docker agent run config.yaml --session <id>`

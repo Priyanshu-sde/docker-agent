@@ -193,7 +193,8 @@ func TestGetSessionSummaries(t *testing.T) {
 				Content: "A very long message that should not be loaded when getting summaries",
 			})),
 		},
-		CreatedAt: session1Time,
+		CreatedAt:  session1Time,
+		WorkingDir: "/work/project",
 	}
 
 	session2 := &Session{
@@ -224,11 +225,32 @@ func TestGetSessionSummaries(t *testing.T) {
 	assert.Equal(t, "Second Session", summaries[0].Title)
 	assert.Equal(t, session2Time, summaries[0].CreatedAt)
 	assert.Equal(t, 1, summaries[0].NumMessages)
+	assert.Empty(t, summaries[0].WorkingDir)
 
 	assert.Equal(t, "session-1", summaries[1].ID)
 	assert.Equal(t, "First Session", summaries[1].Title)
 	assert.Equal(t, session1Time, summaries[1].CreatedAt)
 	assert.Equal(t, 1, summaries[1].NumMessages)
+	assert.Equal(t, "/work/project", summaries[1].WorkingDir)
+}
+
+func TestGetSessionSummaries_InMemory_WorkingDir(t *testing.T) {
+	t.Parallel()
+
+	store := NewInMemorySessionStore()
+
+	err := store.AddSession(t.Context(), &Session{
+		ID:         "session-1",
+		Title:      "First Session",
+		CreatedAt:  time.Now(),
+		WorkingDir: "/work/project",
+	})
+	require.NoError(t, err)
+
+	summaries, err := store.GetSessionSummaries(t.Context())
+	require.NoError(t, err)
+	require.Len(t, summaries, 1)
+	assert.Equal(t, "/work/project", summaries[0].WorkingDir)
 }
 
 func TestBranchSessionCopiesPrefix(t *testing.T) {

@@ -1290,8 +1290,19 @@ func (m *appModel) handleOpenSessionBrowser() (tea.Model, tea.Cmd) {
 		return m, notification.InfoCmd("No previous sessions found")
 	}
 
+	// Resolve the active workspace so the browser can group sessions started
+	// in the current directory. This mirrors where a restore would land: the
+	// same WorkingDir field drives replaceActiveSession.
+	var workspaceDir string
+	if runner := m.supervisor.GetRunner(m.supervisor.ActiveID()); runner != nil {
+		workspaceDir = runner.WorkingDir
+	}
+	if workspaceDir == "" {
+		workspaceDir, _ = os.Getwd()
+	}
+
 	return m, core.CmdHandler(dialog.OpenDialogMsg{
-		Model: dialog.NewSessionBrowserDialog(sessions),
+		Model: dialog.NewSessionBrowserDialog(sessions, workspaceDir),
 	})
 }
 

@@ -3,6 +3,13 @@
 All notable changes to this project will be documented in this file.
 
 
+## [Unreleased]
+
+## What's New
+
+- Groups the `/sessions` browser by workspace: sessions started in the current directory are listed first under "This workspace", everything else under "Other locations" with its originating directory shown next to each entry; `ctrl+g` cycles a filter between all, current-directory only, and other-directory views
+
+
 ## [v1.97.0] - 2026-07-02
 
 This release adds global hook support in user config, expands environment variable references in hook and script-shell fields, and fixes hook field merging.

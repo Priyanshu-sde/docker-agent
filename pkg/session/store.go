@@ -82,6 +82,7 @@ type Summary struct {
 	CreatedAt   time.Time
 	Starred     bool
 	NumMessages int
+	WorkingDir  string
 }
 
 // Store defines the interface for session storage
@@ -182,6 +183,7 @@ func (s *InMemorySessionStore) GetSessionSummaries(_ context.Context) ([]Summary
 			CreatedAt:   value.CreatedAt,
 			Starred:     value.Starred,
 			NumMessages: value.MessageCount(),
+			WorkingDir:  value.WorkingDir,
 		})
 		return true
 	})
@@ -853,7 +855,7 @@ func (s *SQLiteSessionStore) GetSessions(ctx context.Context) ([]*Session, error
 // This is much faster than GetSessions as it doesn't load message content.
 func (s *SQLiteSessionStore) GetSessionSummaries(ctx context.Context) ([]Summary, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT s.id, s.title, s.created_at, s.starred,
+		`SELECT s.id, s.title, s.created_at, s.starred, s.working_dir,
 		        (SELECT COUNT(*) FROM session_items si WHERE si.session_id = s.id AND si.item_type = 'message')
 		 FROM sessions s
 		 WHERE s.parent_id IS NULL OR s.parent_id = ''
@@ -868,14 +870,16 @@ func (s *SQLiteSessionStore) GetSessionSummaries(ctx context.Context) ([]Summary
 		var (
 			summary      Summary
 			createdAtStr string
+			workingDir   sql.NullString
 		)
-		if err := rows.Scan(&summary.ID, &summary.Title, &createdAtStr, &summary.Starred, &summary.NumMessages); err != nil {
+		if err := rows.Scan(&summary.ID, &summary.Title, &createdAtStr, &summary.Starred, &workingDir, &summary.NumMessages); err != nil {
 			return nil, err
 		}
 		summary.CreatedAt, err = time.Parse(time.RFC3339, createdAtStr)
 		if err != nil {
 			return nil, err
 		}
+		summary.WorkingDir = workingDir.String
 		summaries = append(summaries, summary)
 	}
 

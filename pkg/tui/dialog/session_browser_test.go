@@ -2,6 +2,9 @@ package dialog
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -10,6 +13,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/stretchr/testify/require"
 
+	"github.com/docker/docker-agent/pkg/paths"
 	"github.com/docker/docker-agent/pkg/session"
 )
 
@@ -21,7 +25,7 @@ func TestSessionBrowserNavigation(t *testing.T) {
 		{ID: "3", Title: "Session 3", CreatedAt: time.Now()},
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 
 	// Initialize and set window size like the TUI does
@@ -70,7 +74,7 @@ func TestSessionBrowserNavigationWithCtrl(t *testing.T) {
 		{ID: "3", Title: "Session 3", CreatedAt: time.Now()},
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 	d.Init()
 	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -106,7 +110,7 @@ func TestSessionBrowserViewShowsSelection(t *testing.T) {
 		{ID: "3", Title: "Session 3", CreatedAt: time.Now()},
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 	d.Init()
 	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -137,7 +141,7 @@ func TestSessionBrowserFiltersEmptySessions(t *testing.T) {
 		{ID: "5", Title: "Session 5", CreatedAt: time.Now()},
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 
 	// Should only have non-empty sessions
@@ -157,7 +161,7 @@ func TestSessionBrowserAllEmptySessions(t *testing.T) {
 		{ID: "2", Title: "", CreatedAt: time.Now()},
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 
 	// Should have no sessions
@@ -177,7 +181,7 @@ func TestSessionBrowserScrolling(t *testing.T) {
 		}
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 	d.Init()
 	// Set a small window size to force scrolling
@@ -218,7 +222,7 @@ func TestSessionBrowserMouseClickSelectsSession(t *testing.T) {
 		{ID: "3", Title: "Session 3", CreatedAt: time.Now()},
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 	d.Init()
 	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -265,7 +269,7 @@ func TestSessionBrowserDoubleClickOpensSession(t *testing.T) {
 		{ID: "sess-3", Title: "Session 3", CreatedAt: time.Now()},
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 	d.Init()
 	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -297,7 +301,7 @@ func TestSessionBrowserClickOutsideListIgnored(t *testing.T) {
 		{ID: "2", Title: "Session 2", CreatedAt: time.Now()},
 	}
 
-	dialog := NewSessionBrowserDialog(sessions)
+	dialog := NewSessionBrowserDialog(sessions, "")
 	d := dialog.(*sessionBrowserDialog)
 	d.Init()
 	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
@@ -314,4 +318,253 @@ func TestSessionBrowserClickOutsideListIgnored(t *testing.T) {
 	// Selection should remain at 0
 	require.Equal(t, 0, d.selected, "click outside list should not change selection")
 	require.Nil(t, cmd, "click outside list should not produce a command")
+}
+
+func workspaceTestSessions() []session.Summary {
+	return []session.Summary{
+		{ID: "here-1", Title: "Newest here", CreatedAt: time.Now(), WorkingDir: "/work/project"},
+		{ID: "away-1", Title: "Away one", CreatedAt: time.Now().Add(-1 * time.Hour), WorkingDir: "/work/other"},
+		{ID: "here-2", Title: "Older here", CreatedAt: time.Now().Add(-2 * time.Hour), WorkingDir: "/work/project"},
+		{ID: "nodir", Title: "No dir recorded", CreatedAt: time.Now().Add(-3 * time.Hour)},
+	}
+}
+
+func filteredIDs(d *sessionBrowserDialog) []string {
+	ids := make([]string, 0, len(d.filtered))
+	for _, s := range d.filtered {
+		ids = append(ids, s.ID)
+	}
+	return ids
+}
+
+func TestSessionBrowserWorkspaceGrouping(t *testing.T) {
+	t.Parallel()
+	dialog := NewSessionBrowserDialog(workspaceTestSessions(), "/work/project")
+	d := dialog.(*sessionBrowserDialog)
+	d.Init()
+	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+
+	// Workspace sessions come first (keeping recency order), then the rest.
+	require.Equal(t, []string{"here-1", "here-2", "away-1", "nodir"}, filteredIDs(d))
+	require.Equal(t, 2, d.workspaceCount)
+	require.Equal(t, 2, d.elsewhereCount)
+
+	// Rows carry two section headers around the groups.
+	require.Len(t, d.rows, 6, "4 sessions + 2 headers")
+	require.Equal(t, sessionBrowserHeaderWorkspace, d.rows[0].header)
+	require.Equal(t, -1, d.rows[0].sessionIdx)
+	require.Equal(t, sessionBrowserHeaderElsewhere, d.rows[3].header)
+	require.Equal(t, -1, d.rows[3].sessionIdx)
+
+	// rowForSession maps every session to its visual row.
+	require.Equal(t, []int{1, 2, 4, 5}, d.rowForSession)
+
+	view := d.View()
+	require.Contains(t, view, sessionBrowserHeaderWorkspace)
+	require.Contains(t, view, sessionBrowserHeaderElsewhere)
+	require.Contains(t, view, "/work/other", "sessions from another workspace should show their directory")
+}
+
+func TestSessionBrowserWorkspaceGroupingFlatWithoutWorkspace(t *testing.T) {
+	t.Parallel()
+	dialog := NewSessionBrowserDialog(workspaceTestSessions(), "")
+	d := dialog.(*sessionBrowserDialog)
+
+	// Unknown workspace: original order, no headers.
+	require.Equal(t, []string{"here-1", "away-1", "here-2", "nodir"}, filteredIDs(d))
+	require.Len(t, d.rows, 4)
+	for i, row := range d.rows {
+		require.Empty(t, row.header)
+		require.Equal(t, i, row.sessionIdx)
+	}
+}
+
+func TestSessionBrowserNoHeadersWhenSingleGroup(t *testing.T) {
+	t.Parallel()
+	sessions := []session.Summary{
+		{ID: "1", Title: "Session 1", CreatedAt: time.Now(), WorkingDir: "/work/project"},
+		{ID: "2", Title: "Session 2", CreatedAt: time.Now(), WorkingDir: "/work/project"},
+	}
+
+	dialog := NewSessionBrowserDialog(sessions, "/work/project")
+	d := dialog.(*sessionBrowserDialog)
+
+	require.Len(t, d.rows, 2, "headers should not appear when every session is in the workspace")
+	for _, row := range d.rows {
+		require.Empty(t, row.header)
+	}
+}
+
+func TestSessionBrowserWorkspaceFilterCycle(t *testing.T) {
+	t.Parallel()
+	dialog := NewSessionBrowserDialog(workspaceTestSessions(), "/work/project")
+	d := dialog.(*sessionBrowserDialog)
+	d.Init()
+	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+
+	ctrlG := tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl}
+	require.True(t, key.Matches(ctrlG, d.keyMap.FilterWorkspace), "ctrl+g should match keyMap.FilterWorkspace")
+
+	// 1: this workspace only
+	updated, _ := d.Update(ctrlG)
+	d = updated.(*sessionBrowserDialog)
+	require.Equal(t, 1, d.workspaceFilter)
+	require.Equal(t, []string{"here-1", "here-2"}, filteredIDs(d))
+	require.Len(t, d.rows, 2, "no headers in filtered views")
+
+	// 2: other locations only, including sessions without a recorded dir
+	updated, _ = d.Update(ctrlG)
+	d = updated.(*sessionBrowserDialog)
+	require.Equal(t, 2, d.workspaceFilter)
+	require.Equal(t, []string{"away-1", "nodir"}, filteredIDs(d))
+
+	// 0: back to all
+	updated, _ = d.Update(ctrlG)
+	d = updated.(*sessionBrowserDialog)
+	require.Equal(t, 0, d.workspaceFilter)
+	require.Len(t, d.filtered, 4)
+}
+
+func TestSessionBrowserWorkspaceFilterNoopWithoutWorkspace(t *testing.T) {
+	t.Parallel()
+	dialog := NewSessionBrowserDialog(workspaceTestSessions(), "")
+	d := dialog.(*sessionBrowserDialog)
+	d.Init()
+	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+
+	updated, _ := d.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	d = updated.(*sessionBrowserDialog)
+	require.Equal(t, 0, d.workspaceFilter, "workspace filter should be inert when the workspace is unknown")
+	require.Len(t, d.filtered, 4)
+}
+
+func TestSessionBrowserWorkspaceFilterCombinesWithStarAndSearch(t *testing.T) {
+	t.Parallel()
+	sessions := workspaceTestSessions()
+	sessions[0].Starred = true // here-1
+	sessions[1].Starred = true // away-1
+
+	dialog := NewSessionBrowserDialog(sessions, "/work/project")
+	d := dialog.(*sessionBrowserDialog)
+	d.Init()
+	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+
+	// Workspace-only + starred-only
+	d.Update(tea.KeyPressMsg{Code: 'g', Mod: tea.ModCtrl})
+	updated, _ := d.Update(tea.KeyPressMsg{Code: 'f', Mod: tea.ModCtrl})
+	d = updated.(*sessionBrowserDialog)
+	require.Equal(t, []string{"here-1"}, filteredIDs(d))
+
+	// Adding a non-matching search empties the list without panicking.
+	d.textInput.SetValue("zzz")
+	d.filterSessions()
+	require.Empty(t, d.filtered)
+	require.Empty(t, d.rows)
+	require.NotEmpty(t, d.View())
+}
+
+func TestSessionBrowserWorkspacePathNormalization(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		sessionDir   string
+		workspaceDir string
+	}{
+		{name: "identical", sessionDir: "/work/project", workspaceDir: "/work/project"},
+		{name: "trailing slash", sessionDir: "/work/project/", workspaceDir: "/work/project"},
+		{name: "redundant segments", sessionDir: "/work/./project/sub/..", workspaceDir: "/work/project"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := newWorkspaceMatcher(tc.workspaceDir)
+			require.True(t, m.matches(tc.sessionDir))
+		})
+	}
+
+	require.False(t, newWorkspaceMatcher("/work/project").matches(""), "empty session dir never matches")
+	require.False(t, newWorkspaceMatcher("").matches("/work/project"), "unknown workspace never matches")
+}
+
+func TestSessionBrowserWorkspaceSymlinkNormalization(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation requires privileges on Windows")
+	}
+	t.Parallel()
+
+	realDir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	require.NoError(t, os.Symlink(realDir, link))
+
+	m := newWorkspaceMatcher(realDir)
+	require.True(t, m.matches(link), "a symlinked session dir should match its resolved workspace")
+}
+
+func TestSessionBrowserHeaderRowsNotSelectable(t *testing.T) {
+	t.Parallel()
+	dialog := NewSessionBrowserDialog(workspaceTestSessions(), "/work/project")
+	d := dialog.(*sessionBrowserDialog)
+	d.Init()
+	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+
+	dialogRow, _ := d.Position()
+	listStartY := dialogRow + sessionBrowserListStartY
+
+	// Row 0 is the "This workspace" header: clicking it must not change the
+	// selection or produce a command.
+	clickMsg := tea.MouseClickMsg{X: 20, Y: listStartY, Button: tea.MouseLeft}
+	updated, cmd := d.Update(clickMsg)
+	d = updated.(*sessionBrowserDialog)
+	require.Equal(t, 0, d.selected)
+	require.Nil(t, cmd)
+
+	// Row 1 is the first session.
+	clickMsg = tea.MouseClickMsg{X: 20, Y: listStartY + 1, Button: tea.MouseLeft}
+	updated, _ = d.Update(clickMsg)
+	d = updated.(*sessionBrowserDialog)
+	require.Equal(t, 0, d.selected, "first session row should map to filtered index 0")
+
+	// Row 4 is the first "Other locations" session (after the second header).
+	clickMsg = tea.MouseClickMsg{X: 20, Y: listStartY + 4, Button: tea.MouseLeft}
+	updated, _ = d.Update(clickMsg)
+	d = updated.(*sessionBrowserDialog)
+	require.Equal(t, 2, d.selected)
+}
+
+func TestSessionBrowserNavigationSkipsHeaders(t *testing.T) {
+	t.Parallel()
+	dialog := NewSessionBrowserDialog(workspaceTestSessions(), "/work/project")
+	d := dialog.(*sessionBrowserDialog)
+	d.Init()
+	d.Update(tea.WindowSizeMsg{Width: 100, Height: 50})
+
+	downKey := tea.KeyPressMsg{Code: tea.KeyDown}
+	for range 3 {
+		d.Update(downKey)
+	}
+	require.Equal(t, 3, d.selected, "selection moves across groups, headers are not selectable stops")
+
+	// Further downs stay clamped at the last session.
+	d.Update(downKey)
+	require.Equal(t, 3, d.selected)
+
+	upKey := tea.KeyPressMsg{Code: tea.KeyUp}
+	for range 5 {
+		d.Update(upKey)
+	}
+	require.Equal(t, 0, d.selected)
+}
+
+func TestAbbreviateHome(t *testing.T) {
+	home := paths.GetHomeDir()
+	if home == "" {
+		t.Skip("home directory unknown")
+	}
+
+	require.Equal(t, "~", abbreviateHome(home))
+	require.Equal(t, filepath.Join("~", "code"), abbreviateHome(filepath.Join(home, "code")))
+	require.Equal(t, home+"2", abbreviateHome(home+"2"), "sibling dirs sharing the prefix must not be abbreviated")
+	require.Equal(t, "/somewhere/else", abbreviateHome("/somewhere/else"))
 }

@@ -2,6 +2,9 @@ package dialog
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	goruntime "runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,6 +16,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/atotto/clipboard"
 
+	"github.com/docker/docker-agent/pkg/paths"
 	"github.com/docker/docker-agent/pkg/session"
 	"github.com/docker/docker-agent/pkg/tui/components/notification"
 	"github.com/docker/docker-agent/pkg/tui/components/scrollview"
@@ -24,21 +28,105 @@ import (
 
 // sessionBrowserKeyMap defines key bindings for the session browser
 type sessionBrowserKeyMap struct {
-	Up         key.Binding
-	Down       key.Binding
-	Enter      key.Binding
-	Escape     key.Binding
-	Star       key.Binding
-	FilterStar key.Binding
-	CopyID     key.Binding
-	Delete     key.Binding
+	Up              key.Binding
+	Down            key.Binding
+	Enter           key.Binding
+	Escape          key.Binding
+	Star            key.Binding
+	FilterStar      key.Binding
+	FilterWorkspace key.Binding
+	CopyID          key.Binding
+	Delete          key.Binding
 }
 
 // Session browser dialog dimension constants
 const (
 	sessionBrowserListOverhead = 12 // title(1) + space(1) + input(1) + separator(1) + separator(1) + id(1) + space(1) + help(1) + borders(2) + extra(2)
 	sessionBrowserListStartY   = 6  // border(1) + padding(1) + title(1) + space(1) + input(1) + separator(1)
+	sessionBrowserDirMaxLen    = 28 // max display length of a session's working dir in a list row
 )
+
+const (
+	sessionBrowserHeaderWorkspace = "This workspace"
+	sessionBrowserHeaderElsewhere = "Other locations"
+)
+
+// browserRow is one visual line of the session list: either a section
+// header (header != "") or the session at filtered[sessionIdx].
+type browserRow struct {
+	header     string
+	sessionIdx int
+}
+
+// workspaceMatcher reports whether a session's working directory belongs to
+// the workspace the browser was opened from. Paths are normalized with
+// filepath.Clean and EvalSymlinks so symlinked variants of the same
+// directory (e.g. /tmp vs /private/tmp on macOS) compare equal.
+// Normalization results are cached because many sessions share the same
+// directory and EvalSymlinks touches the filesystem.
+type workspaceMatcher struct {
+	current string
+	cache   map[string]string
+}
+
+func newWorkspaceMatcher(workspaceDir string) *workspaceMatcher {
+	m := &workspaceMatcher{cache: make(map[string]string)}
+	m.current = m.normalize(workspaceDir)
+	return m
+}
+
+func (m *workspaceMatcher) enabled() bool { return m.current != "" }
+
+func (m *workspaceMatcher) matches(dir string) bool {
+	if !m.enabled() {
+		return false
+	}
+	normalized := m.normalize(dir)
+	if normalized == "" {
+		return false
+	}
+	return workspacePathsEqual(normalized, m.current)
+}
+
+func (m *workspaceMatcher) normalize(dir string) string {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return ""
+	}
+	if cached, ok := m.cache[dir]; ok {
+		return cached
+	}
+	normalized := filepath.Clean(dir)
+	// Best effort: the recorded directory may no longer exist.
+	if resolved, err := filepath.EvalSymlinks(normalized); err == nil {
+		normalized = resolved
+	}
+	m.cache[dir] = normalized
+	return normalized
+}
+
+// workspacePathsEqual compares normalized paths, ignoring case on platforms
+// whose filesystems are typically case-insensitive.
+func workspacePathsEqual(a, b string) bool {
+	if goruntime.GOOS == "darwin" || goruntime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// abbreviateHome replaces a $HOME prefix with "~" for compact display.
+func abbreviateHome(dir string) string {
+	home := paths.GetHomeDir()
+	if home == "" || !strings.HasPrefix(dir, home) {
+		return dir
+	}
+	rest := dir[len(home):]
+	// Reject prefix matches that fall inside a path component (/home/bob2).
+	if rest != "" && rest[0] != os.PathSeparator {
+		return dir
+	}
+	return "~" + rest
+}
 
 type sessionBrowserDialog struct {
 	BaseDialog
@@ -52,13 +140,24 @@ type sessionBrowserDialog struct {
 	openedAt   time.Time // when dialog was opened, for stable time display
 	starFilter int       // 0 = all, 1 = starred only, 2 = unstarred only
 
+	// Workspace grouping state
+	workspace       *workspaceMatcher
+	workspaceDir    string // raw directory the browser was opened from, for display
+	workspaceFilter int    // 0 = all, 1 = this workspace only, 2 = other locations only
+	rows            []browserRow
+	rowForSession   []int // filtered index -> row index
+	workspaceCount  int
+	elsewhereCount  int
+
 	// Double-click detection
 	lastClickTime  time.Time
 	lastClickIndex int
 }
 
-// NewSessionBrowserDialog creates a new session browser dialog
-func NewSessionBrowserDialog(sessions []session.Summary) Dialog {
+// NewSessionBrowserDialog creates a new session browser dialog.
+// workspaceDir is the directory of the active session; sessions started
+// there are grouped first and can be filtered with the workspace filter.
+func NewSessionBrowserDialog(sessions []session.Summary, workspaceDir string) Dialog {
 	ti := textinput.New()
 	ti.Placeholder = "Type to search sessions…"
 	ti.Focus()
@@ -74,18 +173,21 @@ func NewSessionBrowserDialog(sessions []session.Summary) Dialog {
 	}
 
 	d := &sessionBrowserDialog{
-		textInput:  ti,
-		sessions:   nonEmptySessions,
-		scrollview: scrollview.New(scrollview.WithReserveScrollbarSpace(true)),
+		textInput:    ti,
+		sessions:     nonEmptySessions,
+		scrollview:   scrollview.New(scrollview.WithReserveScrollbarSpace(true)),
+		workspace:    newWorkspaceMatcher(workspaceDir),
+		workspaceDir: strings.TrimSpace(workspaceDir),
 		keyMap: sessionBrowserKeyMap{
-			Up:         key.NewBinding(key.WithKeys("up", "ctrl+k")),
-			Down:       key.NewBinding(key.WithKeys("down", "ctrl+j")),
-			Enter:      key.NewBinding(key.WithKeys("enter")),
-			Escape:     key.NewBinding(key.WithKeys("esc")),
-			Star:       key.NewBinding(key.WithKeys("ctrl+s")),
-			FilterStar: key.NewBinding(key.WithKeys("ctrl+f")),
-			CopyID:     key.NewBinding(key.WithKeys("ctrl+y")),
-			Delete:     key.NewBinding(key.WithKeys("ctrl+d")),
+			Up:              key.NewBinding(key.WithKeys("up", "ctrl+k")),
+			Down:            key.NewBinding(key.WithKeys("down", "ctrl+j")),
+			Enter:           key.NewBinding(key.WithKeys("enter")),
+			Escape:          key.NewBinding(key.WithKeys("esc")),
+			Star:            key.NewBinding(key.WithKeys("ctrl+s")),
+			FilterStar:      key.NewBinding(key.WithKeys("ctrl+f")),
+			FilterWorkspace: key.NewBinding(key.WithKeys("ctrl+g")),
+			CopyID:          key.NewBinding(key.WithKeys("ctrl+y")),
+			Delete:          key.NewBinding(key.WithKeys("ctrl+d")),
 		},
 		openedAt: time.Now(),
 	}
@@ -147,14 +249,14 @@ func (d *sessionBrowserDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 		case key.Matches(msg, d.keyMap.Up):
 			if d.selected > 0 {
 				d.selected--
-				d.scrollview.EnsureLineVisible(d.selected)
+				d.ensureSelectedVisible()
 			}
 			return d, nil
 
 		case key.Matches(msg, d.keyMap.Down):
 			if d.selected < len(d.filtered)-1 {
 				d.selected++
-				d.scrollview.EnsureLineVisible(d.selected)
+				d.ensureSelectedVisible()
 			}
 			return d, nil
 
@@ -191,6 +293,13 @@ func (d *sessionBrowserDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 			d.filterSessions()
 			return d, nil
 
+		case key.Matches(msg, d.keyMap.FilterWorkspace):
+			if d.workspace.enabled() {
+				d.workspaceFilter = (d.workspaceFilter + 1) % 3
+				d.filterSessions()
+			}
+			return d, nil
+
 		case key.Matches(msg, d.keyMap.CopyID):
 			if d.selected >= 0 && d.selected < len(d.filtered) {
 				sessionID := d.filtered[d.selected].ID
@@ -224,7 +333,7 @@ func (d *sessionBrowserDialog) Update(msg tea.Msg) (layout.Model, tea.Cmd) {
 func (d *sessionBrowserDialog) filterSessions() {
 	query := strings.ToLower(strings.TrimSpace(d.textInput.Value()))
 
-	d.filtered = nil
+	var workspace, elsewhere []session.Summary
 	for _, sess := range d.sessions {
 		switch d.starFilter {
 		case 1:
@@ -233,6 +342,18 @@ func (d *sessionBrowserDialog) filterSessions() {
 			}
 		case 2:
 			if sess.Starred {
+				continue
+			}
+		}
+
+		inWorkspace := d.workspace.matches(sess.WorkingDir)
+		switch d.workspaceFilter {
+		case 1:
+			if !inWorkspace {
+				continue
+			}
+		case 2:
+			if inWorkspace {
 				continue
 			}
 		}
@@ -247,20 +368,77 @@ func (d *sessionBrowserDialog) filterSessions() {
 			}
 		}
 
-		d.filtered = append(d.filtered, sess)
+		if inWorkspace {
+			workspace = append(workspace, sess)
+		} else {
+			elsewhere = append(elsewhere, sess)
+		}
 	}
+
+	// Current-workspace sessions come first; each group keeps its recency order.
+	d.workspaceCount = len(workspace)
+	d.elsewhereCount = len(elsewhere)
+	d.filtered = append(workspace, elsewhere...)
+	d.rebuildRows()
 
 	if d.selected >= len(d.filtered) {
 		d.selected = max(0, len(d.filtered)-1)
 	}
 	// Keep the scrollview's totalHeight in sync so EnsureLineVisible and the
 	// scrollbar clamp correctly even before View() runs.
-	d.scrollview.SetContent(nil, len(d.filtered))
+	d.scrollview.SetContent(nil, len(d.rows))
 	d.scrollview.SetScrollOffset(0)
 }
 
+// rebuildRows lays out the filtered sessions as visual rows. Section headers
+// are added only in the ungrouped-filter view, when the workspace is known
+// and both groups are non-empty; otherwise the list stays flat.
+func (d *sessionBrowserDialog) rebuildRows() {
+	d.rows = d.rows[:0]
+	d.rowForSession = d.rowForSession[:0]
+
+	showHeaders := d.workspaceFilter == 0 && d.workspace.enabled() &&
+		d.workspaceCount > 0 && d.elsewhereCount > 0
+
+	appendSession := func(i int) {
+		d.rowForSession = append(d.rowForSession, len(d.rows))
+		d.rows = append(d.rows, browserRow{sessionIdx: i})
+	}
+
+	if !showHeaders {
+		for i := range d.filtered {
+			appendSession(i)
+		}
+		return
+	}
+
+	d.rows = append(d.rows, browserRow{header: sessionBrowserHeaderWorkspace, sessionIdx: -1})
+	for i := range d.workspaceCount {
+		appendSession(i)
+	}
+	d.rows = append(d.rows, browserRow{header: sessionBrowserHeaderElsewhere, sessionIdx: -1})
+	for i := d.workspaceCount; i < len(d.filtered); i++ {
+		appendSession(i)
+	}
+}
+
+// ensureSelectedVisible scrolls so the selected session is on screen. When
+// the row just above it is a section header, the header is kept visible too
+// so reaching the first session of a group reveals its title.
+func (d *sessionBrowserDialog) ensureSelectedVisible() {
+	if d.selected < 0 || d.selected >= len(d.rowForSession) {
+		return
+	}
+	row := d.rowForSession[d.selected]
+	start := row
+	if row > 0 && d.rows[row-1].header != "" {
+		start = row - 1
+	}
+	d.scrollview.EnsureRangeVisible(start, row)
+}
+
 // mouseYToSessionIndex converts a mouse Y position to a session index in the filtered list.
-// Returns -1 if the position is not on a session.
+// Returns -1 if the position is not on a session (outside the list or on a section header).
 func (d *sessionBrowserDialog) mouseYToSessionIndex(y int) int {
 	dialogRow, _ := d.Position()
 	visLines := d.scrollview.VisibleHeight()
@@ -270,11 +448,11 @@ func (d *sessionBrowserDialog) mouseYToSessionIndex(y int) int {
 		return -1
 	}
 	lineInView := y - listStartY
-	idx := d.scrollview.ScrollOffset() + lineInView
-	if idx < 0 || idx >= len(d.filtered) {
+	rowIdx := d.scrollview.ScrollOffset() + lineInView
+	if rowIdx < 0 || rowIdx >= len(d.rows) {
 		return -1
 	}
-	return idx
+	return d.rows[rowIdx].sessionIdx
 }
 
 func (d *sessionBrowserDialog) dialogSize() (dialogWidth, maxHeight, contentWidth int) {
@@ -300,7 +478,7 @@ func (d *sessionBrowserDialog) View() string {
 	// on every keystroke is the dominant cost when there are many sessions.
 	// The follow-up SetScrollOffset call re-clamps the offset against the
 	// (possibly shrunk) total — it is intentionally not a no-op.
-	total := len(d.filtered)
+	total := len(d.rows)
 	d.scrollview.SetContent(nil, total)
 	d.scrollview.SetScrollOffset(d.scrollview.ScrollOffset())
 
@@ -319,13 +497,18 @@ func (d *sessionBrowserDialog) View() string {
 		end := min(offset+visibleLines, total)
 		windowLines := make([]string, 0, end-offset)
 		for i := offset; i < end; i++ {
-			windowLines = append(windowLines, d.renderSession(d.filtered[i], i == d.selected, contentWidth))
+			row := d.rows[i]
+			if row.header != "" {
+				windowLines = append(windowLines, d.renderSectionHeader(row.header, contentWidth))
+			} else {
+				windowLines = append(windowLines, d.renderSession(d.filtered[row.sessionIdx], row.sessionIdx == d.selected, contentWidth))
+			}
 		}
 		scrollableContent = d.scrollview.ViewWithLines(windowLines)
 	}
 
-	// Build title with session count and optional star-filter indicator.
-	// Show "filtered/total" when a search or star filter reduces the list.
+	// Build title with session count and optional filter indicators.
+	// Show "filtered/total" when a search or filter reduces the list.
 	var countLabel string
 	if len(d.filtered) == len(d.sessions) {
 		countLabel = strconv.Itoa(len(d.sessions))
@@ -338,6 +521,12 @@ func (d *sessionBrowserDialog) View() string {
 		title += " " + styles.StarredStyle.Render("★")
 	case 2:
 		title += " " + styles.UnstarredStyle.Render("☆")
+	}
+	switch d.workspaceFilter {
+	case 1:
+		title += " " + styles.StarredStyle.Render("⌂")
+	case 2:
+		title += " " + styles.UnstarredStyle.Render("⌂")
 	}
 
 	var filterDesc string
@@ -355,6 +544,21 @@ func (d *sessionBrowserDialog) View() string {
 		idFooter = styles.MutedStyle.Render("ID: ") + styles.SecondaryStyle.Render(d.filtered[d.selected].ID)
 	}
 
+	secondHelpLine := []string{"enter", "load"}
+	if d.workspace.enabled() {
+		var workspaceDesc string
+		switch d.workspaceFilter {
+		case 0:
+			workspaceDesc = "all dirs"
+		case 1:
+			workspaceDesc = "this dir"
+		case 2:
+			workspaceDesc = "other dirs"
+		}
+		secondHelpLine = append(secondHelpLine, "ctrl+g", workspaceDesc)
+	}
+	secondHelpLine = append(secondHelpLine, "esc", "close")
+
 	content := NewContent(regionWidth).
 		AddTitle(title).
 		AddSpace().
@@ -365,7 +569,7 @@ func (d *sessionBrowserDialog) View() string {
 		AddContent(idFooter).
 		AddSpace().
 		AddHelpKeys("↑/↓", "navigate", "ctrl+s", "star", "ctrl+f", filterDesc, "ctrl+y", "copy id", "ctrl+d", "delete").
-		AddHelpKeys("enter", "load", "esc", "close").
+		AddHelpKeys(secondHelpLine...).
 		Build()
 
 	return styles.DialogStyle.Width(dialogWidth).Render(content)
@@ -393,14 +597,49 @@ func (d *sessionBrowserDialog) renderSession(sess session.Summary, selected bool
 	}
 
 	suffix := fmt.Sprintf(" • (%d msg) • %s", sess.NumMessages, d.timeAgo(sess.CreatedAt))
+	if dir := d.sessionDirLabel(sess); dir != "" {
+		suffix += " • " + dir
+	}
 
 	starWidth := 3
-	maxTitleLen := max(1, maxWidth-len(suffix)-starWidth)
+	maxTitleLen := max(1, maxWidth-lipgloss.Width(suffix)-starWidth)
 	if r := []rune(title); len(r) > maxTitleLen {
 		title = string(r[:maxTitleLen-1]) + "…"
 	}
 
 	return styles.StarIndicator(sess.Starred) + titleStyle.Render(title) + timeStyle.Render(suffix)
+}
+
+// sessionDirLabel returns the abbreviated directory shown next to sessions
+// that belong to a different workspace than the current one. Sessions from
+// the current workspace need no label, and sessions with no recorded
+// directory (pre-migration or API-created) have none to show.
+func (d *sessionBrowserDialog) sessionDirLabel(sess session.Summary) string {
+	dir := strings.TrimSpace(sess.WorkingDir)
+	if dir == "" || d.workspace.matches(dir) {
+		return ""
+	}
+	return truncatePath(abbreviateHome(dir), sessionBrowserDirMaxLen)
+}
+
+// renderSectionHeader renders a workspace group header. The current-workspace
+// header includes the abbreviated directory when it fits.
+func (d *sessionBrowserDialog) renderSectionHeader(header string, maxWidth int) string {
+	count := d.elsewhereCount
+	if header == sessionBrowserHeaderWorkspace {
+		count = d.workspaceCount
+	}
+	label := fmt.Sprintf("%s (%d)", header, count)
+
+	var dir string
+	if header == sessionBrowserHeaderWorkspace && d.workspaceDir != "" {
+		available := maxWidth - lipgloss.Width(label) - 3 // " · " separator
+		if available >= 8 {
+			dir = " · " + truncatePath(abbreviateHome(d.workspaceDir), available)
+		}
+	}
+
+	return styles.MutedStyle.Bold(true).Render(label) + styles.MutedStyle.Render(dir)
 }
 
 func (d *sessionBrowserDialog) timeAgo(t time.Time) string {
