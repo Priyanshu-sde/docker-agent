@@ -3,6 +3,7 @@ title: "NVIDIA NIM"
 description: "Use NVIDIA NIM models with docker-agent."
 keywords: docker agent, ai agents, model providers, llm, nvidia, nim, nemotron
 weight: 290
+canonical: https://docs.docker.com/ai/docker-agent/providers/nvidia/
 ---
 
 _Use NVIDIA NIM models with docker-agent._
