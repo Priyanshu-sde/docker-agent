@@ -3,7 +3,6 @@ package anthropic
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -139,7 +138,7 @@ func (c *Client) convertBetaMessages(ctx context.Context, messages []chat.Messag
 }
 
 // convertBetaUserMultiContent converts user message multi-content parts to Beta API content blocks.
-// It handles text, images (base64 and URL), and file uploads via the Files API.
+// It handles text, images (base64 and URL), and document attachments.
 // convertBetaToolResultBlock converts a tool message to a Beta API tool_result block,
 // including inline image and document content from MultiContent.
 func (c *Client) convertBetaToolResultBlock(ctx context.Context, msg *chat.Message) (anthropic.BetaContentBlockParamUnion, error) {
@@ -262,26 +261,21 @@ func (c *Client) convertBetaUserMultiContent(ctx context.Context, parts []chat.M
 			if part.ImageURL == nil {
 				continue
 			}
-			// Handle base64 data URLs (legacy format)
 			if strings.HasPrefix(part.ImageURL.URL, "data:") {
 				urlParts := strings.SplitN(part.ImageURL.URL, ",", 2)
 				if len(urlParts) == 2 {
-					mediaType := extractMediaType(urlParts[0])
-					base64Data := urlParts[1]
-
 					contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
 						OfImage: &anthropic.BetaImageBlockParam{
 							Source: anthropic.BetaImageBlockParamSourceUnion{
 								OfBase64: &anthropic.BetaBase64ImageSourceParam{
-									Data:      base64Data,
-									MediaType: anthropic.BetaBase64ImageSourceMediaType(mediaType),
+									Data:      urlParts[1],
+									MediaType: anthropic.BetaBase64ImageSourceMediaType(extractMediaType(urlParts[0])),
 								},
 							},
 						},
 					})
 				}
 			} else if strings.HasPrefix(part.ImageURL.URL, "http://") || strings.HasPrefix(part.ImageURL.URL, "https://") {
-				// URL-based images
 				contentBlocks = append(contentBlocks, anthropic.BetaContentBlockParamUnion{
 					OfImage: &anthropic.BetaImageBlockParam{
 						Source: anthropic.BetaImageBlockParamSourceUnion{
@@ -294,41 +288,7 @@ func (c *Client) convertBetaUserMultiContent(ctx context.Context, parts []chat.M
 			}
 
 		case chat.MessagePartTypeFile:
-			// Note: superseded by MessagePartTypeDocument.
-			if part.File == nil {
-				continue
-			}
-
-			switch {
-			case part.File.Path != "" && part.File.FileID == "":
-				// Upload the file if we have a path but no file ID
-				if c.fileManager == nil {
-					return nil, fmt.Errorf("%w: cannot upload file %s", ErrFileManagerNotInitialized, part.File.Path)
-				}
-
-				uploaded, err := c.fileManager.GetOrUpload(ctx, part.File.Path)
-				if err != nil {
-					return nil, fmt.Errorf("failed to upload file %s: %w", part.File.Path, err)
-				}
-
-				block, err := createBetaFileContentBlock(uploaded.FileID, uploaded.MimeType)
-				if err != nil {
-					return nil, err
-				}
-				contentBlocks = append(contentBlocks, block)
-
-			case part.File.FileID != "":
-				// File already uploaded, use the ID directly
-				block, err := createBetaFileContentBlock(part.File.FileID, part.File.MimeType)
-				if err != nil {
-					return nil, err
-				}
-				contentBlocks = append(contentBlocks, block)
-
-			default:
-				// File part has neither path nor file ID - this is invalid
-				return nil, errors.New("invalid file attachment: neither path nor file_id provided")
-			}
+			continue
 
 		case chat.MessagePartTypeDocument:
 			if part.Document != nil {
@@ -342,35 +302,6 @@ func (c *Client) convertBetaUserMultiContent(ctx context.Context, parts []chat.M
 	}
 
 	return contentBlocks, nil
-}
-
-// createBetaFileContentBlock creates the appropriate Beta API content block for a file.
-func createBetaFileContentBlock(fileID, mimeType string) (anthropic.BetaContentBlockParamUnion, error) {
-	if IsImageMime(mimeType) {
-		return anthropic.BetaContentBlockParamUnion{
-			OfImage: &anthropic.BetaImageBlockParam{
-				Source: anthropic.BetaImageBlockParamSourceUnion{
-					OfFile: &anthropic.BetaFileImageSourceParam{
-						FileID: fileID,
-					},
-				},
-			},
-		}, nil
-	}
-
-	if IsAnthropicDocumentMime(mimeType) {
-		return anthropic.BetaContentBlockParamUnion{
-			OfDocument: &anthropic.BetaRequestDocumentBlockParam{
-				Source: anthropic.BetaRequestDocumentBlockSourceUnionParam{
-					OfFile: &anthropic.BetaFileDocumentSourceParam{
-						FileID: fileID,
-					},
-				},
-			},
-		}, nil
-	}
-
-	return anthropic.BetaContentBlockParamUnion{}, fmt.Errorf("%w: %s", ErrUnsupportedFileType, mimeType)
 }
 
 // extractBetaSystemBlocks extracts system messages for Beta API format

@@ -23,8 +23,7 @@ import (
 
 // createBetaStream creates a streaming chat completion using the Beta
 // Messages API. It is used when any feature that requires a beta header is
-// enabled: extended/interleaved thinking, structured output, file attachments
-// (Files API), or task_budget.
+// enabled: extended/interleaved thinking, structured output, or task_budget.
 func (c *Client) createBetaStream(
 	ctx context.Context,
 	client anthropic.Client,
@@ -54,16 +53,9 @@ func (c *Client) createBetaStream(
 
 	sys := extractBetaSystemBlocks(messages)
 
-	// Check if messages contain file attachments to include the files-api beta header
-	needsFilesAPI := hasFileAttachments(messages)
-
 	betas := []anthropic.AnthropicBeta{
 		anthropic.AnthropicBetaInterleavedThinking2025_05_14,
 		"fine-grained-tool-streaming-2025-05-14",
-	}
-	if needsFilesAPI {
-		betas = append(betas, filesAPIBeta)
-		slog.DebugContext(ctx, "Anthropic Beta API: Including files-api beta header for file attachments")
 	}
 
 	params := anthropic.BetaMessageNewParams{

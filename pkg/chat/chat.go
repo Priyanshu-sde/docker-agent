@@ -30,9 +30,9 @@ type MessagePartType string
 
 const (
 	MessagePartTypeText MessagePartType = "text"
-	// MessagePartTypeImageURL is superseded by MessagePartTypeDocument. Will be removed in a future release.
+	// MessagePartTypeImageURL is legacy session data; new attachments should use MessagePartTypeDocument.
 	MessagePartTypeImageURL MessagePartType = "image_url"
-	// MessagePartTypeFile is superseded by MessagePartTypeDocument. Will be removed in a future release.
+	// MessagePartTypeFile is legacy session data; new attachments should use MessagePartTypeDocument.
 	MessagePartTypeFile MessagePartType = "file"
 )
 
@@ -100,20 +100,19 @@ type Message struct {
 	CacheControl bool `json:"cache_control,omitempty"`
 }
 
-// MessageFile represents a file attachment that can be uploaded to a provider's file storage.
+// MessageFile is the legacy file attachment shape kept for stored sessions.
 type MessageFile struct {
-	Path     string `json:"path,omitempty"`      // Local file path (used for upload)
-	FileID   string `json:"file_id,omitempty"`   // Provider-specific file ID (after upload)
-	MimeType string `json:"mime_type,omitempty"` // MIME type of the file
+	Path     string `json:"path,omitempty"`
+	FileID   string `json:"file_id,omitempty"`
+	MimeType string `json:"mime_type,omitempty"`
 }
 
 type MessagePart struct {
 	Type MessagePartType `json:"type,omitempty"`
 	Text string          `json:"text,omitempty"`
-	// Note: superseded by Document+MessagePartTypeDocument. Will be removed in a future release.
+	// Legacy fields kept for stored sessions; new attachments use Document.
 	ImageURL *MessageImageURL `json:"image_url,omitempty"`
-	// Note: superseded by Document+MessagePartTypeDocument. Will be removed in a future release.
-	File *MessageFile `json:"file,omitempty"`
+	File     *MessageFile     `json:"file,omitempty"`
 	// Document is set when Type is MessagePartTypeDocument.
 	Document *Document `json:"document,omitempty"`
 }

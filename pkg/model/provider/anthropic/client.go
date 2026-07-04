@@ -36,8 +36,7 @@ import (
 type Client struct {
 	base.Config
 
-	clientFn    func(context.Context) (anthropic.Client, error)
-	fileManager *FileManager
+	clientFn func(context.Context) (anthropic.Client, error)
 }
 
 // NewClient creates a new Anthropic client from the provided configuration
@@ -129,10 +128,6 @@ func NewClient(ctx context.Context, cfg *latest.ModelConfig, env environment.Pro
 	}
 
 	slog.DebugContext(ctx, "Anthropic client created successfully", "model", cfg.Model)
-
-	// Initialize FileManager for file uploads
-	anthropicClient.fileManager = NewFileManager(anthropicClient.clientFn)
-
 	return anthropicClient, nil
 }
 
@@ -163,19 +158,6 @@ func buildDirectAuthOptions(ctx context.Context, cfg *latest.ModelConfig, env en
 	}
 	slog.DebugContext(ctx, "Anthropic API key found")
 	return []option.RequestOption{option.WithAPIKey(apiKey)}, nil
-}
-
-// hasFileAttachments checks if any messages contain file attachments.
-// This is used to determine if we need to use the Beta API (Files API is Beta-only).
-func hasFileAttachments(messages []chat.Message) bool {
-	for i := range messages {
-		for _, part := range messages[i].MultiContent {
-			if part.Type == chat.MessagePartTypeFile && part.File != nil {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 // CreateChatCompletionStream creates a streaming chat completion request
@@ -213,11 +195,9 @@ func (c *Client) CreateChatCompletionStream(
 	// Route to the Beta Messages API when any of the following are set:
 	//  - interleaved thinking
 	//  - structured output (requires beta header)
-	//  - file attachments (Files API is Beta-only)
 	//  - task_budget (requires the task-budgets beta header)
 	if c.interleavedThinkingEnabled() ||
 		c.ModelOptions.StructuredOutput() != nil ||
-		hasFileAttachments(messages) ||
 		!c.ModelConfig.TaskBudget.IsZero() {
 		return c.createBetaStream(ctx, client, messages, requestTools, maxTokens)
 	}
@@ -566,8 +546,7 @@ func extractMediaType(prefix string) string {
 }
 
 // convertUserMultiContent converts user message multi-content parts to Anthropic content blocks.
-// It handles text and images (base64 and URL). File uploads are NOT supported in the non-Beta API
-// and will return an error - callers should use hasFileAttachments() to route to the Beta API.
+// It handles text, legacy image URLs, and document attachments.
 func (c *Client) convertUserMultiContent(ctx context.Context, parts []chat.MessagePart) ([]anthropic.ContentBlockParamUnion, error) {
 	contentBlocks := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
 
@@ -580,35 +559,24 @@ func (c *Client) convertUserMultiContent(ctx context.Context, parts []chat.Messa
 			if part.ImageURL == nil {
 				continue
 			}
-			// Handle base64 data URLs (legacy format)
 			if strings.HasPrefix(part.ImageURL.URL, "data:") {
 				urlParts := strings.SplitN(part.ImageURL.URL, ",", 2)
 				if len(urlParts) == 2 {
-					mediaType := extractMediaType(urlParts[0])
-					base64Data := urlParts[1]
-
 					contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.Base64ImageSourceParam{
-						Data:      base64Data,
-						MediaType: anthropic.Base64ImageSourceMediaType(mediaType),
+						Data:      urlParts[1],
+						MediaType: anthropic.Base64ImageSourceMediaType(extractMediaType(urlParts[0])),
 					}))
 				}
 			} else if strings.HasPrefix(part.ImageURL.URL, "http://") || strings.HasPrefix(part.ImageURL.URL, "https://") {
-				// URL-based images
 				contentBlocks = append(contentBlocks, anthropic.NewImageBlock(anthropic.URLImageSourceParam{
 					URL: part.ImageURL.URL,
 				}))
 			}
 
 		case chat.MessagePartTypeFile:
-			if part.File == nil {
-				continue
+			if part.File != nil {
+				slog.WarnContext(ctx, "anthropic: dropping legacy file attachment; use document attachments instead", "path", part.File.Path)
 			}
-
-			// File uploads require the Beta API - this code path should not be reached
-			// if hasFileAttachments() correctly routes to createBetaStream().
-			// Return a clear error if we somehow get here.
-			return nil, fmt.Errorf("file attachments require the Beta API; use hasFileAttachments() to route correctly (path=%q, file_id=%q)",
-				part.File.Path, part.File.FileID)
 
 		case chat.MessagePartTypeDocument:
 			if part.Document != nil {
@@ -622,17 +590,6 @@ func (c *Client) convertUserMultiContent(ctx context.Context, parts []chat.Messa
 	}
 
 	return contentBlocks, nil
-}
-
-// createFileContentBlock creates the appropriate content block for a file based on its MIME type.
-// Note: File uploads via the Files API require the Beta API. This function supports images
-// (which have OfFile in the Beta API only) and documents. For non-Beta API usage with files,
-// the caller should handle the conversion differently or use base64 encoding.
-func createFileContentBlock(fileID, mimeType string) (anthropic.ContentBlockParamUnion, error) {
-	// The standard (non-Beta) API doesn't support file references in ImageBlockParamSourceUnion
-	// or DocumentBlockParamSourceUnion. Files API is Beta-only.
-	// For now, we return an error directing users to use the Beta API path.
-	return anthropic.ContentBlockParamUnion{}, fmt.Errorf("file uploads require the Beta API; file_id=%s, mime_type=%s", fileID, mimeType)
 }
 
 // applyMessageCacheControl adds ephemeral cache control to the last content block
@@ -726,20 +683,6 @@ func ConvertParametersToSchema(params any) (anthropic.ToolInputSchemaParam, erro
 	}
 
 	return schema, nil
-}
-
-// CleanupFiles removes all files uploaded during this session from Anthropic's storage.
-func (c *Client) CleanupFiles(ctx context.Context) error {
-	if c.fileManager == nil {
-		return nil
-	}
-	return c.fileManager.CleanupAll(ctx)
-}
-
-// FileManager returns the file manager for this client, allowing external cleanup.
-// Returns nil if file uploads are not supported or not initialized.
-func (c *Client) FileManager() *FileManager {
-	return c.fileManager
 }
 
 // marshalToMap is a helper that converts any value to a map[string]any via JSON marshaling.

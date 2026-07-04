@@ -87,10 +87,6 @@ func NewVertexClient(ctx context.Context, cfg *latest.ModelConfig, env environme
 		},
 	}
 
-	// File uploads via Anthropic's Files API are not supported on Vertex AI,
-	// but the FileManager is lazy and harmless if unused.
-	anthropicClient.fileManager = NewFileManager(anthropicClient.clientFn)
-
 	slog.DebugContext(ctx, "Anthropic (Vertex AI) client created successfully", "model", cfg.Model)
 	return anthropicClient, nil
 }

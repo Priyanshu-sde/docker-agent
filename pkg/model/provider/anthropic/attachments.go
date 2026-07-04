@@ -46,7 +46,7 @@ func convertDocumentWithCaps(ctx context.Context, doc chat.Document, mc modelinf
 		mime := strings.ToLower(doc.MimeType)
 		b64Data := base64.StdEncoding.EncodeToString(doc.Source.InlineData)
 
-		if IsImageMime(mime) {
+		if chat.IsImageMimeType(mime) {
 			return []anthropic.ContentBlockParamUnion{
 				{
 					OfImage: &anthropic.ImageBlockParam{
