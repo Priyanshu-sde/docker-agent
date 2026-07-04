@@ -127,7 +127,7 @@ toolsets:
 
 | Property                | Type    | Description                                                                                                           |
 | ----------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| `remote.url`            | string  | Base URL of the MCP server                                                                                            |
+| `remote.url`            | string  | URL of the MCP server. Accepts `https://`, `http://`, and `unix://` (Unix domain socket) schemes.                     |
 | `remote.transport_type` | string  | `streamable` or `sse`                                                                                                 |
 | `remote.headers`        | object  | HTTP headers (typically for auth)                                                                                     |
 | `allow_private_ips`     | boolean | Permit remote MCP OAuth helper requests to dial non-public IP addresses. Use only for trusted internal servers.        |

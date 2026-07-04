@@ -10,7 +10,7 @@ _Connect docker-agent to cloud services via remote MCP servers with built-in OAu
 
 ## Overview
 
-Docker Agent supports connecting to remote MCP servers over **Streamable HTTP** and **SSE** (Server-Sent Events) transports. Streamable HTTP is the current recommended transport for most hosted MCP servers. Many popular services offer MCP endpoints with OAuth — docker-agent handles the authentication flow automatically.
+Docker Agent supports connecting to remote MCP servers over **Streamable HTTP**, **SSE** (Server-Sent Events), and **Unix domain sockets**. Streamable HTTP is the current recommended transport for most hosted MCP servers. Many popular services offer MCP endpoints with OAuth — docker-agent handles the authentication flow automatically.
 
 ```yaml
 toolsets:
@@ -19,6 +19,20 @@ toolsets:
       url: "https://mcp.linear.app/mcp"
       transport_type: "streamable"
 ```
+
+## Unix Domain Sockets
+
+Use a `unix://` URL to connect to an MCP server listening on a local Unix socket. This is useful when running docker-agent inside a container and exposing an MCP server from the host via a bind-mounted socket:
+
+```yaml
+toolsets:
+  - type: mcp
+    remote:
+      url: unix:///tmp/mcp-notify.sock
+      transport_type: streamable
+```
+
+The path after `unix://` is the absolute path to the socket file. OAuth and headers are not applicable for Unix socket connections.
 
 > [!TIP]
 > **OAuth flow**
