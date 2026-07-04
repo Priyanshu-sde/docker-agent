@@ -28,11 +28,11 @@ Use a `unix://` URL to connect to an MCP server listening on a local Unix socket
 toolsets:
   - type: mcp
     remote:
-      url: unix:///tmp/mcp-notify.sock
-      transport_type: streamable
+      url: "unix:///tmp/mcp-notify.sock"
+      transport_type: "streamable"
 ```
 
-The path after `unix://` is the absolute path to the socket file. OAuth and headers are not applicable for Unix socket connections.
+The path after `unix://` is the absolute path to the socket file. Configured `headers` are forwarded over the socket connection. OAuth discovery is not supported for Unix socket URLs.
 
 > [!TIP]
 > **OAuth flow**
