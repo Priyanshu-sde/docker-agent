@@ -57,14 +57,16 @@ an `instruction`.
 ## Built-in toolsets
 
 Examples that wire up one of the toolsets shipped with docker-agent
-(`filesystem`, `shell`, `todo`, `think`, `memory`, `fetch`, `script`,
-`user_prompt`, `api`, `openapi`, `rag`, `model_picker`, …).
+(`filesystem`, `shell`, `background_jobs`, `todo`, `think`, `memory`,
+`fetch`, `script`, `user_prompt`, `api`, `openapi`, `rag`, `model_picker`, …).
 
 ### Filesystem & shell
 
 | File | What it shows |
 |------|---------------|
 | [`shell.yaml`](shell.yaml) | Plain `shell` toolset. |
+| [`background_jobs.yaml`](background_jobs.yaml) | `background_jobs` toolset for servers, watchers, and other long-running commands. |
+| [`shell_recall.yaml`](shell_recall.yaml) | `background_jobs` with recall enabled for finite long-running commands. |
 | [`docker-wiki.yaml`](docker-wiki.yaml) | OpenWiki-inspired documentation agent that initializes and updates a `docker-wiki/` directory with `/init`, `/update`, and `/status` commands. |
 | [`shell_safer.yaml`](shell_safer.yaml) | Shell toolset wired with the `safer_shell` builtin under `pre_tool_use` with `preempt_yolo: true` — destructive commands force confirmation regardless of `--yolo`; known-safe reads pass through silently. |
 | [`filesystem.yaml`](filesystem.yaml) | Plain `filesystem` toolset. |

@@ -42,6 +42,7 @@ agents:
     add_environment_info: true
     toolsets:
       - type: shell
+      - type: background_jobs
       - type: filesystem
       - type: a2a
         url: http://localhost:8080/

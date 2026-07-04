@@ -7,4 +7,5 @@ agents:
       Avoid recall for servers and watchers that are meant to keep running.
     toolsets:
       - type: shell
+      - type: background_jobs
         recall: true

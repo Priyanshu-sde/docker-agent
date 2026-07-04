@@ -238,8 +238,8 @@ func (t *Toolset) validate() error {
 	if err := validatePathRootEntries("deny_list", t.DenyList); err != nil {
 		return err
 	}
-	if len(t.Env) > 0 && (t.Type != "shell" && t.Type != "script" && t.Type != "mcp" && t.Type != "lsp") {
-		return errors.New("env can only be used with type 'shell', 'script', 'mcp' or 'lsp'")
+	if len(t.Env) > 0 && (t.Type != "shell" && t.Type != "background_jobs" && t.Type != "script" && t.Type != "mcp" && t.Type != "lsp") {
+		return errors.New("env can only be used with type 'shell', 'background_jobs', 'script', 'mcp' or 'lsp'")
 	}
 	if len(t.FileTypes) > 0 && t.Type != "lsp" {
 		return errors.New("file_types can only be used with type 'lsp'")
@@ -268,8 +268,8 @@ func (t *Toolset) validate() error {
 	if t.SudoAskpass != nil && t.Type != "shell" {
 		return errors.New("sudo_askpass can only be used with type 'shell'")
 	}
-	if t.Recall != nil && t.Type != "shell" {
-		return errors.New("recall can only be used with type 'shell'")
+	if t.Recall != nil && t.Type != "background_jobs" {
+		return errors.New("recall can only be used with type 'background_jobs'")
 	}
 	if t.Safer != nil && t.Type != "shell" {
 		return errors.New("safer can only be used with type 'shell'")
@@ -338,6 +338,8 @@ func (t *Toolset) validate() error {
 
 	switch t.Type {
 	case "shell":
+		// no additional validation needed
+	case "background_jobs":
 		// no additional validation needed
 	case "memory":
 		// path is optional; defaults to ~/.cagent/memory/<agent-name>/memory.db

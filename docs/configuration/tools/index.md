@@ -18,7 +18,8 @@ Built-in tools are included with docker-agent and require no external dependenci
 | Type | Description | Page |
 | --- | --- | --- |
 | `filesystem` | Read, write, list, search, navigate | [Filesystem](../../tools/filesystem/index.md) |
-| `shell` | Execute shell commands (sync + background jobs) | [Shell](../../tools/shell/index.md) |
+| `shell` | Execute shell commands synchronously | [Shell](../../tools/shell/index.md) |
+| `background_jobs` | Run and manage long-running shell commands | [Background Jobs](../../tools/background-jobs/index.md) |
 | `think` | Reasoning scratchpad | [Think](../../tools/think/index.md) |
 | `plan` | Shared persistent scratchpad for multi-agent collaboration | [Plan](../../tools/plan/index.md) |
 | `session_plan` | Per-session markdown plan for the draft-review-execute workflow | [Session Plan](../../tools/session_plan/index.md) |
@@ -47,6 +48,7 @@ Built-in tools are included with docker-agent and require no external dependenci
 toolsets:
   - type: filesystem
   - type: shell
+  - type: background_jobs
   - type: think
   - type: todo
   - type: memory

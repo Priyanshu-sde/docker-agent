@@ -1325,7 +1325,7 @@ type Toolset struct {
 	URL     string            `json:"url,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"`
 
-	// For `shell`, `script`, `mcp` or `lsp` tools
+	// For `shell`, `background_jobs`, `script`, `mcp` or `lsp` tools
 	Env map[string]string `json:"env,omitempty"`
 
 	// For the `todo` tool
@@ -1419,10 +1419,11 @@ type Toolset struct {
 	// nil/false keeps the default behaviour (sudo has no TTY and fails fast).
 	SudoAskpass *bool `json:"sudo_askpass,omitempty" yaml:"sudo_askpass,omitempty"`
 
-	// For the `shell` toolset — opt in to background-job recall. When enabled,
-	// run_background_job exposes a recall boolean parameter. If the agent sets
-	// recall:true on a background job, the runtime injects a steering message
-	// with a short completion sentence and the job output when the job finishes.
+	// For the `background_jobs` toolset — opt in to background-job recall. When
+	// enabled, run_background_job exposes a recall boolean parameter. If the
+	// agent sets recall:true on a background job, the runtime injects a steering
+	// message with a short completion sentence and the job output when the job
+	// finishes.
 	Recall *bool `json:"recall,omitempty" yaml:"recall,omitempty"`
 
 	// For the `shell` toolset — opt in to destructive-command detection.

@@ -25,11 +25,11 @@ import (
 	"github.com/docker/docker-agent/pkg/telemetry/genai"
 	"github.com/docker/docker-agent/pkg/tools"
 	bgagent "github.com/docker/docker-agent/pkg/tools/builtin/agent"
+	"github.com/docker/docker-agent/pkg/tools/builtin/backgroundjobs"
 	"github.com/docker/docker-agent/pkg/tools/builtin/handoff"
 	"github.com/docker/docker-agent/pkg/tools/builtin/modelpicker"
 	"github.com/docker/docker-agent/pkg/tools/builtin/sessioncontext"
 	"github.com/docker/docker-agent/pkg/tools/builtin/sessionplan"
-	"github.com/docker/docker-agent/pkg/tools/builtin/shell"
 	"github.com/docker/docker-agent/pkg/tools/builtin/skills"
 	"github.com/docker/docker-agent/pkg/tools/builtin/transfertask"
 	mcptools "github.com/docker/docker-agent/pkg/tools/mcp"
@@ -403,7 +403,7 @@ func (r *LocalRuntime) runStreamLoop(ctx context.Context, sess *session.Session,
 	ls.loopDetector = toolexec.NewLoopDetector(loopThreshold,
 		bgagent.ToolNameViewBackgroundAgent,
 		bgagent.ToolNameListBackgroundAgents,
-		shell.ToolNameViewBackgroundJob,
+		backgroundjobs.ToolNameViewBackgroundJob,
 	)
 
 	for {

@@ -1963,6 +1963,7 @@
             "memory",
             "filesystem",
             "shell",
+            "background_jobs",
             "tasks",
             "plan",
             "session_plan",
@@ -2184,7 +2185,7 @@
         },
         "recall": {
           "type": "boolean",
-          "description": "Opt in to background-job recall for the shell toolset (only valid for type 'shell'). When enabled, run_background_job exposes a recall boolean parameter. If the agent sets recall=true for a background job, the runtime injects a steering message with a short completion sentence and the job output when the job finishes. Default false."
+          "description": "Opt in to background-job recall for the background_jobs toolset (only valid for type 'background_jobs'). When enabled, run_background_job exposes a recall boolean parameter. If the agent sets recall=true for a background job, the runtime injects a steering message with a short completion sentence and the job output when the job finishes. Default false."
         },
         "safer": {
           "type": "boolean",
@@ -2300,6 +2301,7 @@
                 "memory",
                 "filesystem",
                 "shell",
+                "background_jobs",
                 "tasks",
                 "plan",
                 "session_plan",

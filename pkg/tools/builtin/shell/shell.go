@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -13,13 +12,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/docker/docker-agent/pkg/concurrent"
 	"github.com/docker/docker-agent/pkg/config"
 	"github.com/docker/docker-agent/pkg/config/latest"
 	"github.com/docker/docker-agent/pkg/environment"
@@ -27,18 +24,9 @@ import (
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
-const (
-	ToolNameShell              = "shell"
-	ToolNameRunShellBackground = "run_background_job"
-	ToolNameListBackgroundJobs = "list_background_jobs"
-	ToolNameViewBackgroundJob  = "view_background_job"
-	ToolNameStopBackgroundJob  = "stop_background_job"
-	ToolNameWaitBackgroundJob  = "wait_background_job"
+const ToolNameShell = "shell"
 
-	maxBackgroundJobOutputBytes = 10 * 1024 * 1024
-)
-
-// ToolSet provides shell command execution capabilities.
+// ToolSet provides synchronous shell command execution.
 type ToolSet struct {
 	handler *shellHandler
 }
@@ -57,9 +45,6 @@ type shellHandler struct {
 	env             []string
 	timeout         time.Duration
 	workingDir      string
-	jobs            *concurrent.Map[string, *backgroundJob]
-	jobCounter      atomic.Int64
-	recall          bool
 
 	// sudoAskpass opts this toolset into the one-time sudo privilege
 	// escalation flow (SUDO_ASKPASS bridged to the elicitation handler).
@@ -69,56 +54,6 @@ type shellHandler struct {
 	askpassMu          sync.Mutex
 	askpassStarted     bool
 	askpass            *askpassServer
-}
-
-// Job status constants
-const (
-	statusRunning int32 = iota
-	statusCompleted
-	statusStopped
-	statusFailed
-)
-
-// backgroundJob tracks a background shell command
-type backgroundJob struct {
-	id           string
-	cmd          string
-	cwd          string
-	process      *os.Process
-	processGroup *processGroup
-	outputMu     sync.RWMutex
-	output       *bytes.Buffer
-	startTime    time.Time
-	status       atomic.Int32
-	exitCode     int
-	err          error
-	// done is closed by monitorJob when the job finishes (any terminal state).
-	done chan struct{}
-	// rt is set only when the caller requested recall; monitorJob uses it
-	// to steer the agent loop once the job finishes.
-	rt tools.Runtime
-}
-
-// limitedWriter wraps a buffer and stops writing after maxSize bytes.
-// It uses an external mutex (mu) so that readers of the underlying buffer
-// can share the same lock.
-type limitedWriter struct {
-	mu      *sync.RWMutex
-	buf     *bytes.Buffer
-	written int64
-	maxSize int64
-}
-
-func (lw *limitedWriter) Write(p []byte) (n int, err error) {
-	lw.mu.Lock()
-	defer lw.mu.Unlock()
-
-	if remaining := lw.maxSize - lw.written; remaining > 0 {
-		toWrite := min(int64(len(p)), remaining)
-		lw.buf.Write(p[:toWrite]) // bytes.Buffer.Write never errors
-		lw.written += toWrite
-	}
-	return len(p), nil // always report full write
 }
 
 type commandOutput struct {
@@ -184,51 +119,6 @@ func (a *RunShellArgs) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-type RunShellBackgroundArgs struct {
-	Cmd string `json:"cmd" jsonschema:"Shell command to run in background"`
-	Cwd string `json:"cwd,omitempty" jsonschema:"Working directory (default \".\")"`
-}
-
-type RunShellBackgroundRecallArgs struct {
-	Cmd    string `json:"cmd" jsonschema:"Shell command to run in background"`
-	Cwd    string `json:"cwd,omitempty" jsonschema:"Working directory (default \".\")"`
-	Recall bool   `json:"recall,omitempty" jsonschema:"Ask to be recalled with a steering message when the background job finishes"`
-}
-
-// UnmarshalJSON accepts both "cmd" (canonical) and "command" (common alias),
-// mirroring RunShellArgs.UnmarshalJSON. See its comment for rationale.
-func (a *RunShellBackgroundArgs) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		Cmd     string `json:"cmd"`
-		Command string `json:"command"`
-		Cwd     string `json:"cwd"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	a.Cmd = preferNonBlank(raw.Cmd, raw.Command)
-	a.Cwd = raw.Cwd
-	return nil
-}
-
-// UnmarshalJSON accepts both "cmd" (canonical) and "command" (common alias),
-// mirroring RunShellArgs.UnmarshalJSON. See its comment for rationale.
-func (a *RunShellBackgroundRecallArgs) UnmarshalJSON(data []byte) error {
-	var raw struct {
-		Cmd     string `json:"cmd"`
-		Command string `json:"command"`
-		Cwd     string `json:"cwd"`
-		Recall  bool   `json:"recall"`
-	}
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return err
-	}
-	a.Cmd = preferNonBlank(raw.Cmd, raw.Command)
-	a.Cwd = raw.Cwd
-	a.Recall = raw.Recall
-	return nil
-}
-
 // preferNonBlank returns primary when it has a non-whitespace character;
 // otherwise it returns fallback. The chosen value is returned unmodified so
 // that whitespace inside a legitimate command (e.g. trailing newlines in a
@@ -238,34 +128,6 @@ func preferNonBlank(primary, fallback string) string {
 		return primary
 	}
 	return fallback
-}
-
-type ViewBackgroundJobArgs struct {
-	JobID string `json:"job_id" jsonschema:"Background job ID"`
-}
-
-type StopBackgroundJobArgs struct {
-	JobID string `json:"job_id" jsonschema:"Background job ID"`
-}
-
-type WaitBackgroundJobArgs struct {
-	JobID   string `json:"job_id" jsonschema:"Background job ID"`
-	Timeout int    `json:"timeout,omitempty" jsonschema:"Maximum seconds to wait (default 60). Returns current output with a timeout notice if the job is still running when the limit is reached."`
-}
-
-// statusStrings maps job status constants to their string representations
-var statusStrings = map[int32]string{
-	statusRunning:   "running",
-	statusCompleted: "completed",
-	statusStopped:   "stopped",
-	statusFailed:    "failed",
-}
-
-func statusToString(status int32) string {
-	if s, ok := statusStrings[status]; ok {
-		return s
-	}
-	return "unknown"
 }
 
 func (h *shellHandler) RunShell(ctx context.Context, params RunShellArgs, rt tools.Runtime) (*tools.ToolCallResult, error) {
@@ -368,265 +230,6 @@ func (h *shellHandler) runNativeCommand(timeoutCtx, ctx context.Context, rt tool
 	return tools.ResultSuccess(formattedOutput)
 }
 
-type runShellBackgroundParams struct {
-	Cmd    string
-	Cwd    string
-	Recall bool
-}
-
-func (h *shellHandler) RunShellBackground(ctx context.Context, params RunShellBackgroundArgs, rt tools.Runtime) (*tools.ToolCallResult, error) {
-	return h.runShellBackground(ctx, rt, runShellBackgroundParams{Cmd: params.Cmd, Cwd: params.Cwd})
-}
-
-func (h *shellHandler) RunShellBackgroundWithRecall(ctx context.Context, params RunShellBackgroundRecallArgs, rt tools.Runtime) (*tools.ToolCallResult, error) {
-	return h.runShellBackground(ctx, rt, runShellBackgroundParams(params))
-}
-
-func (h *shellHandler) runShellBackground(ctx context.Context, rt tools.Runtime, params runShellBackgroundParams) (*tools.ToolCallResult, error) {
-	if strings.TrimSpace(params.Cmd) == "" {
-		return tools.ResultError(`Error: missing or empty "cmd" parameter. Pass the shell command as {"cmd": "..."}.`), nil
-	}
-
-	if params.Recall {
-		if !h.recall {
-			return tools.ResultError(`Error: "recall" is not enabled for this shell toolset. Set recall: true on the shell toolset before requesting recall.`), nil
-		}
-		if !rt.Supports(tools.CapabilityRecall) {
-			return tools.ResultError(`Error: recall requested but the host does not support recall.`), nil
-		}
-	}
-
-	counter := h.jobCounter.Add(1)
-	jobID := fmt.Sprintf("job_%d_%d", time.Now().Unix(), counter)
-
-	bgCmd, bgEnv := h.applyAskpass(ctx, params.Cmd)
-	cmd := exec.Command(h.shell, append(h.shellArgsPrefix, bgCmd)...) //nolint:noctx // RunShellBackground intentionally outlives the request context
-	cmd.Env = bgEnv
-	cmd.Dir = h.resolveWorkDir(params.Cwd)
-	cmd.SysProcAttr = platformSpecificSysProcAttr()
-
-	job := &backgroundJob{
-		id:        jobID,
-		cmd:       params.Cmd,
-		cwd:       params.Cwd,
-		output:    &bytes.Buffer{},
-		startTime: time.Now(),
-		done:      make(chan struct{}),
-	}
-	if params.Recall {
-		job.rt = rt
-	}
-
-	// The limitedWriter shares the job's outputMu so that readers
-	// (ViewBackgroundJob, ListBackgroundJobs) and the pipe-copy
-	// goroutines spawned by exec.Cmd use the same lock.
-	lw := &limitedWriter{mu: &job.outputMu, buf: job.output, maxSize: maxBackgroundJobOutputBytes}
-	cmd.Stdout = lw
-	cmd.Stderr = lw
-
-	if err := cmd.Start(); err != nil {
-		return tools.ResultError(fmt.Sprintf("Error starting background command: %s", err)), nil
-	}
-
-	pg, err := createProcessGroup(cmd.Process)
-	if err != nil {
-		// Successfully started the child but couldn't install it in its own
-		// process group: clean it up before bailing out.
-		reapSpawnedChild(cmd, pg)
-		return tools.ResultError(fmt.Sprintf("Error creating process group: %s", err)), nil
-	}
-
-	job.process = cmd.Process
-	job.processGroup = pg
-	job.status.Store(statusRunning)
-	h.jobs.Store(jobID, job)
-
-	// The job outlives this tool call: keep ctx values (trace, session id)
-	// for the recall but drop cancellation.
-	go h.monitorJob(context.WithoutCancel(ctx), job, cmd)
-
-	var recallStatus string
-	if params.Recall {
-		recallStatus = "\nRecall: requested; a steering message will be sent when the job finishes."
-	}
-
-	return tools.ResultSuccess(fmt.Sprintf("Background job started with ID: %s\nCommand: %s\nWorking directory: %s%s",
-		jobID, params.Cmd, params.Cwd, recallStatus)), nil
-}
-
-func (h *shellHandler) monitorJob(ctx context.Context, job *backgroundJob, cmd *exec.Cmd) {
-	// close done after all fields are written so WaitBackgroundJob readers see
-	// the final state. Defers are LIFO: Unlock runs before close(done).
-	defer close(job.done)
-
-	err := cmd.Wait()
-
-	job.outputMu.Lock()
-	if job.status.Load() == statusStopped {
-		job.outputMu.Unlock()
-		return
-	}
-
-	if err != nil {
-		if exitErr, ok := errors.AsType[*exec.ExitError](err); ok {
-			job.exitCode = exitErr.ExitCode()
-		} else {
-			job.exitCode = -1
-		}
-		job.status.Store(statusFailed)
-		job.err = err
-	} else {
-		job.exitCode = 0
-		job.status.Store(statusCompleted)
-	}
-
-	status := job.status.Load()
-	exitCode := job.exitCode
-	output := job.output.String()
-	rt := job.rt
-	job.outputMu.Unlock()
-
-	if rt != nil {
-		message := formatBackgroundJobRecall(job, status, exitCode, output)
-		if err := rt.Recall(ctx, message); err != nil {
-			slog.WarnContext(ctx, "Failed to enqueue background job recall", "job_id", job.id, "error", err)
-		}
-	}
-}
-
-func (h *shellHandler) ListBackgroundJobs(_ context.Context, _ map[string]any) (*tools.ToolCallResult, error) {
-	var output strings.Builder
-	output.WriteString("Background Jobs:\n\n")
-
-	jobCount := 0
-	h.jobs.Range(func(jobID string, job *backgroundJob) bool {
-		jobCount++
-		status := job.status.Load()
-		elapsed := time.Since(job.startTime).Round(time.Second)
-
-		fmt.Fprintf(&output, "ID: %s\n", jobID)
-		fmt.Fprintf(&output, "  Command: %s\n", job.cmd)
-		fmt.Fprintf(&output, "  Status: %s\n", statusToString(status))
-		fmt.Fprintf(&output, "  Runtime: %s\n", elapsed)
-		if status != statusRunning {
-			job.outputMu.RLock()
-			fmt.Fprintf(&output, "  Exit Code: %d\n", job.exitCode)
-			job.outputMu.RUnlock()
-		}
-		output.WriteString("\n")
-		return true
-	})
-
-	if jobCount == 0 {
-		output.WriteString("No background jobs found.\n")
-	}
-
-	return tools.ResultSuccess(output.String()), nil
-}
-
-// renderBackgroundJob formats the current state of a background job for tool output.
-func renderBackgroundJob(job *backgroundJob) string {
-	status := job.status.Load()
-
-	job.outputMu.RLock()
-	output := job.output.String()
-	exitCode := job.exitCode
-	job.outputMu.RUnlock()
-
-	var result strings.Builder
-	fmt.Fprintf(&result, "Job ID: %s\n", job.id)
-	fmt.Fprintf(&result, "Command: %s\n", job.cmd)
-	fmt.Fprintf(&result, "Status: %s\n", statusToString(status))
-	fmt.Fprintf(&result, "Runtime: %s\n", time.Since(job.startTime).Round(time.Second))
-	switch status {
-	case statusCompleted, statusFailed:
-		fmt.Fprintf(&result, "Exit Code: %d\n", exitCode)
-	}
-	result.WriteString("\n--- Output ---\n")
-	if output == "" {
-		result.WriteString("<no output>\n")
-	} else {
-		result.WriteString(output)
-		if len(output) >= maxBackgroundJobOutputBytes {
-			result.WriteString("\n\n[Output truncated at 10MB limit]")
-		}
-	}
-	return result.String()
-}
-
-func (h *shellHandler) ViewBackgroundJob(_ context.Context, params ViewBackgroundJobArgs) (*tools.ToolCallResult, error) {
-	job, exists := h.jobs.Load(params.JobID)
-	if !exists {
-		return tools.ResultError("Job not found: " + params.JobID), nil
-	}
-	return tools.ResultSuccess(renderBackgroundJob(job)), nil
-}
-
-// defaultWaitTimeout is used by WaitBackgroundJob when no timeout is supplied.
-const defaultWaitTimeout = 60 * time.Second
-
-func (h *shellHandler) WaitBackgroundJob(ctx context.Context, params WaitBackgroundJobArgs) (*tools.ToolCallResult, error) {
-	job, exists := h.jobs.Load(params.JobID)
-	if !exists {
-		return tools.ResultError("Job not found: " + params.JobID), nil
-	}
-
-	timeout := defaultWaitTimeout
-	if params.Timeout > 0 {
-		timeout = time.Duration(params.Timeout) * time.Second
-	}
-
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	select {
-	case <-job.done:
-		status := statusStrings[job.status.Load()]
-		header := fmt.Sprintf("Job %s %s.\n\n", job.id, status)
-		return tools.ResultSuccess(header + renderBackgroundJob(job)), nil
-	case <-timer.C:
-		header := fmt.Sprintf("Timed out after %s waiting for job %s; it is still running.\n\n",
-			timeout.Round(time.Second), job.id)
-		return tools.ResultSuccess(header + renderBackgroundJob(job)), nil
-	case <-ctx.Done():
-		return tools.ResultError(fmt.Sprintf("Wait cancelled for job %s: %s", job.id, ctx.Err())), nil
-	}
-}
-
-func (h *shellHandler) StopBackgroundJob(_ context.Context, params StopBackgroundJobArgs) (*tools.ToolCallResult, error) {
-	job, exists := h.jobs.Load(params.JobID)
-	if !exists {
-		return tools.ResultError("Job not found: " + params.JobID), nil
-	}
-
-	if !job.status.CompareAndSwap(statusRunning, statusStopped) {
-		currentStatus := job.status.Load()
-		return tools.ResultError(fmt.Sprintf("Job %s is not running (current status: %s)", params.JobID, statusToString(currentStatus))), nil
-	}
-
-	if err := kill(job.process, job.processGroup); err != nil {
-		return tools.ResultError(fmt.Sprintf("Job %s marked as stopped, but error killing process: %s", params.JobID, err)), nil
-	}
-
-	return tools.ResultSuccess(fmt.Sprintf("Job %s stopped successfully", params.JobID)), nil
-}
-
-func formatBackgroundJobRecall(job *backgroundJob, status int32, exitCode int, output string) string {
-	var result strings.Builder
-	fmt.Fprintf(&result, "Background job %s finished with status %s (exit code %d).\n", job.id, statusToString(status), exitCode)
-	fmt.Fprintf(&result, "Command: %s\n\n", job.cmd)
-	result.WriteString("--- Output ---\n")
-	if output == "" {
-		result.WriteString("<no output>\n")
-	} else {
-		result.WriteString(output)
-		if len(output) >= maxBackgroundJobOutputBytes {
-			result.WriteString("\n\n[Output truncated at 10MB limit]")
-		}
-	}
-	return result.String()
-}
-
 // reapSpawnedChild terminates a child that we've started but decided not
 // to run (e.g. follow-up setup failed) and waits for it so we don't leak a
 // zombie or its stdout/stderr pipes. SIGTERM is sent first; if the child
@@ -652,24 +255,28 @@ func reapSpawnedChild(cmd *exec.Cmd, pg *processGroup) {
 
 // CreateToolSet is used by the tools registry.
 func CreateToolSet(ctx context.Context, toolset latest.Toolset, runConfig *config.RuntimeConfig) (tools.ToolSet, error) {
-	env, err := environment.ExpandAll(ctx, environment.ToValues(toolset.Env), runConfig.EnvProvider())
+	env, err := toolsetEnv(ctx, toolset, runConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to expand the tool's environment variables: %w", err)
+		return nil, err
 	}
-	// Prepend os.Environ() so spawned processes inherit the host environment
-	// while the configured toolset env still wins on key collisions
-	// (exec.Cmd dedupes with last-wins). EnvProvider is used only to expand
-	// ${...} references in toolset.Env.
-	env = append(os.Environ(), env...)
 
 	ts := New(env, runConfig)
 	if toolset.SudoAskpass != nil && *toolset.SudoAskpass {
 		ts.handler.sudoAskpass = true
 	}
-	if toolset.Recall != nil && *toolset.Recall {
-		ts.handler.recall = true
-	}
 	return ts, nil
+}
+
+func toolsetEnv(ctx context.Context, toolset latest.Toolset, runConfig *config.RuntimeConfig) ([]string, error) {
+	env, err := environment.ExpandAll(ctx, environment.ToValues(toolset.Env), runConfig.EnvProvider())
+	if err != nil {
+		return nil, fmt.Errorf("failed to expand the toolset's environment variables: %w", err)
+	}
+	// Prepend os.Environ() so spawned processes inherit the host environment
+	// while the configured toolset env still wins on key collisions
+	// (exec.Cmd dedupes with last-wins). EnvProvider is used only to expand
+	// ${...} references in toolset.Env.
+	return append(os.Environ(), env...), nil
 }
 
 // New creates a new shell toolset.
@@ -681,7 +288,6 @@ func New(env []string, runConfig *config.RuntimeConfig) *ToolSet {
 		shellArgsPrefix: argsPrefix,
 		env:             env,
 		timeout:         30 * time.Second,
-		jobs:            concurrent.NewMap[string, *backgroundJob](),
 		workingDir:      runConfig.WorkingDir,
 	}
 
@@ -725,47 +331,13 @@ func formatCommandOutput(timeoutCtx, ctx context.Context, err error, rawOutput s
 }
 
 func (t *ToolSet) Instructions() string {
-	instructions := `## Shell Tools
+	return `## Shell Tools
 
 - Each call runs in a fresh shell session — no state persists between calls
 - Default timeout: 30s. Set "timeout" for longer operations (builds, tests)
 - Use "cwd" parameter instead of cd within commands
 - Combine operations with pipes, redirections, and heredocs
-- Non-zero exit codes return error info with output; timed-out commands are terminated
-
-### Background Jobs
-
-Use run_background_job for long-running processes (servers, watchers). Output capped at 10MB per job. All jobs auto-terminate when the agent stops.
-
-Use wait_background_job to block until a job finishes and retrieve its exit code and full output. Pass an optional timeout (seconds) to cap how long to wait; the job keeps running if the timeout fires.`
-	if t.handler.recall {
-		instructions += `
-
-When starting a background job, set "recall": true if you want the agent loop to be steered automatically with a short completion message and the job output when it finishes.`
-	}
-	return instructions
-}
-
-func (t *ToolSet) runBackgroundJobDescription() string {
-	description := `Starts a shell command in the background and returns immediately with a job ID. Use this for long-running processes like servers, watches, or any command that should run while other tasks are performed.`
-	if t.handler.recall {
-		description += ` Set recall=true to receive a steering message with the job output when it finishes.`
-	}
-	return description
-}
-
-func runShellBackgroundParameters(recall bool) any {
-	if recall {
-		return tools.MustSchemaFor[RunShellBackgroundRecallArgs]()
-	}
-	return tools.MustSchemaFor[RunShellBackgroundArgs]()
-}
-
-func (t *ToolSet) runBackgroundJobHandler() tools.ToolHandler {
-	if t.handler.recall {
-		return tools.NewRuntimeHandler(t.handler.RunShellBackgroundWithRecall)
-	}
-	return tools.NewRuntimeHandler(t.handler.RunShellBackground)
+- Non-zero exit codes return error info with output; timed-out commands are terminated`
 }
 
 func (t *ToolSet) Tools(context.Context) ([]tools.Tool, error) {
@@ -778,55 +350,6 @@ func (t *ToolSet) Tools(context.Context) ([]tools.Tool, error) {
 			OutputSchema:            tools.MustSchemaFor[string](),
 			Handler:                 tools.NewRuntimeHandler(t.handler.RunShell),
 			Annotations:             tools.ToolAnnotations{Title: "Shell"},
-			AddDescriptionParameter: true,
-		},
-		{
-			Name:                    ToolNameRunShellBackground,
-			Category:                "shell",
-			Description:             t.runBackgroundJobDescription(),
-			Parameters:              runShellBackgroundParameters(t.handler.recall),
-			OutputSchema:            tools.MustSchemaFor[string](),
-			Handler:                 t.runBackgroundJobHandler(),
-			Annotations:             tools.ToolAnnotations{Title: "Background Job"},
-			AddDescriptionParameter: true,
-		},
-		{
-			Name:                    ToolNameListBackgroundJobs,
-			Category:                "shell",
-			Description:             `Lists all background jobs with their status, runtime, and other information.`,
-			OutputSchema:            tools.MustSchemaFor[string](),
-			Handler:                 tools.NewHandler(t.handler.ListBackgroundJobs),
-			Annotations:             tools.ToolAnnotations{Title: "List Background Jobs", ReadOnlyHint: true},
-			AddDescriptionParameter: true,
-		},
-		{
-			Name:                    ToolNameViewBackgroundJob,
-			Category:                "shell",
-			Description:             `Views the output and status of a specific background job by job ID.`,
-			Parameters:              tools.MustSchemaFor[ViewBackgroundJobArgs](),
-			OutputSchema:            tools.MustSchemaFor[string](),
-			Handler:                 tools.NewHandler(t.handler.ViewBackgroundJob),
-			Annotations:             tools.ToolAnnotations{Title: "View Background Job Output", ReadOnlyHint: true},
-			AddDescriptionParameter: true,
-		},
-		{
-			Name:                    ToolNameStopBackgroundJob,
-			Category:                "shell",
-			Description:             `Stops a running background job by job ID. The process and all its child processes will be terminated.`,
-			Parameters:              tools.MustSchemaFor[StopBackgroundJobArgs](),
-			OutputSchema:            tools.MustSchemaFor[string](),
-			Handler:                 tools.NewHandler(t.handler.StopBackgroundJob),
-			Annotations:             tools.ToolAnnotations{Title: "Stop Background Job"},
-			AddDescriptionParameter: true,
-		},
-		{
-			Name:                    ToolNameWaitBackgroundJob,
-			Category:                "shell",
-			Description:             `Blocks until a background job completes (or the optional timeout expires) and returns its exit code and captured output. Safe to call on an already-finished job — returns the cached result immediately. Use this instead of polling view_background_job in a loop.`,
-			Parameters:              tools.MustSchemaFor[WaitBackgroundJobArgs](),
-			OutputSchema:            tools.MustSchemaFor[string](),
-			Handler:                 tools.NewHandler(t.handler.WaitBackgroundJob),
-			Annotations:             tools.ToolAnnotations{Title: "Wait for Background Job", ReadOnlyHint: true},
 			AddDescriptionParameter: true,
 		},
 	}, nil
@@ -845,16 +368,6 @@ func (t *ToolSet) Start(context.Context) error {
 }
 
 func (t *ToolSet) Stop(context.Context) error {
-	// Terminate all running background jobs
-	t.handler.jobs.Range(func(_ string, job *backgroundJob) bool {
-		if job.status.CompareAndSwap(statusRunning, statusStopped) {
-			_ = kill(job.process, job.processGroup)
-		}
-		return true
-	})
-
-	// Tear down the sudo askpass helper (socket + wrapper script), if started.
 	t.handler.stopAskpass()
-
 	return nil
 }

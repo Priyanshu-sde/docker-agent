@@ -29,4 +29,5 @@ agents:
     toolsets:
       - type: filesystem
       - type: shell
+      - type: background_jobs
       - type: fetch

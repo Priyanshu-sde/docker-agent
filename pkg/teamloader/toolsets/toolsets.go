@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker-agent/pkg/tools/a2a"
 	agenttool "github.com/docker/docker-agent/pkg/tools/builtin/agent"
 	"github.com/docker/docker-agent/pkg/tools/builtin/api"
+	"github.com/docker/docker-agent/pkg/tools/builtin/backgroundjobs"
 	"github.com/docker/docker-agent/pkg/tools/builtin/fetch"
 	"github.com/docker/docker-agent/pkg/tools/builtin/filesystem"
 	"github.com/docker/docker-agent/pkg/tools/builtin/lsp"
@@ -59,6 +60,9 @@ func DefaultToolsetCreators() map[string]teamloader.ToolsetCreator {
 		},
 		"shell": func(ctx context.Context, toolset latest.Toolset, _ string, runConfig *config.RuntimeConfig, _ string) (tools.ToolSet, error) {
 			return shell.CreateToolSet(ctx, toolset, runConfig)
+		},
+		"background_jobs": func(ctx context.Context, toolset latest.Toolset, _ string, runConfig *config.RuntimeConfig, _ string) (tools.ToolSet, error) {
+			return backgroundjobs.CreateToolSet(ctx, toolset, runConfig)
 		},
 		"script": func(ctx context.Context, toolset latest.Toolset, _ string, runConfig *config.RuntimeConfig, _ string) (tools.ToolSet, error) {
 			return shell.CreateScriptToolSet(ctx, toolset, runConfig)

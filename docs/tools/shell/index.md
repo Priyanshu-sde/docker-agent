@@ -11,9 +11,9 @@ _Execute arbitrary shell commands in the user's environment._
 
 ## Overview
 
-The shell tool allows agents to execute arbitrary shell commands. This is one of the most powerful tools — it lets agents run builds, install dependencies, query APIs, and interact with the system. Each call runs in a fresh, isolated shell session — no state persists between calls.
+The shell tool allows agents to execute arbitrary shell commands synchronously. This is one of the most powerful tools — it lets agents run builds, install dependencies, query APIs, and interact with the system. Each call runs in a fresh, isolated shell session — no state persists between calls.
 
-Commands have a default 30-second timeout and require user confirmation unless `--yolo` is used.
+Commands have a default 30-second timeout and require user confirmation unless `--yolo` is used. For servers, watchers, and other long-running commands, add the [`background_jobs`](../background-jobs/index.md) toolset alongside `shell`.
 
 ## Configuration
 
@@ -27,7 +27,6 @@ toolsets:
 | Property       | Type    | Description                                                                                          |
 | -------------- | ------- | --------------------------------------------------------------------------------------------------- |
 | `env`          | object  | Environment variables to set for all shell commands                                                 |
-| `recall`       | boolean | Let `run_background_job` expose a `recall` parameter so jobs can steer the agent when they finish (see [Background job recall](#background-job-recall)). Default `false`. |
 | `safer`        | boolean | Detect destructive shell commands and force confirmation regardless of `--yolo` or permission rules (see [Safer mode](#safer-mode)). Default `false`. |
 | `sudo_askpass` | boolean | Opt in to prompting for a `sudo` password (see [Sudo support](#sudo-support)). Default `false`.     |
 
@@ -40,20 +39,6 @@ toolsets:
       MY_VAR: "value"
       PATH: "${env.PATH}:/custom/bin"
 ```
-
-### Background job recall
-
-Set `recall: true` to let the `run_background_job` tool expose a `recall` boolean parameter:
-
-```yaml
-toolsets:
-  - type: shell
-    recall: true
-```
-
-When the agent starts a background job with `recall: true`, docker-agent sends a steering message back into the running agent loop after the job finishes. The message contains a short completion sentence and the job output, so the agent can react without polling `view_background_job`.
-
-Use recall for finite background work where completion matters (for example, a long build or test suite). Avoid it for servers and watchers that are expected to run until stopped. See [`examples/shell_recall.yaml`](https://github.com/docker/docker-agent/blob/main/examples/shell_recall.yaml) for a complete configuration.
 
 ### Safer mode
 
@@ -99,23 +84,16 @@ Notes and limitations:
 - Interactive UI only. In headless / non-interactive runs the prompt is declined automatically and `sudo` fails as before.
 - Only a bare `sudo ...` invocation in a POSIX shell (`sh`, `bash`, `zsh`, ...) is handled. `sudo` called by absolute path (`/usr/bin/sudo`), via `env sudo`, from inside a nested script, or under a non-POSIX shell (e.g. `fish`) is not intercepted and behaves as before.
 - Caching is `sudo`'s own. Because each shell tool call runs in a fresh shell with no controlling terminal, `sudo`'s credential cache does not persist across separate tool calls: you are prompted once per shell command that uses `sudo`. Within a single command, multiple `sudo` calls (e.g. `sudo a && sudo b`) usually share one prompt, subject to `sudo`'s own timestamp configuration.
-- The prompt must be answered within the command's timeout; raise the `timeout` parameter for `sudo` commands that may wait on input. Background jobs (`run_background_job`) are wired too, but their prompt only works while the originating turn is still active.
+- The prompt must be answered within the command's timeout; raise the `timeout` parameter for `sudo` commands that may wait on input.
 - Prompts are serialized: if a single command runs two `sudo` calls in parallel (e.g. `sudo a & sudo b`), the second waits for the first prompt to be answered rather than opening two dialogs at once.
 
 ## Available Tools
 
-The shell toolset exposes six tools:
+The shell toolset exposes one tool:
 
-| Tool Name              | Description                                                                                    |
-| ---------------------- | ---------------------------------------------------------------------------------------------- |
-| `shell`                | Run a command synchronously and return its combined output when it finishes.                   |
-| `run_background_job`   | Start a command asynchronously and return a job ID immediately. Use for servers/watchers/etc. |
-| `list_background_jobs` | List all background jobs with their status, runtime, and metadata.                             |
-| `view_background_job`  | View the buffered output and status of a specific background job by ID.                        |
-| `stop_background_job`  | Stop a running background job. Child processes are terminated too.                             |
-| `wait_background_job`  | Block until a job finishes and return its exit code and output. Safe on already-finished jobs. |
-
-Background job output is captured up to 10 MB per job. All background jobs are automatically terminated when the agent session ends.
+| Tool Name | Description                                                                  |
+| --------- | ---------------------------------------------------------------------------- |
+| `shell`   | Run a command synchronously and return its combined output when it finishes. |
 
 ### `shell` parameters
 
@@ -124,23 +102,6 @@ Background job output is captured up to 10 MB per job. All background jobs are a
 | `cmd`     | string  | ✓        | The shell command to execute.                                             |
 | `cwd`     | string  | ✗        | Working directory to run the command in (default: `.`).                   |
 | `timeout` | integer | ✗        | Per-call execution timeout in seconds (default: `30`).                    |
-
-### `run_background_job` parameters
-
-| Parameter | Type   | Required | Description                                                             |
-| --------- | ------ | -------- | ----------------------------------------------------------------------- |
-| `cmd`     | string  | ✓        | The shell command to execute in the background.                         |
-| `cwd`     | string  | ✗        | Working directory to run the command in (default: `.`).                 |
-| `recall`  | boolean | ✗        | Only available when the shell toolset has `recall: true`. When true, send a steering message with the job output when the job finishes. |
-
-`view_background_job` and `stop_background_job` each take a single required `job_id` string returned by `run_background_job` or `list_background_jobs`.
-
-### `wait_background_job` parameters
-
-| Parameter | Type    | Required | Description                                                                                                    |
-| --------- | ------- | -------- | -------------------------------------------------------------------------------------------------------------- |
-| `job_id`  | string  | ✓        | Job ID returned by `run_background_job` or `list_background_jobs`.                                             |
-| `timeout` | integer | ✗        | Maximum seconds to wait (default: `60`). If the job is still running when the limit fires, the tool returns the current output with a notice and the job continues in the background. |
 
 > [!WARNING]
 > **Safety**

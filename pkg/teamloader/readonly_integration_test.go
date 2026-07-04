@@ -12,8 +12,8 @@ import (
 	"github.com/docker/docker-agent/pkg/tools"
 )
 
-// shellToolNames returns the names of the tools exposed by ts.
-func shellToolNames(t *testing.T, ts tools.ToolSet) []string {
+// toolNames returns the names of the tools exposed by ts.
+func toolNames(t *testing.T, ts tools.ToolSet) []string {
 	t.Helper()
 	all, err := ts.Tools(t.Context())
 	require.NoError(t, err)
@@ -30,7 +30,7 @@ func TestGetToolsForAgent_ToolsetReadOnly(t *testing.T) {
 	a := &latest.AgentConfig{
 		Instruction: "test",
 		Toolsets: []latest.Toolset{
-			{Type: "shell", ReadOnly: true},
+			{Type: "background_jobs", ReadOnly: true},
 		},
 	}
 
@@ -44,7 +44,7 @@ func TestGetToolsForAgent_ToolsetReadOnly(t *testing.T) {
 	require.Empty(t, warnings)
 	require.Len(t, got, 1)
 
-	names := shellToolNames(t, got[0])
+	names := toolNames(t, got[0])
 	assert.ElementsMatch(t, []string{"list_background_jobs", "view_background_job", "wait_background_job"}, names)
 }
 
@@ -57,7 +57,7 @@ func TestGetToolsForAgent_AgentReadOnly(t *testing.T) {
 		Instruction: "test",
 		ReadOnly:    true,
 		Toolsets: []latest.Toolset{
-			{Type: "shell"},
+			{Type: "background_jobs"},
 		},
 	}
 
@@ -71,7 +71,7 @@ func TestGetToolsForAgent_AgentReadOnly(t *testing.T) {
 	require.Empty(t, warnings)
 	require.Len(t, got, 1)
 
-	names := shellToolNames(t, got[0])
+	names := toolNames(t, got[0])
 	assert.ElementsMatch(t, []string{"list_background_jobs", "view_background_job", "wait_background_job"}, names)
 }
 
@@ -82,6 +82,7 @@ func TestGetToolsForAgent_NoReadOnlyKeepsAllTools(t *testing.T) {
 		Instruction: "test",
 		Toolsets: []latest.Toolset{
 			{Type: "shell"},
+			{Type: "background_jobs"},
 		},
 	}
 
@@ -93,11 +94,14 @@ func TestGetToolsForAgent_NoReadOnlyKeepsAllTools(t *testing.T) {
 
 	got, warnings := getToolsForAgent(t.Context(), a, ".", &runConfig, testToolsetRegistry(), "test-config", expander)
 	require.Empty(t, warnings)
-	require.Len(t, got, 1)
+	require.Len(t, got, 2)
 
-	names := shellToolNames(t, got[0])
+	shellNames := toolNames(t, got[0])
+	assert.ElementsMatch(t, []string{"shell"}, shellNames)
+
+	backgroundNames := toolNames(t, got[1])
 	assert.ElementsMatch(t, []string{
-		"shell", "run_background_job", "list_background_jobs",
+		"run_background_job", "list_background_jobs",
 		"view_background_job", "stop_background_job", "wait_background_job",
-	}, names)
+	}, backgroundNames)
 }

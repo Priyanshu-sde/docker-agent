@@ -93,6 +93,7 @@ agents:
     toolsets:
       - type: filesystem
       - type: shell
+      - type: background_jobs
       - type: todo
       - type: fetch
     commands:
