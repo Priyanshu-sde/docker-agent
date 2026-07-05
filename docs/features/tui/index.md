@@ -57,6 +57,8 @@ settings:
 
 Omit `lean` or set it to `false` to keep the full TUI as the default. You can still use `--lean` for a single run, or `--lean=false` to use the full TUI when `settings.lean` is enabled.
 
+The lean TUI supports **steering**: messages submitted while the agent is running are queued and delivered to the active session. Pending steering messages appear with muted styling at the end of the live stream so you can see what will be sent next.
+
 ## Slash Commands
 
 Type `/` during a session to see available commands, or press <kbd>Ctrl</kbd>+<kbd>K</kbd> for the command palette:
