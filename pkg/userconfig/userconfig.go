@@ -154,6 +154,35 @@ func (s *Settings) GlobalHooks() *latest.HooksConfig {
 	return s.Hooks
 }
 
+// BoardProject is a repository the board can create cards against.
+type BoardProject struct {
+	// Name is the display name shown on cards.
+	Name string `yaml:"name"`
+	// Path is the repository's local path.
+	Path string `yaml:"path"`
+	// Agent is the agent ref launched for the project's cards (defaults to
+	// the built-in root agent when empty).
+	Agent string `yaml:"agent,omitempty"`
+}
+
+// BoardColumn is one column of the board's pipeline. When a card moves
+// forward into a column, the column's prompt is sent to the card's agent.
+type BoardColumn struct {
+	ID     string `yaml:"id"`
+	Name   string `yaml:"name"`
+	Emoji  string `yaml:"emoji,omitempty"`
+	Prompt string `yaml:"prompt,omitempty"`
+}
+
+// Board configures the `docker agent board` Kanban TUI.
+type Board struct {
+	// Projects are the repositories cards can be created against.
+	Projects []BoardProject `yaml:"projects,omitempty"`
+	// Columns overrides the default pipeline (Dev → Simplify → Review →
+	// Fix → Push → Done). Leave empty to keep the defaults.
+	Columns []BoardColumn `yaml:"columns,omitempty"`
+}
+
 // CredentialHelper contains configuration for a credential helper command
 // that retrieves Docker credentials (DOCKER_TOKEN) from an external source.
 type CredentialHelper struct {
@@ -183,6 +212,8 @@ type Config struct {
 	Aliases map[string]*Alias `yaml:"aliases,omitempty"`
 	// Settings contains global user settings
 	Settings *Settings `yaml:"settings,omitempty"`
+	// Board configures the `docker agent board` Kanban TUI.
+	Board *Board `yaml:"board,omitempty"`
 	// CredentialHelper configures an external command to retrieve Docker credentials
 	CredentialHelper *CredentialHelper `yaml:"credential_helper,omitempty"`
 	// SandboxAllowlist is the persistent list of hosts the user has
